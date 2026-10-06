@@ -77,6 +77,12 @@ Cada rol declara su **ámbito**, sus **entradas**, sus **restricciones** y su **
 - **Responsabilidades:** mantener lo descrito en §5 operativo; documentar en `AGENTS.md` cualquier herramienta nueva antes de que el equipo la use.
 - **Restricciones:** no introduce dependencias de producción sin justificar.
 
+### 2.9 `analyst` — Especificación Funcional
+- **Ámbito:** convertir `OVERVIEW.md` en requisitos verificables: casos de uso e historias de usuario en `REQUIREMENTS/`.
+- **Responsabilidades:** mantener la trazabilidad `CU → US → RB` y el índice de `REQUIREMENTS/README.md`; declarar la convención de IDs y nombres de archivo.
+- **Restricciones:** no introduce reglas de negocio ausentes del SDD. Si detecta una ambigüedad en `OVERVIEW.md`, la registra como pregunta abierta y la referencia a `DOCS/ARCHITECTURE.md` §10, en vez de resolverla por su cuenta. No escribe código ni altera el diseño técnico: eso es de `architect`.
+- **Cierra cuando:** cada CU traza al menos una US, cada US a una CU y a un criterio de aceptación verificable, y RB-1, RB-2 y RB-3 tienen cobertura de regresión explícita.
+
 ---
 
 ## 3. Reglas de Actuación
@@ -226,6 +232,7 @@ npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$H
 |-----------|------|------------------|
 | Config opencode del proyecto | `opencode.json` | `skills.paths`, `instructions` (sin MCP) |
 | Diseño técnico | `DOCS/ARCHITECTURE.md` | `architect` |
+| Especificación funcional | `REQUIREMENTS/` (`README.md`, `CU/`, `US/`) | `analyst` |
 | Config opencode del entorno | `~/.config/opencode/opencode.jsonc` | plugin Superpowers |
 | Skills Context7 del proyecto | `.agents/skills/context7-cli/` | `devops` |
 | Paquete Superpowers | `~/.config/opencode/node_modules/superpowers` | `devops` |
