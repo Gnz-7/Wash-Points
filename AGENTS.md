@@ -238,6 +238,18 @@ npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$H
 | Paquete Superpowers | `~/.config/opencode/node_modules/superpowers` | `devops` |
 | Regla persistente de Context7 | bloque `<!-- context7 -->` en `AGENTS.md` | `devops` (no editar a mano; la gestiona `ctx7 setup`) |
 
+### 5.4 Comandos de verificación (T-08)
+
+| Comando | Propósito | Salida verificada (Slice 0) |
+|---------|-----------|------------------------------|
+| `dotnet build SRC\WashPoints.sln` | Compilación de la solución | 0 errores, 0 warnings (SDK 8.0.425) |
+| `dotnet test SRC\WashPoints.sln` | Suite completa (unit + integración) | 25 unit + 17 integración = 42/42 superados |
+
+Notas:
+- Ejecutar `dotnet test` siempre desde la raíz del repo contra `SRC\WashPoints.sln` (➜ evita MSB1003). Pasar el `.csproj` del proyecto de integración es válido para acotar.
+- Las pruebas de integración requieren Docker. El proyecto de tests deshabilita el paralelismo de colecciones xUnit (`DisableTestParallelization`) **a propósito**: con clases en paralelo se levantaban ~7 contenedores Testcontainers simultáneos y el host de pruebas colgaba (MSB4166 / `testhost` bloqueado). Serializado, cada clase levanta su contenedor `postgres:16-alpine` por vez y es estable.
+- No existe aún un analizador de código estático (rol `qa`/`devops`, condiciona lint/typecheck). El build con warnings `StrictMode`/`TreatWarningsAsErrors` no está activado; la verificación de calidad actual es la suite de tests.
+
 <!-- context7 -->
 Use the Context7 CLI (`ctx7`) to fetch current documentation whenever the user asks about a library, framework, SDK, API, CLI tool, or cloud service — even well-known ones like React, Next.js, Prisma, Express, Tailwind, Django, or Spring Boot. This includes API syntax, configuration, version migration, library-specific debugging, setup instructions, and CLI tool usage. Use even when you think you know the answer — your training data may not reflect recent changes. Prefer this over web search for library docs.
 

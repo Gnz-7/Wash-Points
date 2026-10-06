@@ -1,0 +1,22 @@
+<Project>
+
+  <!--
+    Configuración común a todos los proyectos de WashPoints.
+    Ver SPECS/slice-00-nucleo-turnos.md §3 (decisiones técnicas).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!--
+      InvariantGlobalization queda deliberadamente en false: T-09 resuelve
+      America/Argentina/Buenos_Aires con TimeZoneInfo, y en modo invariante
+      no hay base de zonas horarias (ver SPECS/slice-00-nucleo-turnos.md §3).
+    -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <RootNamespace>$(MSBuildProjectName)</RootNamespace>
+  </PropertyGroup>
+
+</Project>

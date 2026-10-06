@@ -1,0 +1,26 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.nupkg
+
+# Resultados de cobertura
+coverage*.json
+coverage*.xml
+TestResults/
+
+# Docker / entorno local
+.env
+.env.*
+
+# Flutter
+.dart_tool/
+.packages
+build/
+*.iml
+.idea/
+
+# Logs
+*.log

@@ -107,6 +107,26 @@ Tabla append-only `eventos_dominio` (`turno_creado`, `turno_confirmado`, `turno_
 ```sql
 CREATE EXTENSION IF NOT EXISTS btree_gist;
 
+-- MÍNIMO PARA RESOLVER LAS FK DE ESTE SLICE. No son el esquema definitivo:
+-- ver §10.7 (catálogo sin definir). El módulo Catalogo (§2.2) las completa.
+CREATE TABLE lavaderos (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  nombre text NOT NULL,
+  activo boolean NOT NULL DEFAULT true
+);
+
+CREATE TABLE puestos (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  lavadero_id uuid NOT NULL,
+  nombre text NOT NULL,
+  activo boolean NOT NULL DEFAULT true
+);
+
+CREATE TABLE clientes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  nombre text NOT NULL
+);
+
 CREATE TYPE turno_estado AS ENUM (
   'pendiente_pago',   -- creado, sin pagar. NO ocupa puesto.
   'confirmado',       -- seña aprobada. OCUPA puesto.
@@ -298,7 +318,7 @@ Criterio de cierre del rol `qa`: si alguien elimina la seña obligatoria, la sin
 
 ## 10. Preguntas abiertas
 
-Las ambigüedades 1 a 5 están en `OVERVIEW.md` y **no se resuelven por decisión técnica**: requieren al responsable del producto. La 6 sí quedó decidida, y se documenta aquí porque es la que condiciona el modelado de datos de §4.
+Las ambigüedades 1 a 5 están en `OVERVIEW.md` y **no se resuelven por decisión técnica**: requieren al responsable del producto. La 6 sí quedó decidida, y se documenta aquí porque es la que condiciona el modelado de datos de §4. La 7 es de modelado de datos puro, sin componente de producto, y le corresponde a `architect`.
 
 1. **Cancelación y reembolso.** `OVERVIEW.md` no define qué ocurre si el cliente cancela después de pagar la seña. El modelo ya contempla `cancelado` y el flujo de devolución por la pasarela está preparado, pero la política (plazo, porcentaje devuelto, quién asume el costo del horario perdido) no está definida.
 2. **Proveedor de mapas.** Sin definir. El puerto `IGeocodificador` está listo; falta la decisión.
@@ -318,6 +338,24 @@ Las ambigüedades 1 a 5 están en `OVERVIEW.md` y **no se resuelven por decisió
 - `America/Argentina/Buenos_Aires` sin horario de verano desde 2009 es un dato fijo, no una configuración por lavadero. Si algún día hay lavaderos fuera de esa zona, el huso pasa a ser un atributo del lavadero; **no** se diseña para eso hoy (YAGNI).
 
 **Estado:** decisión cerrada. Sigue siendo una ambigüedad de `OVERVIEW.md` — el SDD no menciona husos — pero la resolvió el responsable del producto, por lo que deja de ser una pregunta abierta.
+
+### 10.7 Catálogo: `lavaderos`, `puestos` y `clientes` sin esquema (abierta)
+
+`§4.1` usa esas tres tablas — `turnos.puesto_id` tiene `REFERENCES puestos(id)` — pero **nunca las define**, mientras que `REQUIREMENTS/CU-05` y `US-A07` citan "§4.1 (tabla `puestos`)" como si existiera.
+
+Para no bloquear la migración inicial del slice 0, se las creó con el mínimo indispensable, **sin columnas de negocio**:
+
+| Tabla | Columnas creadas | Queda pendiente |
+|-------|------------------|-----------------|
+| `lavaderos` | `id`, `nombre`, `activo` | dirección, coordenadas para el mapa, horarios de atención, teléfono |
+| `puestos` | `id`, `lavadero_id`, `nombre`, `activo` | orden, tipos de lavado compatibles, alta/baja por el admin |
+| `clientes` | `id`, `nombre` | teléfono, patente, historial; cualquier dato es PII (AGENTS.md §3.4) |
+
+Además quedó sin decidir si `puestos.lavadero_id` y `turnos.lavadero_id` ganan FK explícita a `lavaderos`: hoy son simples `uuid` sin constraint, igual que `tipos_lavado.lavadero_id`.
+
+**Impacto:** ninguna regla de negocio depende de estas columnas todavía. El módulo `Catalogo` (§2.2) es el dueño de completarlas, y `architect` debe traer el esquema definitivo antes de que `US-A07` se implemente.
+
+**Estado:** abierta. Resoluble por `architect` (§2.1 de AGENTS.md) sin intervención del responsable del producto, a diferencia de las 1 a 5.
 
 ## 11. Comandos de verificación
 
