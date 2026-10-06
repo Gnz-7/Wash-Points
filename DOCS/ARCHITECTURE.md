@@ -134,7 +134,7 @@ CREATE TABLE turnos (
   puesto_id uuid NOT NULL REFERENCES puestos(id),
   cliente_id uuid NOT NULL,
   tipo_lavado_id uuid NOT NULL REFERENCES tipos_lavado(id),
-  rango tstzrange NOT NULL,
+  rango tsrange NOT NULL,
   estado turno_estado NOT NULL DEFAULT 'pendiente_pago',
   origen turno_origen NOT NULL,
   precio_sena numeric(10,2) NOT NULL,
@@ -186,6 +186,7 @@ CREATE TABLE outbox (
 ### 4.2 Decisiones de diseño con carga sobre las reglas
 
 - **`rango` es `[inicio, fin)`**: un turno que termina 11:30 y otro que arranca 11:30 no se solapan. Semántica estándar de rangos PostgreSQL.
+- **`rango` es `tsrange` (sin zona) y el resto de las columnas temporales son `timestamptz`**: la exclusión compara horarios locales ya convertidos, mientras que los timestamps se guardan en UTC puro. La conversión es responsabilidad exclusiva del backend. Detalle completo en §10.6 (decisión de huso horario).
 - **`DEFERRABLE INITIALLY IMMEDIATE`**: la violación se detecta en el `INSERT`, no en el `COMMIT`, de modo que el conflicto se mapea a `409 slot_ya_ocupado` con el detalle del rango existente que colisionó.
 - **Estados fuera del predicado**: `pendiente_pago`, `finalizado`, `cancelado` y `no_presentado` liberan el puesto automáticamente. No hace falta un job de limpieza.
 - **`btree_gist`** es imprescindible: la exclusión mezcla igualdad (`puesto_id WITH =`) con solapamiento de rango, y GiST solo no indexa `uuid`.
@@ -297,13 +298,26 @@ Criterio de cierre del rol `qa`: si alguien elimina la seña obligatoria, la sin
 
 ## 10. Preguntas abiertas
 
-Estas ambigüedades están en `OVERVIEW.md` y **no se resuelven por decisión técnica**. Requieren al responsable del producto.
+Las ambigüedades 1 a 5 están en `OVERVIEW.md` y **no se resuelven por decisión técnica**: requieren al responsable del producto. La 6 sí quedó decidida, y se documenta aquí porque es la que condiciona el modelado de datos de §4.
 
 1. **Cancelación y reembolso.** `OVERVIEW.md` no define qué ocurre si el cliente cancela después de pagar la seña. El modelo ya contempla `cancelado` y el flujo de devolución por la pasarela está preparado, pero la política (plazo, porcentaje devuelto, quién asume el costo del horario perdido) no está definida.
 2. **Proveedor de mapas.** Sin definir. El puerto `IGeocodificador` está listo; falta la decisión.
-3. **Moneda yまとめて.** El modelo guarda `numeric` sin fijar moneda. `OVERVIEW.md` no la especifica.
+3. **Moneda y política de redondeo.** El modelo guarda `numeric` sin fijar moneda. `OVERVIEW.md` no la especifica.
 4. **Ventana de canje offline.** Cuánto tiempo puede validar el administrador sin conexión antes de que la reconciliación rechace el canje. Requiere definir el comportamiento esperado del panel durante ese período.
 5. **Duración por tipo de lavado.** El modelo asume duraciones fijas declaradas en `tipos_lavado` (consecuencia directa de elegir la alternativa A). Si el negocio necesita duraciones variables, hay que revisar esta decisión.
+
+### 10.6 Huso horario (decidida)
+
+**Regla.** Todo se almacena en **UTC** (`timestamptz`) en la base de datos y se interpreta y muestra en la **zona local del lavadero**, `America/Argentina/Buenos_Aires`.
+
+**Consecuencias para el modelo de datos:**
+
+- Las columnas `timestamptz` de §4.1 (`creado_en`, `confirmado_en`, `expira_en`, `recibido_en`, …) son UTC puro. Ninguna guarda hora "local".
+- `turnos.rango` se modela como `tsrange` **sin zona** con horarios ya convertidos a la zona del lavadero. Postgres aplica la exclusión sobre el valor literal: dos turnos de las 10:00 del mismo puesto chocan aunque se calcularon en franjas distintas de UTC. Un `tstzrange` con límites de zona habría hecho que la exclusión comparara instantes, que es justo lo que no se quiere al preguntar "¿hay lugar a las 10:00?".
+- La conversión entre UTC y hora local es responsabilidad **solo del backend**, en una única pieza. El cliente no convierte: recibe y envía el horario ya interpretado. De lo contrario la lógica de disponibilidad se duplicaría en Flutter, que AGENTS.md §2.3 prohíbe.
+- `America/Argentina/Buenos_Aires` sin horario de verano desde 2009 es un dato fijo, no una configuración por lavadero. Si algún día hay lavaderos fuera de esa zona, el huso pasa a ser un atributo del lavadero; **no** se diseña para eso hoy (YAGNI).
+
+**Estado:** decisión cerrada. Sigue siendo una ambigüedad de `OVERVIEW.md` — el SDD no menciona husos — pero la resolvió el responsable del producto, por lo que deja de ser una pregunta abierta.
 
 ## 11. Comandos de verificación
 
