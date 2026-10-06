@@ -68,22 +68,24 @@ Pagos, webhooks, comprobantes, validación de arribo, SignalR, demanda espontán
 
 ```
 SRC/
-  WashPoints.sln
-  WashPoints.Api/
-  WashPoints.Domain/
-      Turnos/
-        Turno.cs
-        TurnoEstado.cs
-        TurnoTransicionInvalida.cs
-        OcupacionService.cs
-      Puertos/            (vacío en este slice; se llena en slices posteriores)
-  WashPoints.Application/
-      ConsultarDisponibilidad/
-  WashPoints.Infrastructure/
-      Persistencia/
-        WashPointsDbContext.cs
-        Configuraciones/
-        Migraciones/
+  BACKEND/
+    WashPoints.sln
+    WashPoints.Api/
+    WashPoints.Domain/
+        Turnos/
+          Turno.cs
+          TurnoEstado.cs
+          TurnoTransicionInvalida.cs
+          OcupacionService.cs
+        Puertos/            (vacío en este slice; se llena en slices posteriores)
+    WashPoints.Application/
+        ConsultarDisponibilidad/
+    WashPoints.Infrastructure/
+        Persistencia/
+          WashPointsDbContext.cs
+          Configuraciones/
+          Migraciones/
+  FRONTEND/                (vacío en este slice; se llena en slices posteriores)
 TESTS/
   WashPoints.UnitTests/
   WashPoints.IntegrationTests/
@@ -91,7 +93,7 @@ TESTS/
       ContenedorPostgres.cs
 ```
 
-`SRC/` es una convención nueva. El repo aún no tiene directorio de código; la nomenclatura se alinea con `REQUIREMENTS/` (todo en mayúsculas) y queda registrada aquí como propuesta, no impuesta.
+`SRC/` es una convención nueva. El repo aún no tenía directorio de código; la nomenclatura se alinea con `REQUIREMENTS/` (todo en mayúsculas) y queda registrada aquí como propuesta, no impuesta. Dentro de `SRC/` conviven `BACKEND/` (los proyectos .NET y `WashPoints.sln`) y `FRONTEND/` (Flutter, en slices posteriores). `TESTS/` queda en la raíz.
 
 ---
 

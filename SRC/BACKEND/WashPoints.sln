@@ -15,9 +15,9 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WashPoints.Infrastructure",
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "TESTS", "TESTS", "{7DE0D940-3A37-4817-A53A-E8600EE37D37}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WashPoints.UnitTests", "..\TESTS\WashPoints.UnitTests\WashPoints.UnitTests.csproj", "{BB5AFC67-BDA3-4FC9-BE6C-8C5086281236}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WashPoints.UnitTests", "..\..\TESTS\WashPoints.UnitTests\WashPoints.UnitTests.csproj", "{BB5AFC67-BDA3-4FC9-BE6C-8C5086281236}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WashPoints.IntegrationTests", "..\TESTS\WashPoints.IntegrationTests\WashPoints.IntegrationTests.csproj", "{682FF38E-C4AD-4D34-8AF1-8ADBA3E70D67}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WashPoints.IntegrationTests", "..\..\TESTS\WashPoints.IntegrationTests\WashPoints.IntegrationTests.csproj", "{682FF38E-C4AD-4D34-8AF1-8ADBA3E70D67}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

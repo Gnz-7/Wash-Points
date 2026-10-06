@@ -1,0 +1,3 @@
+# Artefactos de build de .NET que no deben entrar al contexto de Docker.
+**/bin/
+**/obj/
