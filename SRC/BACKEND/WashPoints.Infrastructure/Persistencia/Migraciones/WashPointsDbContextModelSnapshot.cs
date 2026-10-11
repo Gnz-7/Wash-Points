@@ -133,6 +133,55 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
                     b.ToTable("tipos_lavado", (string)null);
                 });
 
+            modelBuilder.Entity("WashPoints.Domain.Comprobantes.Comprobante", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreadoEn")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("creado_en");
+
+                    b.Property<DateTime>("ExpiraEn")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("expira_en");
+
+                    b.Property<string>("Hash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("hash");
+
+                    b.Property<string>("TokenCifrado")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("token_cifrado");
+
+                    b.Property<Guid>("TurnoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("turno_id");
+
+                    b.Property<DateTime?>("UsadoAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("usado_at");
+
+                    b.Property<bool>("ValidadoOffline")
+                        .HasColumnType("boolean")
+                        .HasColumnName("validado_offline");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Hash")
+                        .IsUnique();
+
+                    b.HasIndex("TurnoId")
+                        .IsUnique();
+
+                    b.ToTable("comprobantes", (string)null);
+                });
+
             modelBuilder.Entity("WashPoints.Domain.Turnos.Turno", b =>
                 {
                     b.Property<Guid>("Id")
@@ -260,6 +309,15 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
                         .IsUnique();
 
                     b.ToTable("pagos", (string)null);
+                });
+
+            modelBuilder.Entity("WashPoints.Domain.Comprobantes.Comprobante", b =>
+                {
+                    b.HasOne("WashPoints.Domain.Turnos.Turno", null)
+                        .WithMany()
+                        .HasForeignKey("TurnoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("WashPoints.Domain.Turnos.Turno", b =>

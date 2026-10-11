@@ -44,7 +44,7 @@ public sealed class WebhookTest : IClassFixture<ContenedorPostgres>, IDisposable
 
     private async Task LimpiarTablas() =>
         await _baseDeDatos.EjecutarSqlAsync("""
-            TRUNCATE TABLE pagos, turnos, clientes, puestos, tipos_lavado, lavaderos CASCADE;
+            TRUNCATE TABLE comprobantes, pagos, turnos, clientes, puestos, tipos_lavado, lavaderos CASCADE;
             """);
 
     private WashPointsDbContext CrearContexto() =>
@@ -86,6 +86,11 @@ public sealed class WebhookTest : IClassFixture<ContenedorPostgres>, IDisposable
         {
             builder.UseSetting("ConnectionStrings:Postgres", _baseDeDatos.CadenaConexion);
             builder.UseSetting("Pagos:WebhookSecret", Secreto);
+            // Desde slice-02 la confirmación emite el comprobante (RB-3); la
+            // clave de cifrado es obligatoria para poder confirmar.
+            builder.UseSetting(
+                "Comprobantes:ClaveCifrado",
+                Convert.ToBase64String(Encoding.UTF8.GetBytes("0123456789abcdef0123456789abcdef")));
             builder.ConfigureServices(servicios =>
             {
                 servicios.RemoveAll<IPasarelaPagos>();

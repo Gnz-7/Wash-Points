@@ -217,4 +217,61 @@ public sealed class MigracionTest : IClassFixture<ContenedorPostgres>, IAsyncLif
         Assert.Equal(inicioUtc, turnoLeido.InicioUtc);
         Assert.Equal(finUtc, turnoLeido.FinUtc);
     }
+
+    [Fact]
+    public async Task LaTablaComprobantesExisteConUnicidades()
+    {
+        // Slice-02 (T-24, RB-3): el comprobante es el token de presencia.
+        var existe = await _baseDeDatos.ConsultarEscalarAsync<bool>(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'comprobantes')");
+        Assert.True(existe, "Falta la tabla comprobantes (token de presencia de RB-3).");
+
+        // UNIQUE(turno_id): un turno confirmado tiene exactamente un comprobante.
+        var unicoPorTurno = await _baseDeDatos.ConsultarEscalarAsync<bool>("""
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_index i
+                JOIN pg_class t ON t.oid = i.indrelid
+                JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = i.indkey[0]
+                WHERE t.relname = 'comprobantes'
+                  AND i.indisunique
+                  AND a.attname = 'turno_id'
+            )
+            """);
+
+        // hash único: el canje localiza por hash y dos comprobantes no lo comparten.
+        var unicoPorHash = await _baseDeDatos.ConsultarEscalarAsync<bool>("""
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_index i
+                JOIN pg_class t ON t.oid = i.indrelid
+                JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = i.indkey[0]
+                WHERE t.relname = 'comprobantes'
+                  AND i.indisunique
+                  AND a.attname = 'hash'
+            )
+            """);
+
+        Assert.True(unicoPorTurno, "comprobantes.turno_id no es único (un comprobante por turno).");
+        Assert.True(unicoPorHash, "comprobantes.hash no es único (localización/canje por hash).");
+    }
+
+    [Fact]
+    public async Task ComprobantesTieneLasColumnasDelSlice02()
+    {
+        async Task<bool> ExisteColumna(string columna) =>
+            await _baseDeDatos.ConsultarEscalarAsync<bool>($"""
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'comprobantes' AND column_name = '{columna}'
+                )
+                """);
+
+        Assert.True(await ExisteColumna("hash"), "Falta comprobantes.hash.");
+        Assert.True(await ExisteColumna("token_cifrado"), "Falta comprobantes.token_cifrado (recuperación sin claro en reposo).");
+        Assert.True(await ExisteColumna("expira_en"), "Falta comprobantes.expira_en (vencimiento).");
+        Assert.True(await ExisteColumna("usado_at"), "Falta comprobantes.usado_at (canje único).");
+        Assert.True(await ExisteColumna("validado_offline"), "Falta comprobantes.validado_offline.");
+        Assert.True(await ExisteColumna("creado_en"), "Falta comprobantes.creado_en.");
+    }
 }

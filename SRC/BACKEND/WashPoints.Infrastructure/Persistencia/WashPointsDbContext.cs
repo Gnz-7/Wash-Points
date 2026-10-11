@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using NpgsqlTypes;
 using WashPoints.Domain.Catalogo;
+using WashPoints.Domain.Comprobantes;
 using WashPoints.Domain.Turnos;
 using WashPoints.Infrastructure.Pagos;
 using WashPoints.Infrastructure.Tiempo;
@@ -28,6 +29,7 @@ public sealed class WashPointsDbContext : DbContext
     public DbSet<TipoLavado> TiposLavado => Set<TipoLavado>();
     public DbSet<Cliente> Clientes => Set<Cliente>();
     public DbSet<Pago> Pagos => Set<Pago>();
+    public DbSet<Comprobante> Comprobantes => Set<Comprobante>();
 
     protected override void OnModelCreating(ModelBuilder modelo)
     {
@@ -35,6 +37,7 @@ public sealed class WashPointsDbContext : DbContext
 
         ConfigurarTurno(modelo.Entity<Turno>());
         modelo.ApplyConfiguration(new Configuraciones.PagoConfig());
+        modelo.ApplyConfiguration(new Configuraciones.ComprobanteConfig());
         ConfigurarCatalogo(modelo);
     }
 

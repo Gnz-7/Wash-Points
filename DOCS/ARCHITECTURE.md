@@ -70,7 +70,7 @@ El turno ocupa un rango horario semiabierto `[inicio, fin)` sobre un puesto conc
 
 **RB-2.** Reservas (`origen='app'`) y demanda espontánea (`origen='espontanea'`) escriben la **misma tabla `turnos`**. La disponibilidad es una consulta a esa tabla: no hay dos rutas de escritura que puedan divergir.
 
-**RB-3.** El comprobante es un token opaco cuyo hash se guarda con expiración y un solo uso. El panel del administrador cachea los hashes del día para validar sin red y reconcilia al reconectar.
+**RB-3.** El comprobante es un token de alta entropía. Se guarda su **hash SHA-256** (búsqueda, unicidad y canje) y una **copia cifrada simétrica** (AES-GCM, clave en configuración) que permite volver a mostrárselo al cliente sin exponer el claro en reposo; expira y es de un solo uso. El panel del administrador cachea los hashes del día para validar sin red y reconcilia al reconectar (el servidor es la autoridad). Ver §4.1 y §4.2.
 
 **Costo.** Exige discipline sobre las duraciones declaradas en `tipos_lavado`. A cambio, ninguna cantidad de concurrencia ni ningún bug de aplicación puede producir un overbooking: la garantía está en el motor.
 
@@ -192,10 +192,12 @@ CREATE UNIQUE INDEX turnos_idempotency_unicos
 CREATE TABLE comprobantes (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   turno_id uuid NOT NULL UNIQUE REFERENCES turnos(id),
-  hash text NOT NULL UNIQUE,
+  hash text NOT NULL UNIQUE,           -- SHA-256 del token: búsqueda, unicidad y canje
+  token_cifrado text NOT NULL,         -- token cifrado simétricamente (AES-GCM); NUNCA el claro en reposo
   expira_en timestamptz NOT NULL,
   usado_at timestamptz,
-  validado_offline boolean NOT NULL DEFAULT false
+  validado_offline boolean NOT NULL DEFAULT false,
+  creado_en timestamptz NOT NULL DEFAULT now()
 );
 
 -- Registro idempotente del evento de pago (slice-01, T-11). El INSERT de la
@@ -221,6 +223,8 @@ CREATE TABLE outbox (
 ```
 
 > El invariante "un comprobante no se canjea dos veces" no se expresa como `CHECK` sino por procedimiento: `usado_at IS NULL` es la precondición de la transición `confirmado → en_curso`, y esa transición se ejecuta dentro de una transacción que re-lee la fila. Un `CHECK` no serviría porque no puede leer el estado concurrente. El canje offline se materializa con `validado_offline = true` y se reconcilia contra el servidor al reconectar; el comportamiento exacto de esa reconciliación depende de la ventana de canje abierta (§10.4).
+>
+> El token nunca se persiste en claro: `hash` (SHA-256) sirve para localizar y canjear, y `token_cifrado` (AES-GCM) para re-servir el comprobante al cliente. El par separa el secreto de búsqueda del secreto recuperable: comprometer uno no expone el otro (slice-02, §4.2).
 
 ### 4.2 Decisiones de diseño con carga sobre las reglas
 
@@ -232,6 +236,7 @@ CREATE TABLE outbox (
 - **`btree_gist`** es imprescindible: la exclusión mezcla igualdad (`puesto_id WITH =`) con solapamiento de rango, y GiST solo no indexa `uuid`.
 - **`pagos.mp_payment_id UNIQUE`** es la idempotencia del webhook a nivel de base de datos: una notificación duplicada responde `200` sin re-transicionar (SPECS/slice-01 T-18).
 - **`pagos` con `UNIQUE (turno_id)`**: un turno no puede tener dos pagos asociados; la confirmación ocurre en el mismo `SaveChangesAsync` que el INSERT del pago.
+- **`comprobantes` con `UNIQUE (turno_id)`**: un turno confirmado tiene exactamente un comprobante (slice-02, US-C08 CA-8.1); la emisión ocurre en el mismo `SaveChangesAsync` que `pendiente_pago → confirmado`. `hash` y `token_cifrado` son columnas distintas: el canje y la unicidad usan el hash; el hash único impide además emitir dos veces el mismo token. El canje es único por `usado_at IS NULL` evaluado en la misma transacción que `confirmado → en_curso`, la única transición que dispara RB-3 (slice-02 §3).
 - **`outbox` escrita en la misma transacción** que el cambio de estado: garantiza que si el estado cambió, el evento existe.
 
 ## 5. Máquina de estados de `Turno`
@@ -277,7 +282,7 @@ Cualquier otra transición lanza `TurnoTransicionInvalida`. El campo `Turno.Tran
 |------|-----------|-------------------|
 | **RB-1** Seña obligatoria | `pendiente_pago` **vigente** está dentro del predicado del `EXCLUDE`: bloquea. La transición a `confirmado` solo la ejecuta el webhook con firma HMAC-SHA256 válida o el worker de respaldo verificado. El retorno del navegador del cliente no transiciona nada. `expirado` es terminal: el pago tardío no revive. | Un turno `pendiente_pago` vigente bloquea el slot (2.º pendiente → 409). `ConfirmarTurnoSinPago` lanza `TurnoTransicionInvalida`. Webhook con firma inválida devuelve 401 y no transiciona. Pago tardío sobre `expirado` no revive. |
 | **RB-2** Sincronización | Reservas y demanda espontánea escriben la misma tabla `turnos`, distinguidas por `origen`. Disponibilidad = consulta a esa tabla: los `pendiente_pago` vigentes cuentan como ocupados (`expira_en > now()`). El `UPDATE` del worker a `expirado` recalcula el índice parcial y libera el box. El evento sale por `outbox` en el mismo commit (SignalR, §7.3). | Registrar demanda espontánea cambia la disponibilidad que ve el cliente por SignalR. Pendiente vencido reaparece libre tras el tick del worker. |
-| **RB-3** Validación en destino | `comprobantes` con `UNIQUE (turno_id)`, `hash` aleatorio de alta entropía, `expira_en` y `usado_at`. Validación online contra el servidor; caché local en el panel para operar sin red, con reconciliación posterior. | Segundo canje del mismo comprobante devuelve 409. Comprobante vencido rechazado. Comprobante de otro turno rechazado. |
+| **RB-3** Validación en destino | `comprobantes` con `UNIQUE (turno_id)`, `hash` SHA-256 de un token de alta entropía, `token_cifrado` (AES-GCM), `expira_en` y `usado_at`; el canje es único por `usado_at IS NULL` en la misma transacción que `confirmado → en_curso`. Validación online contra el servidor; caché de hashes del día en el panel para operar sin red, con reconciliación posterior (servidor autoridad). | Segundo canje del mismo comprobante devuelve 409. Dos canjes concurrentes: uno gana, otro 409. Comprobante vencido rechazado. Comprobante de otro lavadero rechazado. El claro del token no aparece en la base. |
 
 ## 7. Integraciones
 
@@ -323,7 +328,7 @@ El único cliente Flutter cubre cliente y administrador, differentiated por rol 
 - Sin credenciales en el repositorio. Todo secreto por variable de entorno o secreto de Docker.
 - El `AccessToken` de Mercado Pago y el `secret` de firma viven exclusivamente en la configuración del backend.
 - Datos de cliente (nombre, teléfono, patente) son PII: permisos mínimos, sin payloads completos en logs, y no se exponen en respuestas de API que no los necesiten.
-- El hash del comprobante se trata como credencial: alta entropía, un solo uso, con expiración, y nunca enumerable (UUID aleatorio, no secuencial).
+- El comprobante se trata como credencial: token de alta entropía (nunca enumerable), un solo uso y con expiración. En reposo **nunca** se guarda el claro: solo el `hash` SHA-256 (búsqueda/canje) y `token_cifrado` (AES-GCM, clave exclusivamente en configuración/entorno). Los endpoints de caché exponen **hashes**, jamás el token.
 - El panel de administrador valida la firma del webhook antes de tocar cualquier estado.
 
 ## 9. Estrategia de pruebas

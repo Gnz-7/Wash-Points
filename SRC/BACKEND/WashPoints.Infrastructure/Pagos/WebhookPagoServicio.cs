@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using WashPoints.Domain.Comprobantes;
 using WashPoints.Domain.Ocupacion;
 using WashPoints.Domain.Puertos;
 using WashPoints.Domain.Turnos;
@@ -45,15 +46,18 @@ public sealed class WebhookPagoServicio
     private readonly IPasarelaPagos _pasarela;
     private readonly IOcupacionRepositorio _turnos;
     private readonly WashPointsDbContext _contexto;
+    private readonly IEmisorComprobante _emisorComprobante;
 
     public WebhookPagoServicio(
         IPasarelaPagos pasarela,
         IOcupacionRepositorio turnos,
-        WashPointsDbContext contexto)
+        WashPointsDbContext contexto,
+        IEmisorComprobante emisorComprobante)
     {
         _pasarela = pasarela;
         _turnos = turnos;
         _contexto = contexto;
+        _emisorComprobante = emisorComprobante;
     }
 
     public async Task<ResultadoWebhook> ProcesarAsync(string? tipo, string dataId, CancellationToken ct)
@@ -116,6 +120,11 @@ public sealed class WebhookPagoServicio
             if (estado == EstadoVerificacionPago.Aprobado)
             {
                 turno.TransicionarA(EstadoTurno.Confirmado);
+
+                // RB-3: la confirmación emite el comprobante en la MISMA unidad
+                // de trabajo. Si la emisión falla (p. ej. falta la clave de
+                // cifrado), no se persiste ni el pago ni la confirmación.
+                _emisorComprobante.Emitir(turno.Id, turno.ConfirmadoEn!.Value);
             }
             else if (estado == EstadoVerificacionPago.Rechazado)
             {

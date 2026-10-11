@@ -1,9 +1,11 @@
 using Microsoft.EntityFrameworkCore;
+using System.Text;
 using WashPoints.Api;
 using WashPoints.Application.Pagos;
 using WashPoints.Domain.Catalogo;
 using WashPoints.Domain.Puertos;
 using WashPoints.Domain.Turnos;
+using WashPoints.Infrastructure.Comprobantes;
 using WashPoints.Infrastructure.Pagos;
 using WashPoints.Infrastructure.Persistencia;
 using WashPoints.IntegrationTests.Infra;
@@ -35,7 +37,7 @@ public sealed class WorkerTest : IClassFixture<ContenedorPostgres>, IDisposable
 
     private async Task LimpiarTablas() =>
         await _baseDeDatos.EjecutarSqlAsync("""
-            TRUNCATE TABLE pagos, turnos, clientes, puestos, tipos_lavado, lavaderos CASCADE;
+            TRUNCATE TABLE comprobantes, pagos, turnos, clientes, puestos, tipos_lavado, lavaderos CASCADE;
             """);
 
     private WashPointsDbContext CrearContexto() =>
@@ -49,9 +51,23 @@ public sealed class WorkerTest : IClassFixture<ContenedorPostgres>, IDisposable
         new(
             contexto,
             pasarela,
-            new WebhookPagoServicio(pasarela, new OcupacionRepositorio(contexto), contexto),
+            new WebhookPagoServicio(
+                pasarela, new OcupacionRepositorio(contexto), contexto, CrearEmisor(contexto)),
             new OpcionesPago(),
             new RelojFijo(Ahora));
+
+    /// <summary>
+    /// Emisor con clave AES de prueba: el respaldo del worker usa el mismo
+    /// camino que el webhook, que desde slice-02 también emite el comprobante
+    /// (RB-3).
+    /// </summary>
+    private static EmisorComprobantes CrearEmisor(WashPointsDbContext contexto) =>
+        new(
+            new GeneradorComprobante(),
+            new CifradorComprobanteAesGcm(
+                Convert.ToBase64String(Encoding.UTF8.GetBytes("0123456789abcdef0123456789abcdef"))),
+            contexto,
+            ttlVigenciaHoras: 24);
 
     /// <summary>
     /// Siembra un turno pendiente_pago con creado_en y expira_en controlables.
@@ -209,7 +225,7 @@ public sealed class WorkerTest : IClassFixture<ContenedorPostgres>, IDisposable
         await using (var contextoWebhook = CrearContexto())
         {
             var webhook = new WebhookPagoServicio(
-                pasarela, new OcupacionRepositorio(contextoWebhook), contextoWebhook);
+                pasarela, new OcupacionRepositorio(contextoWebhook), contextoWebhook, CrearEmisor(contextoWebhook));
             await webhook.ProcesarAsync("payment", "pref-1", CancellationToken.None);
         }
 

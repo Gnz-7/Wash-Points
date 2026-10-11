@@ -1,12 +1,15 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using WashPoints.Api;
+using WashPoints.Application.Comprobantes;
 using WashPoints.Application.Pagos;
 using WashPoints.Application.ReservarTurno;
 using WashPoints.Domain.Catalogo;
+using WashPoints.Domain.Comprobantes;
 using WashPoints.Domain.Ocupacion;
 using WashPoints.Domain.Puertos;
 using WashPoints.Domain.Turnos;
+using WashPoints.Infrastructure.Comprobantes;
 using WashPoints.Infrastructure.MercadoPago;
 using WashPoints.Infrastructure.Pagos;
 using WashPoints.Infrastructure.Persistencia;
@@ -39,6 +42,27 @@ builder.Services.AddScoped<IPasarelaPagos, PasarelaPagosMercadoPago>();
 var opcionesPago = builder.Configuration.GetSection("Pagos").Get<OpcionesPago>()
     ?? new OpcionesPago();
 builder.Services.AddSingleton(opcionesPago);
+
+// Comprobantes (RB-3, slice-02): generador de tokens, cifrado del token en
+// reposo y emisión enganchada a la confirmación de la seña. La clave AES-256 va
+// por variable de entorno (Comprobantes:ClaveCifrado, nunca en el repo,
+// AGENTS §3.4); si falta, la emisión falla de forma explícita (CU-04).
+var opcionesComprobante = builder.Configuration.GetSection("Comprobantes").Get<OpcionesComprobante>()
+    ?? new OpcionesComprobante();
+builder.Services.AddSingleton(opcionesComprobante);
+builder.Services.AddSingleton<IGeneradorComprobante, GeneradorComprobante>();
+builder.Services.AddSingleton<ICifradorComprobante>(
+    _ => new CifradorComprobanteAesGcm(opcionesComprobante.ClaveCifrado));
+builder.Services.AddScoped<IEmisorComprobante>(servicios => new EmisorComprobantes(
+    servicios.GetRequiredService<IGeneradorComprobante>(),
+    servicios.GetRequiredService<ICifradorComprobante>(),
+    servicios.GetRequiredService<WashPointsDbContext>(),
+    opcionesComprobante.TtlVigenciaHoras));
+builder.Services.AddScoped<IComprobanteRepositorio, ComprobanteRepositorio>();
+builder.Services.AddScoped<EntregaComprobanteServicio>();
+builder.Services.AddScoped<CanjeComprobanteServicio>();
+builder.Services.AddScoped<VigentesComprobanteServicio>();
+builder.Services.AddScoped<ReconciliacionComprobantesServicio>();
 
 builder.Services.AddSingleton(TimeProvider.System);
 
@@ -190,6 +214,145 @@ app.MapPost("/api/lavaderos/{id:guid}/turnos", async (
 .WithName("ReservarTurno")
 .WithOpenApi();
 
+// Comprobante del turno (RB-3, US-C08 CA-8.4): el cliente recupera el QR y el
+// código de respaldo desde el servidor, sin depender de push. 404 si el turno
+// no existe o todavía no fue confirmado (no tiene comprobante).
+app.MapGet("/api/turnos/{id:guid}/comprobante", async (
+    Guid id,
+    EntregaComprobanteServicio servicio,
+    CancellationToken ct) =>
+{
+    var comprobante = await servicio.ObtenerAsync(id, ct);
+    if (comprobante is null)
+    {
+        return Results.NotFound(new { error = "comprobante_no_encontrado" });
+    }
+
+    return Results.Ok(new
+    {
+        qr = comprobante.PayloadQr,
+        codigo = comprobante.CodigoRespaldo,
+        expiraEn = comprobante.ExpiraEn,
+    });
+})
+.WithName("ObtenerComprobante")
+.WithOpenApi();
+
+// Canje del comprobante en destino (RB-3, US-A02/US-A04): el panel del
+// administrador valida el QR o el código de respaldo. Un canje válido marca
+// usado_at y lleva el turno confirmado → en_curso en una sola transacción.
+// El rechazo por otro lavadero es indistinguible de "no existe" (CA-S2.10).
+app.MapPost("/api/lavaderos/{id:guid}/comprobantes/validar", async (
+    Guid id,
+    SolicitudValidarComprobanteHttp cuerpo,
+    CanjeComprobanteServicio servicio,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(cuerpo.Comprobante))
+    {
+        return Results.BadRequest(new { error = "falta_comprobante" });
+    }
+
+    try
+    {
+        var resultado = await servicio.CanjearAsync(id, cuerpo.Comprobante, ct);
+        return Results.Ok(new
+        {
+            resultado = "canjeado",
+            turnoId = resultado.TurnoId,
+            estado = "en_curso",
+            usadoEn = resultado.UsadoEn,
+        });
+    }
+    catch (ComprobanteInvalidoException)
+    {
+        return Results.NotFound(new { error = "comprobante_no_encontrado" });
+    }
+    catch (ComprobanteYaUtilizadoException)
+    {
+        return Results.Conflict(new { error = "comprobante_ya_utilizado" });
+    }
+    catch (ComprobantePagoPendienteException)
+    {
+        return Results.Conflict(new { error = "pago_pendiente" });
+    }
+    catch (ComprobanteVencidoException)
+    {
+        return Results.Json(
+            new { error = "comprobante_vencido" },
+            statusCode: StatusCodes.Status410Gone);
+    }
+})
+.WithName("ValidarComprobante")
+.WithOpenApi();
+
+// Caché de vigentes para el modo offline (RB-3, US-A03 CA-3.1): el admin
+// sincroniza los hash de los comprobantes vigentes de sus turnos del día.
+// Nunca se devuelve el token ni el ciphertext, solo los hash.
+app.MapGet("/api/lavaderos/{id:guid}/comprobantes/vigentes", async (
+    Guid id,
+    string? fecha,
+    VigentesComprobanteServicio servicio,
+    CancellationToken ct) =>
+{
+    DateOnly dia;
+    if (string.IsNullOrWhiteSpace(fecha))
+    {
+        dia = DateOnly.FromDateTime(ConversorHorario.ALocal(DateTime.UtcNow));
+    }
+    else if (!DateOnly.TryParseExact(
+                 fecha,
+                 "yyyy-MM-dd",
+                 System.Globalization.CultureInfo.InvariantCulture,
+                 System.Globalization.DateTimeStyles.None,
+                 out dia))
+    {
+        return Results.BadRequest(new { error = "fecha_invalida" });
+    }
+
+    var inicioLocal = dia.ToDateTime(TimeOnly.MinValue);
+    var desdeUtc = ConversorHorario.AUtc(inicioLocal);
+    var hastaUtc = ConversorHorario.AUtc(inicioLocal.AddDays(1));
+
+    var hashes = await servicio.ListarAsync(id, desdeUtc, hastaUtc, ct);
+    return Results.Ok(new { fecha = dia.ToString("yyyy-MM-dd"), hashes });
+})
+.WithName("ComprobantesVigentes")
+.WithOpenApi();
+
+// Reconciliación de canjes offline (RB-3, US-A03 CA-3.4/CA-3.5): el servidor es
+// la autoridad. Cada canje del lote se valida de forma independiente; los que no
+// resuelven válidos NO alteran el turno y se devuelven como rechazados.
+app.MapPost("/api/lavaderos/{id:guid}/comprobantes/reconciliar", async (
+    Guid id,
+    SolicitudReconciliacionHttp cuerpo,
+    ReconciliacionComprobantesServicio servicio,
+    CancellationToken ct) =>
+{
+    var entradas = new List<CanjeOffline>();
+    foreach (var canje in cuerpo.Canjes ?? [])
+    {
+        var hash = canje.Hash;
+        var validadoEn = canje.ValidadoEn;
+        if (string.IsNullOrWhiteSpace(hash) || validadoEn is null)
+        {
+            continue;
+        }
+
+        entradas.Add(new CanjeOffline(hash, validadoEn.Value.UtcDateTime));
+    }
+
+    var resultado = await servicio.ReconciliarAsync(id, entradas, ct);
+
+    return Results.Ok(new
+    {
+        aplicados = resultado.Aplicados.Select(a => new { turnoId = a.TurnoId, hash = a.Hash }),
+        rechazados = resultado.Rechazados.Select(r => new { hash = r.Hash, motivo = r.Motivo }),
+    });
+})
+.WithName("ReconciliarComprobantes")
+.WithOpenApi();
+
 // Webhook IPN de Mercado Pago (T-17..T-19). Es la ÚNICA puerta de confirmación
 // de un turno (RB-1, AGENTS §2.4): el retorno del navegador del cliente no
 // confirma nada. Secuencia: extraer el pago notificado, validar la firma HMAC
@@ -232,8 +395,20 @@ app.MapPost("/api/webhooks/mercadopago", async (
             return Results.Json(new { error = "firma_invalida" }, statusCode: StatusCodes.Status401Unauthorized);
         }
 
-        var resultado = await servicio.ProcesarAsync(tipo, dataId, ct);
-        return Results.Ok(new { resultado = resultado.ToString() });
+        try
+        {
+            var resultado = await servicio.ProcesarAsync(tipo, dataId, ct);
+            return Results.Ok(new { resultado = resultado.ToString() });
+        }
+        catch (ComprobanteNoEmitidoException ex)
+        {
+            // CU-04: la confirmación no pudo emitir el comprobante. No se
+            // persiste ni el pago ni la confirmación (RB-3). Mercado Pago
+            // reintentará; el error es de configuración del servidor.
+            return Results.Json(
+                new { error = "comprobante_no_emitido", detalle = ex.Message },
+                statusCode: StatusCodes.Status500InternalServerError);
+        }
     }
 })
 .WithName("WebhookMercadoPago")
@@ -277,6 +452,15 @@ public sealed record SolicitudReservaHttp(
     Guid TipoLavadoId,
     Guid ClienteId,
     string? Inicio);
+
+/// <summary>Cuerpo del canje: payload QR (<c>washpoints://comprobante/…</c>) o código de respaldo.</summary>
+public sealed record SolicitudValidarComprobanteHttp(string? Comprobante);
+
+/// <summary>Cuerpo de la reconciliación: lote de canjes registrados offline.</summary>
+public sealed record SolicitudReconciliacionHttp(List<CanjeOfflineHttp>? Canjes);
+
+/// <summary>Canje offline: hash del comprobante y el instante en que el dispositivo lo validó.</summary>
+public sealed record CanjeOfflineHttp(string? Hash, DateTimeOffset? ValidadoEn);
 
 /// <summary>Punto de entrada para los tests de integración (WebApplicationFactory).</summary>
 public partial class Program;

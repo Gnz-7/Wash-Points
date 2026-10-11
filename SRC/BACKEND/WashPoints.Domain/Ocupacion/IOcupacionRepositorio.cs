@@ -21,5 +21,15 @@ public interface IOcupacionRepositorio
     /// </summary>
     Task<Turno?> ObtenerPorIdempotencyKeyAsync(string idempotencyKey, CancellationToken ct);
 
+    /// <summary>
+    /// Lista los turnos de un lavadero cuyo inicio cae en <c>[desdeUtc, hastaUtc)</c>.
+    /// Alimenta la caché offline de comprobantes del día (US-A03 CA-3.1).
+    /// </summary>
+    Task<IReadOnlyList<Turno>> ListarDelDiaAsync(
+        Guid lavaderoId,
+        DateTime desdeUtc,
+        DateTime hastaUtc,
+        CancellationToken ct);
+
     Task GuardarAsync(CancellationToken ct);
 }

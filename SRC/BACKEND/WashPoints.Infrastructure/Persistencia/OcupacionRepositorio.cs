@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using NpgsqlTypes;
 using WashPoints.Domain.Ocupacion;
 using WashPoints.Domain.Turnos;
+using WashPoints.Infrastructure.Tiempo;
 
 namespace WashPoints.Infrastructure.Persistencia;
 
@@ -24,6 +26,17 @@ public sealed class OcupacionRepositorio : IOcupacionRepositorio
     private const string SqlStateUniqueViolation = "23505";
     private const string IndiceIdempotencia = "turnos_idempotency_unicos";
 
+    private const string SqlTurnosDelDia = """
+        SELECT id, lavadero_id, puesto_id, cliente_id, tipo_lavado_id,
+               rango, estado, origen, precio_sena, mp_preference_id,
+               expira_en, idempotency_key, creado_en, confirmado_en, cerrado_en
+        FROM turnos
+        WHERE lavadero_id = {0}
+          AND lower(rango) >= @desdeLocal
+          AND lower(rango) < @hastaLocal
+        ORDER BY lower(rango)
+        """;
+
     private readonly WashPointsDbContext _contexto;
 
     public OcupacionRepositorio(WashPointsDbContext contexto) => _contexto = contexto;
@@ -38,6 +51,31 @@ public sealed class OcupacionRepositorio : IOcupacionRepositorio
         await _contexto.Turnos
             .AsNoTracking()
             .SingleOrDefaultAsync(t => t.IdempotencyKey == idempotencyKey, ct);
+
+    public async Task<IReadOnlyList<Turno>> ListarDelDiaAsync(
+        Guid lavaderoId,
+        DateTime desdeUtc,
+        DateTime hastaUtc,
+        CancellationToken ct)
+    {
+        // La columna `rango` guarda hora local sin zona (ARCHITECTURE §10.6):
+        // el inicio del turno es `lower(rango)`. Los extremos viajan como
+        // `timestamp` sin zona, igual que en DisponibilidadConsulta, para que
+        // Npgsql no mezcle Kinds sobre una columna tsrange.
+        var desdeLocal = new NpgsqlParameter("desdeLocal", NpgsqlDbType.Timestamp)
+        {
+            Value = ConversorHorario.ALocal(desdeUtc),
+        };
+        var hastaLocal = new NpgsqlParameter("hastaLocal", NpgsqlDbType.Timestamp)
+        {
+            Value = ConversorHorario.ALocal(hastaUtc),
+        };
+
+        return await _contexto.Turnos
+            .FromSqlRaw(SqlTurnosDelDia, lavaderoId, desdeLocal, hastaLocal)
+            .AsNoTracking()
+            .ToArrayAsync(ct);
+    }
 
     public async Task GuardarAsync(CancellationToken ct)
     {
