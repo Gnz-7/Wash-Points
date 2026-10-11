@@ -19,6 +19,7 @@ public sealed class MaquinaEstadosTurnoTest
     {
         { EstadoTurno.PendientePago, EstadoTurno.Confirmado },
         { EstadoTurno.PendientePago, EstadoTurno.Cancelado },
+        { EstadoTurno.PendientePago, EstadoTurno.Expirado },
         { EstadoTurno.Confirmado, EstadoTurno.EnCurso },
         { EstadoTurno.Confirmado, EstadoTurno.NoPresentado },
         { EstadoTurno.EnCurso, EstadoTurno.Finalizado },
@@ -33,6 +34,11 @@ public sealed class MaquinaEstadosTurnoTest
         { EstadoTurno.Finalizado, EstadoTurno.EnCurso },
         { EstadoTurno.Cancelado, EstadoTurno.EnCurso },
         { EstadoTurno.NoPresentado, EstadoTurno.EnCurso },
+
+        // RB-1: el pago tardío NO revive un turno vencido (SPECS/slice-01 §3).
+        { EstadoTurno.Expirado, EstadoTurno.Confirmado },
+        { EstadoTurno.Expirado, EstadoTurno.EnCurso },
+        { EstadoTurno.Expirado, EstadoTurno.Cancelado },
 
         // RB-1: nada sin pagar puede ocupar un puesto.
         { EstadoTurno.PendientePago, EstadoTurno.EnCurso },
@@ -97,6 +103,7 @@ public sealed class MaquinaEstadosTurnoTest
             EstadoTurno.Finalizado,
             EstadoTurno.Cancelado,
             EstadoTurno.NoPresentado,
+            EstadoTurno.Expirado,
         })
         {
             var turno = ConEstado(terminal);
@@ -113,6 +120,7 @@ public sealed class MaquinaEstadosTurnoTest
     [InlineData(EstadoTurno.Finalizado, false)]
     [InlineData(EstadoTurno.Cancelado, false)]
     [InlineData(EstadoTurno.NoPresentado, false)]
+    [InlineData(EstadoTurno.Expirado, false)]
     public void OcupaPuestoCoincideConElPredicadoDelExclude(EstadoTurno estado, bool ocupa)
     {
         // OcupaPuesto es el espejo en código de
@@ -122,6 +130,44 @@ public sealed class MaquinaEstadosTurnoTest
         var turno = ConEstado(estado);
 
         Assert.Equal(ocupa, turno.OcupaPuesto);
+    }
+
+    [Theory]
+    [InlineData(EstadoTurno.PendientePago, true)]   // vigente: bloquea (decisión slice-01)
+    [InlineData(EstadoTurno.Confirmado, true)]
+    [InlineData(EstadoTurno.EnCurso, true)]
+    [InlineData(EstadoTurno.Finalizado, false)]
+    [InlineData(EstadoTurno.Cancelado, false)]
+    [InlineData(EstadoTurno.NoPresentado, false)]
+    [InlineData(EstadoTurno.Expirado, false)]
+    public void BloqueaPuestoAhoraEsOcupaPuestoMasElPendienteVigente(EstadoTurno estado, bool bloquea)
+    {
+        // Dual de OcupaPuesto (SPECS/slice-01 §3): la disponibilidad usa
+        // `BloqueaPuestoAhora(now)`, que suma el pendiente_pago aún vigente.
+        // El EXCLUDE, en cambio, usa los 3 estados. Si ambos divergen, la
+        // disponibilidad y la base deciden distinto sobre la misma fila (RB-2).
+        var ahora = new DateTime(2026, 10, 10, 13, 0, 0, DateTimeKind.Utc);
+        var turno = ConEstado(estado);
+
+        if (estado == EstadoTurno.PendientePago)
+        {
+            turno.FijarVencimiento(ahora.AddMinutes(5));
+        }
+
+        Assert.Equal(bloquea, turno.BloqueaPuestoAhora(ahora));
+    }
+
+    [Fact]
+    public void ElPendienteVencidoDejaDeBloquear()
+    {
+        var ahora = new DateTime(2026, 10, 10, 13, 0, 0, DateTimeKind.Utc);
+        var turno = Turno.Crear(
+            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(),
+            ahora, ahora.AddHours(1), precioSena: 1000m);
+        turno.FijarVencimiento(ahora.AddMinutes(5));
+
+        Assert.True(turno.BloqueaPuestoAhora(ahora));
+        Assert.False(turno.BloqueaPuestoAhora(ahora.AddMinutes(5)));
     }
 
     /// <summary>Cambia el estado por la única vía permitida, o falla explícitamente.</summary>
@@ -154,6 +200,7 @@ public sealed class MaquinaEstadosTurnoTest
         EstadoTurno.EnCurso => [EstadoTurno.Confirmado, EstadoTurno.EnCurso],
         EstadoTurno.Finalizado => [EstadoTurno.Confirmado, EstadoTurno.EnCurso, EstadoTurno.Finalizado],
         EstadoTurno.NoPresentado => [EstadoTurno.Confirmado, EstadoTurno.NoPresentado],
+        EstadoTurno.Expirado => [EstadoTurno.Expirado],
         _ => throw new ArgumentOutOfRangeException(nameof(destino), destino, "Estado desconocido."),
     };
 }

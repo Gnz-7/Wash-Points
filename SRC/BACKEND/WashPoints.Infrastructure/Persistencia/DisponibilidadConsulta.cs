@@ -13,19 +13,27 @@ namespace WashPoints.Infrastructure.Persistencia;
 ///
 /// El solapamiento se resuelve en el motor con el operador <c>&&</c> de rango
 /// sobre la propia columna <c>tsrange</c>: es la misma fuente que arbitró la
-/// EXCLUDE al confirmar (RB-2). El rango de consulta se traduce de UTC a la
+/// EXCLUDE al reservar (RB-2). El rango de consulta se traduce de UTC a la
 /// hora local del lavadero antes de comparar (ARCHITECTURE §10.6), y los
 /// turnos se materializan con el convertidor de rango que los devuelve a UTC.
+///
+/// El predicado incluye los 3 estados del EXCLUDE (slice-01, §3): el
+/// <c>pendiente_pago</c> bloquea solo mientras está vigente
+/// (<c>expira_en &gt; now()</c>). Un pendiente vencido espera al worker, pero
+/// la consulta ya lo muestra libre (RB-2).
 /// </summary>
 public sealed class DisponibilidadConsulta : IDisponibilidadConsulta
 {
     private const string SqlBase = """
         SELECT id, lavadero_id, puesto_id, cliente_id, tipo_lavado_id,
                rango, estado, origen, precio_sena, mp_preference_id,
-               creado_en, confirmado_en, cerrado_en
+               expira_en, idempotency_key, creado_en, confirmado_en, cerrado_en
         FROM turnos
         WHERE lavadero_id = {0}
-          AND estado IN ('confirmado', 'en_curso')
+          AND (
+                estado IN ('confirmado', 'en_curso')
+                OR (estado = 'pendiente_pago' AND expira_en > now())
+              )
           AND rango && tsrange(@desdeLocal, @hastaLocal)
         ORDER BY rango
         """;

@@ -73,10 +73,11 @@ public sealed class OcupacionServicioTest : IClassFixture<ContenedorPostgres>, I
             precioSena: 3000m);
 
     [Fact]
-    public async Task ReservarNoBloqueaElIntervaloMientrasEstePendiente()
+    public async Task ReservarBloqueaElIntervalo()
     {
-        // CA-S0.1 (US-C01 CA-1.1). RB-1: dos turnos pendientes en el mismo
-        // puesto y rango coexisten, porque ninguno ocupa.
+        // Slice-01 (reescritura de T-22, CA-S1.1): el pendiente_pago vigente
+        // BLOQUEA. La segunda reserva del mismo puesto+rango choca contra el
+        // predicado de 3 estados del EXCLUDE (23P01 -> TurnoConflictoException).
         var s = await SembrarCatalogo();
         await using var contexto = CrearContexto();
         var servicio = CrearServicio(contexto);
@@ -86,11 +87,9 @@ public sealed class OcupacionServicioTest : IClassFixture<ContenedorPostgres>, I
         var b = TurnoEn(s, inicioUtc, inicioUtc.AddHours(1));
 
         await servicio.ReservarAsync(a, CancellationToken.None);
-        await servicio.ReservarAsync(b, CancellationToken.None);
 
-        var guardados = await contexto.Turnos.CountAsync();
-        Assert.Equal(2, guardados);
-        Assert.All(new[] { a, b }, t => Assert.False(t.OcupaPuesto));
+        await Assert.ThrowsAsync<TurnoConflictoException>(
+            () => servicio.ReservarAsync(b, CancellationToken.None));
     }
 
     [Fact]
@@ -120,10 +119,11 @@ public sealed class OcupacionServicioTest : IClassFixture<ContenedorPostgres>, I
     }
 
     [Fact]
-    public async Task ConfirmarTurnoSolapadoConOtroConfirmadoLanzaConflicto()
+    public async Task ReservarSolapadoConOtroConfirmadoLanzaConflicto()
     {
-        // Precondición de la carrera (CA-S0.2): la EXCLUDE se mapea a
-        // TurnoConflictoException, que la API traduce a 409.
+        // Slice-01 (reescritura de T-22): el conflicto se decide al RESERVAR, no
+        // al confirmar. Un pendiente que solapa un turno ya confirmado choca
+        // contra la EXCLUDE en el INSERT (=> 409 en la capa HTTP).
         var s = await SembrarCatalogo();
         await using var contexto = CrearContexto();
         var servicio = CrearServicio(contexto);
@@ -137,18 +137,9 @@ public sealed class OcupacionServicioTest : IClassFixture<ContenedorPostgres>, I
         var solapado = TurnoEn(s,
             new DateTime(2026, 10, 10, 14, 0, 0, DateTimeKind.Utc),
             new DateTime(2026, 10, 10, 16, 0, 0, DateTimeKind.Utc));
-        var idSolapado = await servicio.ReservarAsync(solapado, CancellationToken.None);
 
         await Assert.ThrowsAsync<TurnoConflictoException>(
-            () => servicio.ConfirmarOcupacionAsync(idSolapado, CancellationToken.None));
-
-        // El turno sigue pendiente, sin ocupar: el rechazo no lo confirma.
-        await using var contexto2 = CrearContexto();
-        var estado = await contexto2.Turnos
-            .Where(t => t.Id == idSolapado)
-            .Select(t => t.Estado)
-            .SingleAsync();
-        Assert.Equal(EstadoTurno.PendientePago, estado);
+            () => servicio.ReservarAsync(solapado, CancellationToken.None));
     }
 
     private sealed record Semilla(

@@ -162,6 +162,15 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
                         .HasColumnType("character varying(32)")
                         .HasColumnName("estado");
 
+                    b.Property<DateTime?>("ExpiraEn")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("expira_en");
+
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("idempotency_key");
+
                     b.Property<Guid>("LavaderoId")
                         .HasColumnType("uuid")
                         .HasColumnName("lavadero_id");
@@ -195,6 +204,11 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
 
                     b.HasKey("Id");
 
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("turnos_idempotency_unicos")
+                        .HasFilter("\"idempotency_key\" IS NOT NULL");
+
                     b.HasIndex("PuestoId");
 
                     b.HasIndex("TipoLavadoId");
@@ -202,6 +216,50 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
                     b.HasIndex("LavaderoId", "Estado");
 
                     b.ToTable("turnos", (string)null);
+                });
+
+            modelBuilder.Entity("WashPoints.Infrastructure.Pagos.Pago", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("MpPaymentId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("mp_payment_id");
+
+                    b.Property<DateTime>("ProcesadoEn")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("procesado_en");
+
+                    b.Property<string>("Resultado")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("resultado");
+
+                    b.Property<string>("TipoEvento")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("tipo_evento");
+
+                    b.Property<Guid>("TurnoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("turno_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MpPaymentId")
+                        .IsUnique();
+
+                    b.HasIndex("TurnoId")
+                        .IsUnique();
+
+                    b.ToTable("pagos", (string)null);
                 });
 
             modelBuilder.Entity("WashPoints.Domain.Turnos.Turno", b =>
@@ -215,6 +273,15 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
                     b.HasOne("WashPoints.Domain.Catalogo.TipoLavado", null)
                         .WithMany()
                         .HasForeignKey("TipoLavadoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("WashPoints.Infrastructure.Pagos.Pago", b =>
+                {
+                    b.HasOne("WashPoints.Domain.Turnos.Turno", null)
+                        .WithMany()
+                        .HasForeignKey("TurnoId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

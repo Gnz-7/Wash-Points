@@ -12,6 +12,14 @@ namespace WashPoints.Domain.Ocupacion;
 public interface IOcupacionRepositorio
 {
     Task AgregarAsync(Turno turno, CancellationToken ct);
+
     Task<Turno?> ObtenerAsync(Guid turnoId, CancellationToken ct);
+
+    /// <summary>
+    /// Busca el turno por su clave de idempotencia. Es la reconsulta que hace
+    /// la reserva cuando el INSERT choca por 23P01 o 23505 (SPECS/slice-01 T-14).
+    /// </summary>
+    Task<Turno?> ObtenerPorIdempotencyKeyAsync(string idempotencyKey, CancellationToken ct);
+
     Task GuardarAsync(CancellationToken ct);
 }

@@ -23,6 +23,9 @@ public sealed class Turno
                 // solo el webhook con firma válida puede llegar hasta acá.
                 EstadoTurno.Confirmado,
                 EstadoTurno.Cancelado,
+                // Vencimiento del TTL de la seña (SPECS/slice-01 §3). Lo ejecuta
+                // el worker; libera el box del pendiente_pago.
+                EstadoTurno.Expirado,
             },
             [EstadoTurno.Confirmado] = new HashSet<EstadoTurno>
             {
@@ -37,6 +40,7 @@ public sealed class Turno
             [EstadoTurno.Finalizado] = new HashSet<EstadoTurno>(),
             [EstadoTurno.Cancelado] = new HashSet<EstadoTurno>(),
             [EstadoTurno.NoPresentado] = new HashSet<EstadoTurno>(),
+            [EstadoTurno.Expirado] = new HashSet<EstadoTurno>(),
         };
 
     /// <summary>Constructor sin argumentos. Uso exclusivo de EF Core.</summary>
@@ -94,6 +98,26 @@ public sealed class Turno
     public DateTime? CerradoEn { get; private set; }
 
     /// <summary>
+    /// Vence el bloqueo del <see cref="EstadoTurno.PendientePago"/> (TTL de la
+    /// seña, SPECS/slice-01 §3). La liberación la ejecuta el worker al
+    /// transicionar a <see cref="EstadoTurno.Expirado"/>; nunca viene del
+    /// predicado del EXCLUDE. UTC, como toda hora persistida (§10.6).
+    /// </summary>
+    public DateTime? ExpiraEn { get; private set; }
+
+    /// <summary>
+    /// Clave de idempotencia de la reserva (SHA-256 del intento). No es un dato
+    /// de negocio: su propósito es que un reintento del cliente no duplique
+    /// turnos. Ver SPECS/slice-01 §3 (captura de 23P01 y 23505).
+    ///
+    /// <c>null</c> cuando no hay intento de reserva: el índice único parcial
+    /// (<c>WHERE idempotency_key IS NOT NULL</c>) lo excluye, de modo que los
+    /// turnos creados sin reserva (p. ej. demanda espontánea de slice-00) no
+    /// colisionan entre sí.
+    /// </summary>
+    public string? IdempotencyKey { get; private set; }
+
+    /// <summary>
     /// Crea un turno en <see cref="EstadoTurno.PendientePago"/>. No ocupa puesto.
     /// </summary>
     public static Turno Crear(
@@ -117,6 +141,32 @@ public sealed class Turno
         return new Turno(
             Guid.NewGuid(), lavaderoId, puestoId, clienteId, tipoLavadoId,
             new RangoTurno(inicioUtc, finUtc), precioSena, origen);
+    }
+
+    /// <summary>
+    /// Crea el turno de una reserva: agrega el vencimiento del TTL de la seña y
+    /// la clave de idempotencia (SPECS/slice-01 T-13). Ambos son datos del
+    /// intento de reserva, no de la demanda espontánea, por eso no viven en
+    /// <see cref="Crear"/>.
+    /// </summary>
+    public static Turno CrearParaReserva(
+        Guid lavaderoId,
+        Guid puestoId,
+        Guid clienteId,
+        Guid tipoLavadoId,
+        DateTime inicioUtc,
+        DateTime finUtc,
+        decimal precioSena,
+        DateTime expiraEnUtc,
+        string idempotencyKey)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(idempotencyKey);
+
+        var turno = Crear(
+            lavaderoId, puestoId, clienteId, tipoLavadoId, inicioUtc, finUtc, precioSena);
+        turno.ExpiraEn = expiraEnUtc;
+        turno.IdempotencyKey = idempotencyKey;
+        return turno;
     }
 
     /// <summary>
@@ -158,11 +208,38 @@ public sealed class Turno
     }
 
     /// <summary>
+    /// Fija el vencimiento del TTL de la seña. Uso previsto: la fábrica de
+    /// reserva y los tests de dominio; un turno ya resuelto no lo modifica.
+    /// </summary>
+    public void FijarVencimiento(DateTime expiraEnUtc)
+    {
+        if (expiraEnUtc.Kind != DateTimeKind.Utc)
+        {
+            throw new ArgumentException(
+                "El vencimiento del turno debe estar en UTC.", nameof(expiraEnUtc));
+        }
+
+        ExpiraEn = expiraEnUtc;
+    }
+
+    /// <summary>
     /// Indica si el turno ocupa un puesto. Corresponde exactamente al predicado
     /// <c>WHERE (estado IN ('confirmado', 'en_curso'))</c> del EXCLUDE (§4.1).
     /// </summary>
     public bool OcupaPuesto => Estado is EstadoTurno.Confirmado or EstadoTurno.EnCurso;
 
+    /// <summary>
+    /// Bloquea el intervalo <b>ahora</b>: la ocupación definitiva más el
+    /// <see cref="EstadoTurno.PendientePago"/> todavía vigente
+    /// (<c>ExpiraEn &gt; now</c>). Es el espejo de la disponibilidad
+    /// (SPECS/slice-01 §3): la consulta usa este criterio con los 3 estados;
+    /// el EXCLUDE usa los 3 estados sin la condición temporal, que vive acá.
+    /// </summary>
+    public bool BloqueaPuestoAhora(DateTime ahoraUtc) =>
+        OcupaPuesto ||
+        (Estado == EstadoTurno.PendientePago && ExpiraEn is { } vence && vence > ahoraUtc);
+
     private static bool EsTerminal(EstadoTurno estado) =>
-        estado is EstadoTurno.Finalizado or EstadoTurno.Cancelado or EstadoTurno.NoPresentado;
+        estado is EstadoTurno.Finalizado or EstadoTurno.Cancelado
+            or EstadoTurno.NoPresentado or EstadoTurno.Expirado;
 }

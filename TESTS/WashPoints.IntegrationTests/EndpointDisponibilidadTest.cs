@@ -12,12 +12,12 @@ using Xunit;
 namespace WashPoints.IntegrationTests;
 
 /// <summary>
-/// T-07: el endpoint HTTP de disponibilidad (CA-S0.5 y la dirección "exponer"
-/// de T-09).
+/// T-07 (reescrito en T-22): el endpoint HTTP de disponibilidad.
 ///
 /// Un turno guardado a las 13:00 UTC (hora local del lavadero 10:00) aparece en
-/// la respuesta como 10:00 local. Solo se muestran turnos que ocupan puesto:
-/// <c>confirmado</c> y <c>en_curso</c>; los <c>pendiente_pago</c> no (RB-2).
+/// la respuesta como 10:00 local. Se muestran los turnos que ocupan
+/// (<c>confirmado</c>/<c>en_curso</c>) y el <c>pendiente_pago</c> <b>vigente</b>
+/// (<c>expira_en &gt; now()</c>); un pendiente vencido ya no aparece (RB-2).
 /// </summary>
 [Trait("Categoría", "Integración")]
 public sealed class EndpointDisponibilidadTest : IClassFixture<ContenedorPostgres>, IDisposable
@@ -70,14 +70,25 @@ public sealed class EndpointDisponibilidadTest : IClassFixture<ContenedorPostgre
             new DateTime(2026, 10, 10, 15, 0, 0, DateTimeKind.Utc));
         enCurso.TransicionarA(EstadoTurno.EnCurso);
 
-        // Pendiente: no ocupa puesto, no debería aparecer (RB-2 + CA-S0.5).
-        var pendiente = Turno.Crear(
+        // Pendiente VIGENTE: bloquea mientras expira_en > now() => debe
+        // aparecer (decisión de producto de slice-01, RB-2).
+        var pendienteVigente = Turno.Crear(
             lavadero.Id, puesto.Id, cliente.Id, tipo.Id,
             new DateTime(2026, 10, 10, 15, 0, 0, DateTimeKind.Utc),
             new DateTime(2026, 10, 10, 16, 0, 0, DateTimeKind.Utc),
             precioSena: 3000m);
+        pendienteVigente.FijarVencimiento(DateTime.UtcNow.AddMinutes(5));
 
-        contexto.Turnos.AddRange(confirmado, enCurso, pendiente);
+        // Pendiente VENCIDO: ya no bloquea => no debe aparecer (el worker lo
+        // transicionará a expirado).
+        var pendienteVencido = Turno.Crear(
+            lavadero.Id, puesto.Id, cliente.Id, tipo.Id,
+            new DateTime(2026, 10, 10, 16, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 10, 10, 17, 0, 0, DateTimeKind.Utc),
+            precioSena: 3000m);
+        pendienteVencido.FijarVencimiento(DateTime.UtcNow.AddMinutes(-1));
+
+        contexto.Turnos.AddRange(confirmado, enCurso, pendienteVigente, pendienteVencido);
         await contexto.SaveChangesAsync();
 
         return (lavadero.Id, puesto.Id);
@@ -110,21 +121,23 @@ public sealed class EndpointDisponibilidadTest : IClassFixture<ContenedorPostgre
     }
 
     [Fact]
-    public async Task DisponibilidadNoIncluyeLosPendientesDePago()
+    public async Task DisponibilidadIncluyeElPendienteVigenteYExcluyeElVencido()
     {
+        // T-22 (CA-S1.1): el pendiente vigente cuenta como ocupado; el vencido
+        // ya no. La siembra tiene 4 turnos cubriendo 10:00-14:00 local; deben
+        // aparecer 3 (confirmado 10:00, en_curso 11:00, pendiente vigente 12:00).
         var (lavaderoId, _) = await SembrarGuardada();
         using var api = CrearApi();
         using var cliente = api.CreateClient();
 
-        // Ventana local amplia: de las 09:00 a las 14:00. Cuenta los tres
-        // turnos de la siembra; solo los dos que ocupan puesto (confirmado y
-        // en_curso, 10:00-12:00 local) deben aparecer.
         var respuesta = await cliente.GetFromJsonAsync<List<RespuestaDisponibilidad>>(
-            $"/api/lavaderos/{lavaderoId}/disponibilidad?desde=2026-10-10T09:00:00&hasta=2026-10-10T14:00:00");
+            $"/api/lavaderos/{lavaderoId}/disponibilidad?desde=2026-10-10T09:00:00&hasta=2026-10-10T15:00:00");
 
         Assert.NotNull(respuesta);
-        Assert.Equal(2, respuesta.Count);
-        Assert.Equal(new[] { "10:00:00", "11:00:00" }, respuesta.Select(i => i.desde.Split('T')[1]).ToArray());
+        Assert.Equal(3, respuesta.Count);
+        Assert.Equal(
+            new[] { "10:00:00", "11:00:00", "12:00:00" },
+            respuesta.Select(i => i.desde.Split('T')[1]).ToArray());
     }
 
     private sealed record RespuestaDisponibilidad(

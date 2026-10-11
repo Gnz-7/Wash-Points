@@ -23,4 +23,10 @@ public enum EstadoTurno
 
     /// <summary>No arribó dentro de la ventana. No ocupa puesto.</summary>
     NoPresentado,
+
+    /// <summary>
+    /// Venció el TTL de la seña sin pago confirmado. Terminal: el pago tardío
+    /// no lo revive (RB-1). No ocupa ni bloquea. Ver SPECS/slice-01 §3.
+    /// </summary>
+    Expirado,
 }

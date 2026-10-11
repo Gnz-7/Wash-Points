@@ -23,6 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\SRC\BACKEND\WashPoints.Domain\WashPoints.Domain.csproj" />
     <ProjectReference Include="..\..\SRC\BACKEND\WashPoints.Application\WashPoints.Application.csproj" />
+    <ProjectReference Include="..\..\SRC\BACKEND\WashPoints.Infrastructure\WashPoints.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

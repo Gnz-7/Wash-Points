@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using NpgsqlTypes;
 using WashPoints.Domain.Catalogo;
 using WashPoints.Domain.Turnos;
+using WashPoints.Infrastructure.Pagos;
 using WashPoints.Infrastructure.Tiempo;
 
 namespace WashPoints.Infrastructure.Persistencia;
@@ -26,12 +27,14 @@ public sealed class WashPointsDbContext : DbContext
     public DbSet<Puesto> Puestos => Set<Puesto>();
     public DbSet<TipoLavado> TiposLavado => Set<TipoLavado>();
     public DbSet<Cliente> Clientes => Set<Cliente>();
+    public DbSet<Pago> Pagos => Set<Pago>();
 
     protected override void OnModelCreating(ModelBuilder modelo)
     {
         base.OnModelCreating(modelo);
 
         ConfigurarTurno(modelo.Entity<Turno>());
+        modelo.ApplyConfiguration(new Configuraciones.PagoConfig());
         ConfigurarCatalogo(modelo);
     }
 
@@ -93,6 +96,24 @@ public sealed class WashPointsDbContext : DbContext
         turno.Property(t => t.MpPreferenceId)
             .HasColumnName("mp_preference_id")
             .HasMaxLength(128);
+
+        // TTL de la seña (slice-01, SPECS/slice-01 §3): vence el bloqueo del
+        // pendiente_pago. Nullable porque un turno confirmado/cancelado no tiene
+        // vencimiento pendiente.
+        turno.Property(t => t.ExpiraEn)
+            .HasColumnName("expira_en")
+            .HasColumnType("timestamptz");
+
+        // Idempotencia de la reserva: la unicidad es un índice PARCIAL (solo
+        // WHERE idempotency_key IS NOT NULL), para que la clave no contamine a
+        // turnos sin intento de reserva. Ver SPECS/slice-01 §3 (23P01/23505).
+        turno.Property(t => t.IdempotencyKey)
+            .HasColumnName("idempotency_key")
+            .HasMaxLength(64);
+        turno.HasIndex(t => t.IdempotencyKey)
+            .IsUnique()
+            .HasFilter(@"""idempotency_key"" IS NOT NULL")
+            .HasDatabaseName("turnos_idempotency_unicos");
 
         turno.Property(t => t.CreadoEn)
             .HasColumnName("creado_en")
