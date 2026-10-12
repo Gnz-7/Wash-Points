@@ -47,17 +47,20 @@ public sealed class WebhookPagoServicio
     private readonly IOcupacionRepositorio _turnos;
     private readonly WashPointsDbContext _contexto;
     private readonly IEmisorComprobante _emisorComprobante;
+    private readonly IOutbox _outbox;
 
     public WebhookPagoServicio(
         IPasarelaPagos pasarela,
         IOcupacionRepositorio turnos,
         WashPointsDbContext contexto,
-        IEmisorComprobante emisorComprobante)
+        IEmisorComprobante emisorComprobante,
+        IOutbox outbox)
     {
         _pasarela = pasarela;
         _turnos = turnos;
         _contexto = contexto;
         _emisorComprobante = emisorComprobante;
+        _outbox = outbox;
     }
 
     public async Task<ResultadoWebhook> ProcesarAsync(string? tipo, string dataId, CancellationToken ct)
@@ -125,6 +128,17 @@ public sealed class WebhookPagoServicio
                 // de trabajo. Si la emisión falla (p. ej. falta la clave de
                 // cifrado), no se persiste ni el pago ni la confirmación.
                 _emisorComprobante.Emitir(turno.Id, turno.ConfirmadoEn!.Value);
+
+                // RB-2: el cambio de disponibilidad y su evento viajan en el
+                // mismo SaveChangesAsync (D3/D12). `Encolar` no commitea.
+                _outbox.Encolar(new EventoOcupacion(
+                    turno.Id,
+                    turno.LavaderoId,
+                    turno.PuestoId,
+                    turno.Origen,
+                    turno.Estado,
+                    turno.InicioUtc,
+                    turno.FinUtc));
             }
             else if (estado == EstadoVerificacionPago.Rechazado)
             {

@@ -58,6 +58,8 @@ Seis módulos lógicos. **Ningún módulo lee tablas de otro módulo**: toda la 
 
 Dependencias permitidas: `Turnos → Ocupacion`, `Pagos → Turnos` (notifica transición, no la decide), `Comprobantes → Turnos`, `Metricas → {Turnos, Pagos}` (solo lectura).
 
+Tanto la reserva como la **demanda espontánea** (`RegistrarDemandaEspontanea`) escriben la disponibilidad por la **misma** puerta `IOcupacionRepositorio` (una sola tabla `turnos`) y encolan el evento de ocupación en `outbox` **dentro de la misma transacción** de base de datos. Esa puerta única + outbox transaccional es el mecanismo concreto que protege RB-2 (§6, §7.3).
+
 ## 3. Alternativas de modelo de datos evaluadas
 
 Se evaluaron tres modelos para representar la ocupación de un puesto de lavado. Los tres resuelven RB-1, RB-2 y RB-3; difieren en dónde vive la garantía de no-overbooking y en el costo operativo.
@@ -243,7 +245,7 @@ CREATE TABLE outbox (
 
 ```
                   ┌───────────────────────────┐
-   crear ────────►│  pendiente_pago           │  (bloquea puesto mientras vigente)
+   reservar ─────►│  pendiente_pago           │  (bloquea puesto mientras vigente)
                   └───────┬──────────┬────┬───┘
         webhook verificado│          │    │ vencimiento TTL (worker)
        (seña aprobada)    ▼          ▼    ▼
@@ -261,11 +263,14 @@ CREATE TABLE outbox (
              └───────────┘
 ```
 
+> **Demanda espontánea.** `RegistrarDemandaEspontanea` **no** crea un `pendiente_pago`: inserta el turno directamente en `en_curso` (ocupa el puesto de inmediato, sin seña ni comprobante). Es la única vía que nace fuera de `pendiente_pago`.
+
 Transiciones permitidas y su único disparador:
 
 | De | A | Disparador | Autorizado a ejecutarla |
 |----|----|-----------|--------------------------|
-| — | `pendiente_pago` | `ReservarTurno` o `RegistrarDemandaEspontanea` | Application |
+| — | `pendiente_pago` | `ReservarTurno` (reserva con seña) | Application |
+| — | `en_curso` | `RegistrarDemandaEspontanea` (demanda espontánea; sin seña ni comprobante) | Application |
 | `pendiente_pago` | `confirmado` | Webhook MP con firma válida + `approved`, o respaldo del worker | `Pagos` |
 | `pendiente_pago` | `cancelado` | Pago rechazado o cancelación del cliente | `Pagos` |
 | `pendiente_pago` | `expirado` | Vencimiento del TTL (`expira_en <= now()`) por el worker | worker |
@@ -281,7 +286,7 @@ Cualquier otra transición lanza `TurnoTransicionInvalida`. El campo `Turno.Tran
 | Regla | Mecanismo | Test de regresión |
 |------|-----------|-------------------|
 | **RB-1** Seña obligatoria | `pendiente_pago` **vigente** está dentro del predicado del `EXCLUDE`: bloquea. La transición a `confirmado` solo la ejecuta el webhook con firma HMAC-SHA256 válida o el worker de respaldo verificado. El retorno del navegador del cliente no transiciona nada. `expirado` es terminal: el pago tardío no revive. | Un turno `pendiente_pago` vigente bloquea el slot (2.º pendiente → 409). `ConfirmarTurnoSinPago` lanza `TurnoTransicionInvalida`. Webhook con firma inválida devuelve 401 y no transiciona. Pago tardío sobre `expirado` no revive. |
-| **RB-2** Sincronización | Reservas y demanda espontánea escriben la misma tabla `turnos`, distinguidas por `origen`. Disponibilidad = consulta a esa tabla: los `pendiente_pago` vigentes cuentan como ocupados (`expira_en > now()`). El `UPDATE` del worker a `expirado` recalcula el índice parcial y libera el box. El evento sale por `outbox` en el mismo commit (SignalR, §7.3). | Registrar demanda espontánea cambia la disponibilidad que ve el cliente por SignalR. Pendiente vencido reaparece libre tras el tick del worker. |
+| **RB-2** Sincronización | Reservas y demanda espontánea escriben la misma tabla `turnos`, distinguidas por `origen`. Disponibilidad = consulta a esa tabla: los `pendiente_pago` vigentes cuentan como ocupados (`expira_en > now()`). El `UPDATE` del worker a `expirado` recalcula el índice parcial y libera el box. El evento sale por `outbox` en el mismo commit (SignalR, §7.3). | La espontánea crea un turno `en_curso` y la disponibilidad integra `app` y `espontanea` por igual; un cliente del grupo del lavadero recibe el evento por SignalR sin recargar. Reserva y espontánea solapadas en el mismo puesto → 409 `slot_ya_ocupado`. La expiración del worker libera el box y encola su evento en el mismo commit. |
 | **RB-3** Validación en destino | `comprobantes` con `UNIQUE (turno_id)`, `hash` SHA-256 de un token de alta entropía, `token_cifrado` (AES-GCM), `expira_en` y `usado_at`; el canje es único por `usado_at IS NULL` en la misma transacción que `confirmado → en_curso`. Validación online contra el servidor; caché de hashes del día en el panel para operar sin red, con reconciliación posterior (servidor autoridad). | Segundo canje del mismo comprobante devuelve 409. Dos canjes concurrentes: uno gana, otro 409. Comprobante vencido rechazado. Comprobante de otro lavadero rechazado. El claro del token no aparece en la base. |
 
 ## 7. Integraciones
@@ -315,9 +320,10 @@ El único cliente Flutter cubre cliente y administrador, differentiated por rol 
 
 ### 7.3 Tiempo real (SignalR)
 
-- Un Hub con **grupo por `lavaderoId`**. Cada cliente se une al grupo del lavadero que está mirando.
-- Los eventos se publican desde la outbox: un worker lee las filas no publicadas, las envía al grupo y marca `publicado_en`.
-- El cliente usa reconexión automática. Al reconectar, **re-suscribe y pide un snapshot completo** de disponibilidad. Es un requisito de cierre del rol `frontend`: si la conexión en tiempo real se pierde, la UI debe degradar con claridad y nunca mostrar disponibilidad inventada.
+- Un Hub (`DisponibilidadHub`, ruta `/hubs/disponibilidad`) con **grupo por `lavaderoId`**, nombrado `lavadero-{id}`. Cada cliente se une con `UnirseALavadero(lavaderoId)` y sale con `SalirDeLavadero(lavaderoId)`.
+- El evento se llama `disponibilidadActualizada` y lleva el payload de ocupación `{ turnoId, lavaderoId, puestoId, origen, estado, desde, hasta }`, consistente con `GET /disponibilidad`.
+- Los eventos se publican desde la outbox: un worker lee las filas no publicadas (orden `creado_en`), las envía al grupo y marca `publicado_en` (entrega *at-least-once*).
+- El cliente usa reconexión automática. Al reconectar, **re-suscribe y pide un snapshot completo** de disponibilidad mediante `SolicitarSnapshot(lavaderoId)`. Es un requisito de cierre del rol `frontend`: si la conexión en tiempo real se pierde, la UI debe degradar con claridad y nunca mostrar disponibilidad inventada.
 
 ### 7.4 Mapas y geolocalización
 

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using WashPoints.Application.Pagos;
+using WashPoints.Domain.Ocupacion;
 using WashPoints.Domain.Puertos;
 using WashPoints.Domain.Turnos;
 using WashPoints.Infrastructure.Pagos;
@@ -49,19 +50,22 @@ public sealed class RespaldoYExpiracionServicio
     private readonly WebhookPagoServicio _aplicador;
     private readonly OpcionesPago _opciones;
     private readonly TimeProvider _reloj;
+    private readonly IOutbox _outbox;
 
     public RespaldoYExpiracionServicio(
         WashPointsDbContext contexto,
         IPasarelaPagos pasarela,
         WebhookPagoServicio aplicador,
         OpcionesPago opciones,
-        TimeProvider reloj)
+        TimeProvider reloj,
+        IOutbox outbox)
     {
         _contexto = contexto;
         _pasarela = pasarela;
         _aplicador = aplicador;
         _opciones = opciones;
         _reloj = reloj;
+        _outbox = outbox;
     }
 
     /// <summary>Ejecuta un tick completo: expiración local y luego respaldo.</summary>
@@ -87,6 +91,19 @@ public sealed class RespaldoYExpiracionServicio
         foreach (var turno in vencidos)
         {
             turno.TransicionarA(EstadoTurno.Expirado);
+
+            // RB-2 / CA-S3.8: liberar el box cambia la disponibilidad, así que
+            // el evento de liberación se encola antes del SaveChangesAsync del
+            // lote (D3/D12): turno y evento se persisten juntos. `Encolar` no
+            // commitea por su cuenta.
+            _outbox.Encolar(new EventoOcupacion(
+                turno.Id,
+                turno.LavaderoId,
+                turno.PuestoId,
+                turno.Origen,
+                turno.Estado,
+                turno.InicioUtc,
+                turno.FinUtc));
         }
 
         if (vencidos.Count > 0)

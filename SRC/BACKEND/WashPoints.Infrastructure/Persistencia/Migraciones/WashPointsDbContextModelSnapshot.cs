@@ -311,6 +311,40 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
                     b.ToTable("pagos", (string)null);
                 });
 
+            modelBuilder.Entity("WashPoints.Infrastructure.Persistencia.Outbox", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreadoEn")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("creado_en");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload");
+
+                    b.Property<DateTime?>("PublicadoEn")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("publicado_en");
+
+                    b.Property<string>("Tipo")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("tipo");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublicadoEn")
+                        .HasDatabaseName("outbox_no_publicados")
+                        .HasFilter("\"publicado_en\" IS NULL");
+
+                    b.ToTable("outbox", (string)null);
+                });
+
             modelBuilder.Entity("WashPoints.Domain.Comprobantes.Comprobante", b =>
                 {
                     b.HasOne("WashPoints.Domain.Turnos.Turno", null)

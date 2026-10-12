@@ -274,4 +274,43 @@ public sealed class MigracionTest : IClassFixture<ContenedorPostgres>, IAsyncLif
         Assert.True(await ExisteColumna("validado_offline"), "Falta comprobantes.validado_offline.");
         Assert.True(await ExisteColumna("creado_en"), "Falta comprobantes.creado_en.");
     }
+
+    [Fact]
+    public async Task LaTablaOutboxExisteConIndiceParcial()
+    {
+        // Slice-03 (T-34, RB-2): la outbox es el mecanismo de sincronización;
+        // toda escritura de ocupación encola aquí su evento en el mismo commit.
+        var existe = await _baseDeDatos.ConsultarEscalarAsync<bool>(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'outbox')");
+        Assert.True(existe, "Falta la tabla outbox (eventos de ocupación para SignalR).");
+
+        async Task<bool> ExisteColumna(string columna) =>
+            await _baseDeDatos.ConsultarEscalarAsync<bool>($"""
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'outbox' AND column_name = '{columna}'
+                )
+                """);
+
+        Assert.True(await ExisteColumna("tipo"), "Falta outbox.tipo.");
+        Assert.True(await ExisteColumna("payload"), "Falta outbox.payload.");
+        Assert.True(await ExisteColumna("publicado_en"), "Falta outbox.publicado_en.");
+        Assert.True(await ExisteColumna("creado_en"), "Falta outbox.creado_en.");
+
+        // La publicación solo mira las filas no publicadas: el índice debe ser
+        // PARCIAL (WHERE publicado_en IS NULL) para no escanear el histórico.
+        var indiceParcial = await _baseDeDatos.ConsultarEscalarAsync<bool>("""
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_index i
+                JOIN pg_class t ON t.oid = i.indrelid
+                JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = i.indkey[0]
+                WHERE t.relname = 'outbox'
+                  AND i.indpred IS NOT NULL
+                  AND a.attname = 'publicado_en'
+            )
+            """);
+
+        Assert.True(indiceParcial, "Falta el índice parcial sobre outbox.publicado_en (publicado_en IS NULL).");
+    }
 }

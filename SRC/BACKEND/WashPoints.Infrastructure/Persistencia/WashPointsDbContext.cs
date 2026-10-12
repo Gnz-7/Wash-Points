@@ -30,6 +30,7 @@ public sealed class WashPointsDbContext : DbContext
     public DbSet<Cliente> Clientes => Set<Cliente>();
     public DbSet<Pago> Pagos => Set<Pago>();
     public DbSet<Comprobante> Comprobantes => Set<Comprobante>();
+    public DbSet<Outbox> Outbox => Set<Outbox>();
 
     protected override void OnModelCreating(ModelBuilder modelo)
     {
@@ -38,6 +39,7 @@ public sealed class WashPointsDbContext : DbContext
         ConfigurarTurno(modelo.Entity<Turno>());
         modelo.ApplyConfiguration(new Configuraciones.PagoConfig());
         modelo.ApplyConfiguration(new Configuraciones.ComprobanteConfig());
+        modelo.ApplyConfiguration(new Configuraciones.OutboxConfig());
         ConfigurarCatalogo(modelo);
     }
 

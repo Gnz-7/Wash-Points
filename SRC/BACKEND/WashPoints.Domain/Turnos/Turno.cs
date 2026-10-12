@@ -170,6 +170,30 @@ public sealed class Turno
     }
 
     /// <summary>
+    /// Crea el turno de una demanda espontánea (CU-07): nace directamente en
+    /// <see cref="EstadoTurno.EnCurso"/> y ocupa el puesto de inmediato, sin seña
+    /// ni comprobante. Es la única fábrica que no pasa por
+    /// <see cref="EstadoTurno.PendientePago"/> (SPECS/slice-03, decisiones D1/D9).
+    /// </summary>
+    public static Turno CrearEspontaneo(
+        Guid lavaderoId,
+        Guid puestoId,
+        Guid clienteId,
+        Guid tipoLavadoId,
+        DateTime inicioUtc,
+        DateTime finUtc)
+    {
+        var turno = Crear(
+            lavaderoId, puestoId, clienteId, tipoLavadoId, inicioUtc, finUtc,
+            precioSena: 0m, origen: OrigenTurno.Espontanea);
+
+        // El estado inicial lo fija la fábrica (no TransicionarA, que es la vía
+        // de los cambios posteriores). Sin ConfirmadoEn: nunca hubo pago.
+        turno.Estado = EstadoTurno.EnCurso;
+        return turno;
+    }
+
+    /// <summary>
     /// Única forma de cambiar el estado. Toda transición no listada en
     /// ARCHITECTURE §5 lanza <see cref="TurnoTransicionInvalida"/>.
     /// </summary>

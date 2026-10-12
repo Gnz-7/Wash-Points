@@ -1,7 +1,9 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using WashPoints.Api;
+using WashPoints.Api.Hubs;
 using WashPoints.Application.Comprobantes;
+using WashPoints.Application.Espontanea;
 using WashPoints.Application.Pagos;
 using WashPoints.Application.ReservarTurno;
 using WashPoints.Domain.Catalogo;
@@ -34,6 +36,12 @@ builder.Services.AddScoped<IConsultaCatalogo, ConsultaCatalogo>();
 builder.Services.AddScoped<ReservaServicio>();
 builder.Services.AddScoped<WebhookPagoServicio>();
 builder.Services.AddScoped<RespaldoYExpiracionServicio>();
+
+// Demanda espontánea (CU-07, slice-03): escribe el cliente anónimo y la outbox
+// por el mismo Change Tracker que el turno, en un único commit (D8/D12).
+builder.Services.AddScoped<IRegistroClientes, RegistroClientes>();
+builder.Services.AddScoped<IOutbox, OutboxRepositorio>();
+builder.Services.AddScoped<RegistrarDemandaEspontaneaServicio>();
 
 // El worker de respaldo/expiración y la pasarela real se registran en T-17/T-21.
 builder.Services.AddScoped<IPasarelaPagos, PasarelaPagosMercadoPago>();
@@ -69,6 +77,13 @@ builder.Services.AddSingleton(TimeProvider.System);
 // Worker de conciliación (T-21): respaldo a los 3 min y expiración del TTL.
 builder.Services.AddHostedService<WashPoints.Api.WorkerReservas>();
 
+// Sincronización en tiempo real (RB-2, slice-03 T-38): SignalR más el
+// publicador de la outbox. El publicador es scoped (usa el DbContext) y su
+// worker lo bombea en cada tick, en su propio scope.
+builder.Services.AddSignalR();
+builder.Services.AddScoped<PublicadorOutbox>();
+builder.Services.AddHostedService<WashPoints.Api.PublicadorOutboxWorker>();
+
 // Validador de firma del webhook IPN. El secreto va por variable de entorno
 // (Pagos:WebhookSecret, nunca en el repo, AGENTS §3.4). Si falta, se usa un
 // secreto aleatorio de arranque: toda firma entrante se rechaza (401), que es
@@ -93,6 +108,10 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+// Hub de disponibilidad en tiempo real (RB-2): el cliente se une al grupo de su
+// lavadero y recibe `disponibilidadActualizada` cuando cambia la ocupación.
+app.MapHub<DisponibilidadHub>("/hubs/disponibilidad");
 
 // Consulta de disponibilidad (T-07, US-C05 CA-5.1). Devuelve los intervalos
 // ocupados en la hora LOCAL del lavadero: el contrato interno vive en UTC
@@ -212,6 +231,63 @@ app.MapPost("/api/lavaderos/{id:guid}/turnos", async (
     }
 })
 .WithName("ReservarTurno")
+.WithOpenApi();
+
+// Demanda espontánea (CU-07, slice-03 T-36): el local registra a un cliente que
+// llega sin turno. El turno nace `en_curso`, sin seña ni comprobante (RB-1 no
+// aplica a la espontánea, D1/D9). La ocupación y el evento de outbox se
+// persisten juntos (RB-2), de modo que la disponibilidad se sincroniza al
+// instante. Errores: solapamiento -> 409 slot_ya_ocupado; datos inválidos -> 400.
+app.MapPost("/api/lavaderos/{id:guid}/turnos-espontaneos", async (
+    Guid id,
+    SolicitudEspontaneaHttp cuerpo,
+    RegistrarDemandaEspontaneaServicio servicio,
+    CancellationToken ct) =>
+{
+    if (cuerpo.PuestoId == Guid.Empty ||
+        cuerpo.TipoLavadoId == Guid.Empty ||
+        string.IsNullOrWhiteSpace(cuerpo.Inicio))
+    {
+        return Results.BadRequest(new { error = "Faltan datos: puestoId, tipoLavadoId e inicio son obligatorios." });
+    }
+
+    if (!DateTime.TryParse(
+            cuerpo.Inicio,
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None,
+            out var inicioLocal))
+    {
+        return Results.BadRequest(new { error = "El campo 'inicio' debe ser una fecha ISO 8601." });
+    }
+
+    var solicitud = new SolicitudEspontanea(
+        LavaderoId: id,
+        PuestoId: cuerpo.PuestoId,
+        TipoLavadoId: cuerpo.TipoLavadoId,
+        InicioUtc: ConversorHorario.AUtc(inicioLocal));
+
+    try
+    {
+        var turno = await servicio.RegistrarAsync(solicitud, ct);
+        return Results.Created($"/api/turnos/{turno.Id}", new
+        {
+            id = turno.Id,
+            estado = EstadoAJson(turno.Estado),
+            puestoId = turno.PuestoId,
+            desde = ConversorHorario.ALocal(turno.InicioUtc),
+            hasta = ConversorHorario.ALocal(turno.FinUtc),
+        });
+    }
+    catch (TurnoConflictoException ex)
+    {
+        return Results.Conflict(new { error = "slot_ya_ocupado", detalle = ex.Message });
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+})
+.WithName("RegistrarDemandaEspontanea")
 .WithOpenApi();
 
 // Comprobante del turno (RB-3, US-C08 CA-8.4): el cliente recupera el QR y el
@@ -451,6 +527,12 @@ public sealed record SolicitudReservaHttp(
     Guid PuestoId,
     Guid TipoLavadoId,
     Guid ClienteId,
+    string? Inicio);
+
+/// <summary>Cuerpo de la demanda espontánea. `inicio` en hora local del lavadero.</summary>
+public sealed record SolicitudEspontaneaHttp(
+    Guid PuestoId,
+    Guid TipoLavadoId,
     string? Inicio);
 
 /// <summary>Cuerpo del canje: payload QR (<c>washpoints://comprobante/…</c>) o código de respaldo.</summary>

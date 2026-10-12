@@ -37,7 +37,7 @@ public sealed class WorkerTest : IClassFixture<ContenedorPostgres>, IDisposable
 
     private async Task LimpiarTablas() =>
         await _baseDeDatos.EjecutarSqlAsync("""
-            TRUNCATE TABLE comprobantes, pagos, turnos, clientes, puestos, tipos_lavado, lavaderos CASCADE;
+            TRUNCATE TABLE outbox, comprobantes, pagos, turnos, clientes, puestos, tipos_lavado, lavaderos CASCADE;
             """);
 
     private WashPointsDbContext CrearContexto() =>
@@ -52,9 +52,15 @@ public sealed class WorkerTest : IClassFixture<ContenedorPostgres>, IDisposable
             contexto,
             pasarela,
             new WebhookPagoServicio(
-                pasarela, new OcupacionRepositorio(contexto), contexto, CrearEmisor(contexto)),
+                pasarela, new OcupacionRepositorio(contexto), contexto, CrearEmisor(contexto),
+                CrearOutbox(contexto)),
             new OpcionesPago(),
-            new RelojFijo(Ahora));
+            new RelojFijo(Ahora),
+            CrearOutbox(contexto));
+
+    /// <summary>Outbox real sobre el mismo contexto, con reloj fijo (RB-2, slice-03).</summary>
+    private static OutboxRepositorio CrearOutbox(WashPointsDbContext contexto) =>
+        new(contexto, new RelojFijo(Ahora));
 
     /// <summary>
     /// Emisor con clave AES de prueba: el respaldo del worker usa el mismo
@@ -225,7 +231,8 @@ public sealed class WorkerTest : IClassFixture<ContenedorPostgres>, IDisposable
         await using (var contextoWebhook = CrearContexto())
         {
             var webhook = new WebhookPagoServicio(
-                pasarela, new OcupacionRepositorio(contextoWebhook), contextoWebhook, CrearEmisor(contextoWebhook));
+                pasarela, new OcupacionRepositorio(contextoWebhook), contextoWebhook,
+                CrearEmisor(contextoWebhook), CrearOutbox(contextoWebhook));
             await webhook.ProcesarAsync("payment", "pref-1", CancellationToken.None);
         }
 
