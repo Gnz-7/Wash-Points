@@ -31,5 +31,27 @@ public interface IOcupacionRepositorio
         DateTime hastaUtc,
         CancellationToken ct);
 
+    /// <summary>
+    /// ¿Hay algún turno vigente que bloquee el puesto a partir de <paramref name="ahoraUtc"/>?
+    /// Vigente = los estados del EXCLUDE que ocupan (<c>confirmado</c>/<c>en_curso</c>)
+    /// más el <c>pendiente_pago</c> cuya seña no venció (<c>expira_en &gt; ahoraUtc</c>),
+    /// siempre que el turno todavía no haya terminado (<c>upper(rango) &gt; ahoraLocal</c>).
+    /// Es el insumo de D5: no se desactiva un puesto con turnos activos (SPECS/slice-04).
+    /// </summary>
+    Task<bool> TieneTurnosVigentesAsync(
+        Guid lavaderoId,
+        Guid puestoId,
+        DateTime ahoraUtc,
+        CancellationToken ct);
+
+    /// <summary>
+    /// Turnos <c>confirmado</c> cuyo inicio ya cayó dentro de la ventana vencida
+    /// (<c>lower(rango) &lt;= limiteLocal</c>). El llamador pasa
+    /// <c>limiteUtc = ahora - ventana</c>. Insumo del worker de no_presentado.
+    /// </summary>
+    Task<IReadOnlyList<Turno>> ListarConfirmadosVencidosAsync(
+        DateTime limiteUtc,
+        CancellationToken ct);
+
     Task GuardarAsync(CancellationToken ct);
 }

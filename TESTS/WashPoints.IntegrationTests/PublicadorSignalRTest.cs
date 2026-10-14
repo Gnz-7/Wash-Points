@@ -83,6 +83,7 @@ public sealed class PublicadorSignalRTest : IClassFixture<ContenedorPostgres>, I
                          {
                              typeof(WashPoints.Api.WorkerReservas),
                              typeof(WashPoints.Api.PublicadorOutboxWorker),
+                             typeof(WashPoints.Api.WorkerAgenda),
                          })
                 {
                     var descriptor = servicios.SingleOrDefault(d => d.ImplementationType == tipo);

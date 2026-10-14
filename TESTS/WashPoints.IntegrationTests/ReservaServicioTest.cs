@@ -39,7 +39,7 @@ public sealed class ReservaServicioTest : IClassFixture<ContenedorPostgres>, IDi
 
     private async Task LimpiarTablas() =>
         await _baseDeDatos.EjecutarSqlAsync("""
-            TRUNCATE TABLE pagos, turnos, clientes, puestos, tipos_lavado, lavaderos CASCADE;
+            TRUNCATE TABLE outbox, pagos, turnos, clientes, puestos, tipos_lavado, lavaderos CASCADE;
             """);
 
     private WashPointsDbContext CrearContexto() =>
@@ -67,6 +67,7 @@ public sealed class ReservaServicioTest : IClassFixture<ContenedorPostgres>, IDi
             new OcupacionRepositorio(contexto),
             new UnidadDeTrabajo(contexto),
             new ConsultaCatalogo(contexto),
+            new OutboxRepositorio(contexto, new RelojFijo(Ahora)),
             pasarela,
             new OpcionesPago(),
             new RelojFijo(Ahora));

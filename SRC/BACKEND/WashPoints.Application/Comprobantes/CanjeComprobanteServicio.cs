@@ -25,6 +25,7 @@ public sealed class CanjeComprobanteServicio
     private readonly IComprobanteRepositorio _comprobantes;
     private readonly IGeneradorComprobante _generador;
     private readonly IUnidadDeTrabajo _unidadDeTrabajo;
+    private readonly IOutbox _outbox;
     private readonly TimeProvider _reloj;
 
     public CanjeComprobanteServicio(
@@ -32,12 +33,14 @@ public sealed class CanjeComprobanteServicio
         IComprobanteRepositorio comprobantes,
         IGeneradorComprobante generador,
         IUnidadDeTrabajo unidadDeTrabajo,
+        IOutbox outbox,
         TimeProvider reloj)
     {
         _turnos = turnos;
         _comprobantes = comprobantes;
         _generador = generador;
         _unidadDeTrabajo = unidadDeTrabajo;
+        _outbox = outbox;
         _reloj = reloj;
     }
 
@@ -99,6 +102,19 @@ public sealed class CanjeComprobanteServicio
             }
 
             turno.TransicionarA(EstadoTurno.EnCurso);
+
+            // RB-2 (SPECS/slice-04 §5.3): el canje no cambia la ocupación (el
+            // turno ya ocupaba), pero sí la agenda. En el mismo commit que la
+            // transición (D-04.10).
+            _outbox.Encolar(new EventoAgenda(
+                turno.Id,
+                turno.LavaderoId,
+                turno.PuestoId,
+                turno.Origen,
+                turno.Estado,
+                turno.InicioUtc,
+                turno.FinUtc));
+
             await _turnos.GuardarAsync(token_cancelacion);
 
             return new ResultadoCanje(turno.Id, turno.Estado, ahora);

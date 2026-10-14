@@ -26,6 +26,13 @@ public sealed class DisponibilidadHub : Hub
     /// <summary>Nombre del grupo SignalR de un lavadero. Único para todos los emisores.</summary>
     public static string GrupoDe(Guid lavaderoId) => $"lavadero-{lavaderoId}";
 
+    /// <summary>
+    /// Grupo SignalR de la agenda del lavadero (D-04.5, slice-04 T-48): canal
+    /// separado del de disponibilidad. El panel administrativo se suscribe acá
+    /// y recibe <c>agendaActualizada</c>, no <c>disponibilidadActualizada</c>.
+    /// </summary>
+    public static string GrupoAgendaDe(Guid lavaderoId) => $"agenda-{lavaderoId}";
+
     /// <summary>Suscribe la conexión a los cambios de ocupación del lavadero.</summary>
     public Task UnirseALavadero(Guid lavaderoId) =>
         Groups.AddToGroupAsync(Context.ConnectionId, GrupoDe(lavaderoId));
@@ -33,6 +40,14 @@ public sealed class DisponibilidadHub : Hub
     /// <summary>Da de baja la conexión del grupo del lavadero.</summary>
     public Task SalirDeLavadero(Guid lavaderoId) =>
         Groups.RemoveFromGroupAsync(Context.ConnectionId, GrupoDe(lavaderoId));
+
+    /// <summary>Suscribe la conexión a los cambios de agenda del lavadero.</summary>
+    public Task UnirseAAgenda(Guid lavaderoId) =>
+        Groups.AddToGroupAsync(Context.ConnectionId, GrupoAgendaDe(lavaderoId));
+
+    /// <summary>Da de baja la conexión del grupo de agenda del lavadero.</summary>
+    public Task SalirDeAgenda(Guid lavaderoId) =>
+        Groups.RemoveFromGroupAsync(Context.ConnectionId, GrupoAgendaDe(lavaderoId));
 
     /// <summary>
     /// Ocupación vigente del lavadero en el rango pedido. El cliente piensa en

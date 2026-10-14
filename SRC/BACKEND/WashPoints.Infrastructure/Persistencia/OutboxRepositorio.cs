@@ -16,6 +16,9 @@ public sealed class OutboxRepositorio : IOutbox
     /// <summary>Nombre del evento de ocupación (D11). Espeja el de Application.</summary>
     private const string TipoEventoOcupacion = "ocupacion_cambiada";
 
+    /// <summary>Nombre del evento de agenda (D-04.5).</summary>
+    private const string TipoEventoAgenda = "agenda_cambiada";
+
     // Payload legible e inspeccionable: camelCase y enums en snake_case, para
     // que `outbox.payload` sea consistente con el contrato de §7.3 (D11).
     private static readonly JsonSerializerOptions OpcionesJson = new(JsonSerializerDefaults.Web)
@@ -32,11 +35,17 @@ public sealed class OutboxRepositorio : IOutbox
         _reloj = reloj;
     }
 
-    public void Encolar(EventoOcupacion evento)
+    public void Encolar(EventoOcupacion evento) =>
+        Agregar(TipoEventoOcupacion, evento);
+
+    public void Encolar(EventoAgenda evento) =>
+        Agregar(TipoEventoAgenda, evento);
+
+    private void Agregar<T>(string tipo, T evento)
     {
         var payload = JsonSerializer.Serialize(evento, OpcionesJson);
         var creadoEn = _reloj.GetUtcNow().UtcDateTime;
 
-        _contexto.Outbox.Add(Outbox.ParaEvento(TipoEventoOcupacion, payload, creadoEn));
+        _contexto.Outbox.Add(Outbox.ParaEvento(tipo, payload, creadoEn));
     }
 }

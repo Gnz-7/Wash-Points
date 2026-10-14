@@ -2,6 +2,8 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using WashPoints.Api;
 using WashPoints.Api.Hubs;
+using WashPoints.Application.Agenda;
+using WashPoints.Application.Catalogo;
 using WashPoints.Application.Comprobantes;
 using WashPoints.Application.Espontanea;
 using WashPoints.Application.Pagos;
@@ -33,6 +35,13 @@ builder.Services.AddScoped<IDisponibilidadConsulta, DisponibilidadConsulta>();
 builder.Services.AddScoped<IOcupacionRepositorio, OcupacionRepositorio>();
 builder.Services.AddScoped<IUnidadDeTrabajo, UnidadDeTrabajo>();
 builder.Services.AddScoped<IConsultaCatalogo, ConsultaCatalogo>();
+
+// Gestión de puestos y agenda (CU-05/CU-06, slice-04).
+builder.Services.AddScoped<IPuestoRepositorio, PuestoRepositorio>();
+builder.Services.AddScoped<IConsultaAgenda, ConsultaAgenda>();
+builder.Services.AddScoped<GestionPuestosServicio>();
+builder.Services.AddScoped<AgendaServicio>();
+builder.Services.AddScoped<CierreAgendaServicio>();
 builder.Services.AddScoped<ReservaServicio>();
 builder.Services.AddScoped<WebhookPagoServicio>();
 builder.Services.AddScoped<RespaldoYExpiracionServicio>();
@@ -50,6 +59,11 @@ builder.Services.AddScoped<IPasarelaPagos, PasarelaPagosMercadoPago>();
 var opcionesPago = builder.Configuration.GetSection("Pagos").Get<OpcionesPago>()
     ?? new OpcionesPago();
 builder.Services.AddSingleton(opcionesPago);
+
+// Ventana de llegada del cierre de agenda (sección "Agenda", slice-04 T-47).
+var opcionesAgenda = builder.Configuration.GetSection(OpcionesAgenda.Seccion).Get<OpcionesAgenda>()
+    ?? new OpcionesAgenda();
+builder.Services.AddSingleton(opcionesAgenda);
 
 // Comprobantes (RB-3, slice-02): generador de tokens, cifrado del token en
 // reposo y emisión enganchada a la confirmación de la seña. La clave AES-256 va
@@ -76,6 +90,9 @@ builder.Services.AddSingleton(TimeProvider.System);
 
 // Worker de conciliación (T-21): respaldo a los 3 min y expiración del TTL.
 builder.Services.AddHostedService<WashPoints.Api.WorkerReservas>();
+
+// Worker de cierre de agenda (T-47): confirmado vencido -> no_presentado.
+builder.Services.AddHostedService<WashPoints.Api.WorkerAgenda>();
 
 // Sincronización en tiempo real (RB-2, slice-03 T-38): SignalR más el
 // publicador de la outbox. El publicador es scoped (usa el DbContext) y su
@@ -429,6 +446,203 @@ app.MapPost("/api/lavaderos/{id:guid}/comprobantes/reconciliar", async (
 .WithName("ReconciliarComprobantes")
 .WithOpenApi();
 
+// Gestión de puestos de lavado (CU-05, SPECS/slice-04 T-44). El admin crea,
+// lista, desactiva y reactiva puestos. Desactivar un puesto con turnos vigentes
+// se rechaza con 409 puesto_con_turnos_activos (D5): la regla la decide el
+// servicio, no el endpoint. Un puesto de otro lavadero es indistinguible de
+// inexistente (404, D-04.7).
+app.MapGet("/api/lavaderos/{id:guid}/puestos", async (
+    Guid id,
+    GestionPuestosServicio servicio,
+    CancellationToken ct) =>
+{
+    var puestos = await servicio.ListarAsync(id, ct);
+    return Results.Ok(puestos.Select(PuestoAJson));
+})
+.WithName("ListarPuestos")
+.WithOpenApi();
+
+app.MapPost("/api/lavaderos/{id:guid}/puestos", async (
+    Guid id,
+    SolicitudPuestoHttp cuerpo,
+    GestionPuestosServicio servicio,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var puesto = await servicio.CrearAsync(id, cuerpo.Nombre ?? string.Empty, ct);
+        return Results.Created($"/api/lavaderos/{id}/puestos/{puesto.Id}", PuestoAJson(puesto));
+    }
+    catch (PuestoDuplicadoException)
+    {
+        return Results.Conflict(new { error = "puesto_ya_existe" });
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+})
+.WithName("CrearPuesto")
+.WithOpenApi();
+
+app.MapPost("/api/lavaderos/{id:guid}/puestos/{puestoId:guid}/desactivar", async (
+    Guid id,
+    Guid puestoId,
+    GestionPuestosServicio servicio,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var puesto = await servicio.DesactivarAsync(id, puestoId, ct);
+        return Results.Ok(PuestoAJson(puesto));
+    }
+    catch (PuestoNoEncontradoException)
+    {
+        return Results.NotFound(new { error = "puesto_no_encontrado" });
+    }
+    catch (PuestoConTurnosActivosException ex)
+    {
+        return Results.Conflict(new { error = "puesto_con_turnos_activos", detalle = ex.Message });
+    }
+})
+.WithName("DesactivarPuesto")
+.WithOpenApi();
+
+app.MapPost("/api/lavaderos/{id:guid}/puestos/{puestoId:guid}/activar", async (
+    Guid id,
+    Guid puestoId,
+    GestionPuestosServicio servicio,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var puesto = await servicio.ActivarAsync(id, puestoId, ct);
+        return Results.Ok(PuestoAJson(puesto));
+    }
+    catch (PuestoNoEncontradoException)
+    {
+        return Results.NotFound(new { error = "puesto_no_encontrado" });
+    }
+})
+.WithName("ActivarPuesto")
+.WithOpenApi();
+
+// Agenda del lavadero (CU-06, SPECS/slice-04 T-46). Lista los turnos del día en
+// la hora LOCAL del lavadero (mismo contrato que disponibilidad, §10.6): `fecha`
+// es un día local; `puestoId` y `estado` son filtros opcionales. Sin `fecha` se
+// usa el día de hoy. Ver §5.1.
+app.MapGet("/api/lavaderos/{id:guid}/agenda", async (
+    Guid id,
+    string? fecha,
+    Guid? puestoId,
+    string? estado,
+    AgendaServicio servicio,
+    CancellationToken ct) =>
+{
+    DateOnly dia;
+    if (string.IsNullOrWhiteSpace(fecha))
+    {
+        dia = DateOnly.FromDateTime(ConversorHorario.ALocal(DateTime.UtcNow));
+    }
+    else if (!DateOnly.TryParseExact(
+                 fecha,
+                 "yyyy-MM-dd",
+                 System.Globalization.CultureInfo.InvariantCulture,
+                 System.Globalization.DateTimeStyles.None,
+                 out dia))
+    {
+        return Results.BadRequest(new { error = "fecha_invalida" });
+    }
+
+    EstadoTurno? estadoFiltro = null;
+    if (!string.IsNullOrWhiteSpace(estado))
+    {
+        if (!TryParseEstado(estado, out var parseado))
+        {
+            return Results.BadRequest(new { error = "estado_invalido" });
+        }
+
+        estadoFiltro = parseado;
+    }
+
+    var inicioLocal = dia.ToDateTime(TimeOnly.MinValue);
+    var desdeUtc = ConversorHorario.AUtc(inicioLocal);
+    var hastaUtc = ConversorHorario.AUtc(inicioLocal.AddDays(1));
+
+    var agenda = await servicio.ObtenerAsync(id, desdeUtc, hastaUtc, puestoId, estadoFiltro, ct);
+
+    return Results.Ok(agenda.Select(TurnoAgendaAJson));
+})
+.WithName("ConsultarAgenda")
+.WithOpenApi();
+
+// Ciclo de vida del turno desde la agenda (CU-06, US-A06): finalizar (en_curso),
+// cancelar (confirmado, D-04.3) y no_presentado manual (confirmado). Toda
+// transición pasa por Turno.TransicionarA; una no permitida da 409
+// turno_transicion_invalida. Un turno de otro lavadero es 404 (D-04.7).
+app.MapPost("/api/lavaderos/{id:guid}/turnos/{turnoId:guid}/finalizar", async (
+    Guid id,
+    Guid turnoId,
+    AgendaServicio servicio,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var turno = await servicio.FinalizarAsync(id, turnoId, ct);
+        return turno is null
+            ? Results.NotFound(new { error = "turno_no_encontrado" })
+            : Results.Ok(new { turnoId = turno.Id, estado = EstadoAJson(turno.Estado) });
+    }
+    catch (TurnoTransicionInvalida ex)
+    {
+        return Results.Conflict(new { error = "turno_transicion_invalida", detalle = ex.Message });
+    }
+})
+.WithName("FinalizarTurno")
+.WithOpenApi();
+
+app.MapPost("/api/lavaderos/{id:guid}/turnos/{turnoId:guid}/cancelar", async (
+    Guid id,
+    Guid turnoId,
+    AgendaServicio servicio,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var turno = await servicio.CancelarAsync(id, turnoId, ct);
+        return turno is null
+            ? Results.NotFound(new { error = "turno_no_encontrado" })
+            : Results.Ok(new { turnoId = turno.Id, estado = EstadoAJson(turno.Estado) });
+    }
+    catch (TurnoTransicionInvalida ex)
+    {
+        return Results.Conflict(new { error = "turno_transicion_invalida", detalle = ex.Message });
+    }
+})
+.WithName("CancelarTurno")
+.WithOpenApi();
+
+app.MapPost("/api/lavaderos/{id:guid}/turnos/{turnoId:guid}/no-presentado", async (
+    Guid id,
+    Guid turnoId,
+    AgendaServicio servicio,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var turno = await servicio.MarcarNoPresentadoAsync(id, turnoId, ct);
+        return turno is null
+            ? Results.NotFound(new { error = "turno_no_encontrado" })
+            : Results.Ok(new { turnoId = turno.Id, estado = EstadoAJson(turno.Estado) });
+    }
+    catch (TurnoTransicionInvalida ex)
+    {
+        return Results.Conflict(new { error = "turno_transicion_invalida", detalle = ex.Message });
+    }
+})
+.WithName("MarcarNoPresentado")
+.WithOpenApi();
+
 // Webhook IPN de Mercado Pago (T-17..T-19). Es la ÚNICA puerta de confirmación
 // de un turno (RB-1, AGENTS §2.4): el retorno del navegador del cliente no
 // confirma nada. Secuencia: extraer el pago notificado, validar la firma HMAC
@@ -522,12 +736,72 @@ static string EstadoAJson(EstadoTurno estado) => estado switch
     _ => estado.ToString().ToLowerInvariant(),
 };
 
+/// <summary>Proyección JSON de un puesto (CU-05, §5.1).</summary>
+static object PuestoAJson(Puesto puesto) => new
+{
+    id = puesto.Id,
+    nombre = puesto.Nombre,
+    activo = puesto.Activo,
+};
+
+/// <summary>Proyección JSON de un turno de agenda (CU-06, §5.1): hora local.</summary>
+static object TurnoAgendaAJson(TurnoAgenda turno) => new
+{
+    turnoId = turno.TurnoId,
+    puestoId = turno.PuestoId,
+    puesto = turno.Puesto,
+    tipoLavado = turno.TipoLavado,
+    origen = turno.Origen switch
+    {
+        OrigenTurno.App => "app",
+        _ => "espontanea",
+    },
+    estado = EstadoAJson(turno.Estado),
+    desde = ConversorHorario.ALocal(turno.InicioUtc),
+    hasta = ConversorHorario.ALocal(turno.FinUtc),
+};
+
+/// <summary>Parsea el filtro de estado de la agenda en su forma snake_case (§5.1).</summary>
+static bool TryParseEstado(string valor, out EstadoTurno estado)
+{
+    switch (valor)
+    {
+        case "pendiente_pago":
+            estado = EstadoTurno.PendientePago;
+            return true;
+        case "confirmado":
+            estado = EstadoTurno.Confirmado;
+            return true;
+        case "en_curso":
+            estado = EstadoTurno.EnCurso;
+            return true;
+        case "finalizado":
+            estado = EstadoTurno.Finalizado;
+            return true;
+        case "cancelado":
+            estado = EstadoTurno.Cancelado;
+            return true;
+        case "no_presentado":
+            estado = EstadoTurno.NoPresentado;
+            return true;
+        case "expirado":
+            estado = EstadoTurno.Expirado;
+            return true;
+        default:
+            estado = default;
+            return false;
+    }
+}
+
 /// <summary>Cuerpo de la solicitud de reserva. `inicio` en hora local del lavadero.</summary>
 public sealed record SolicitudReservaHttp(
     Guid PuestoId,
     Guid TipoLavadoId,
     Guid ClienteId,
     string? Inicio);
+
+/// <summary>Cuerpo de la creación de puesto (CU-05).</summary>
+public sealed record SolicitudPuestoHttp(string? Nombre);
 
 /// <summary>Cuerpo de la demanda espontánea. `inicio` en hora local del lavadero.</summary>
 public sealed record SolicitudEspontaneaHttp(

@@ -83,6 +83,14 @@ public sealed class RegistrarDemandaEspontaneaServicio
                 turno.Estado,
                 turno.InicioUtc,
                 turno.FinUtc));
+            _outbox.Encolar(new EventoAgenda(
+                turno.Id,
+                turno.LavaderoId,
+                turno.PuestoId,
+                turno.Origen,
+                turno.Estado,
+                turno.InicioUtc,
+                turno.FinUtc));
 
             // Único flush: cliente + turno + outbox en la misma transacción (D12).
             await _repositorio.GuardarAsync(ctTransaccion);

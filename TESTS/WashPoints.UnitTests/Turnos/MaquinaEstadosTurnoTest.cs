@@ -22,6 +22,7 @@ public sealed class MaquinaEstadosTurnoTest
         { EstadoTurno.PendientePago, EstadoTurno.Expirado },
         { EstadoTurno.Confirmado, EstadoTurno.EnCurso },
         { EstadoTurno.Confirmado, EstadoTurno.NoPresentado },
+        { EstadoTurno.Confirmado, EstadoTurno.Cancelado },
         { EstadoTurno.EnCurso, EstadoTurno.Finalizado },
     };
 
@@ -51,6 +52,9 @@ public sealed class MaquinaEstadosTurnoTest
 
         // No se puede saltar de pago directo a atención sin validar el QR.
         { EstadoTurno.Confirmado, EstadoTurno.Finalizado },
+
+        // Una vez iniciada la atención, no se cancela: se finaliza.
+        { EstadoTurno.EnCurso, EstadoTurno.Cancelado },
     };
 
     [Fact]

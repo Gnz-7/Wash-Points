@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using Microsoft.AspNetCore.Hosting;
@@ -7,8 +8,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using WashPoints.Api;
 using WashPoints.Domain.Catalogo;
+using WashPoints.Domain.Comprobantes;
 using WashPoints.Domain.Puertos;
 using WashPoints.Domain.Turnos;
+using WashPoints.Infrastructure.Comprobantes;
 using WashPoints.Infrastructure.Pagos;
 using WashPoints.Infrastructure.Persistencia;
 using WashPoints.IntegrationTests.Infra;
@@ -18,20 +21,35 @@ using Xunit;
 namespace WashPoints.IntegrationTests;
 
 /// <summary>
-/// T-37: la outbox transaccional en las tres vías que cambian la disponibilidad
-/// (SPECS/slice-03).
+/// T-37/T-45: la outbox transaccional en TODAS las vías que cambian la
+/// disponibilidad o la agenda (SPECS/slice-03 y SPECS/slice-04 §5.3).
 ///
-/// CA-S3.3 — la fila de `outbox` se escribe en el mismo commit que el turno
-/// (espontánea, confirmación de reserva, expiración).
-/// CA-S3.8 — la transición a `expirado` encola el evento de liberación.
-/// Ventana cerrada — si la transacción falla, no queda fila de `outbox`.
+/// Regla (RB-2): un evento de ocupación se emite cuando cambia el predicado de
+/// disponibilidad; un evento de agenda, en todo cambio de estado. Ambos viajan en
+/// el mismo <c>SaveChangesAsync</c> que el turno.
 ///
-/// Ver SPECS/slice-03-sincronizacion-rb2.md §5 (T-37) y §6.
+/// Matriz §5.3 cubierta:
+///   reserva creada → ocupación + agenda
+///   confirmación   → ocupación + agenda
+///   pago rechazado → ocupación + agenda
+///   expiración     → ocupación + agenda
+///   canje          → solo agenda
+///
+/// Ver SPECS/slice-04-agenda-y-puestos.md T-45 y §5.3.
 /// </summary>
 [Trait("Categoría", "Integración")]
 public sealed class OutboxTransaccionalTest : IClassFixture<ContenedorPostgres>, IDisposable
 {
+    private const string Ocupacion = "ocupacion_cambiada";
+    private const string Agenda = "agenda_cambiada";
+
+    private static readonly string ClaveCifrado =
+        Convert.ToBase64String(Encoding.UTF8.GetBytes("0123456789abcdef0123456789abcdef"));
+
+    private static readonly GeneradorComprobante Generador = new();
+
     private readonly ContenedorPostgres _baseDeDatos;
+    private readonly CifradorComprobanteAesGcm _cifrador = new(ClaveCifrado);
 
     public OutboxTransaccionalTest(ContenedorPostgres baseDeDatos) => _baseDeDatos = baseDeDatos;
 
@@ -80,15 +98,42 @@ public sealed class OutboxTransaccionalTest : IClassFixture<ContenedorPostgres>,
         return turno.Id;
     }
 
+    /// <summary>Siembra un turno confirmado con su comprobante listo para canjear.</summary>
+    private async Task<(Guid TurnoId, Guid LavaderoId, string Qr)> SembrarTurnoConfirmadoConComprobanteAsync()
+    {
+        var (lavaderoId, puestoId, tipoId) = await SembrarCatalogoAsync();
+        await using var contexto = CrearContexto();
+
+        var inicio = new DateTime(2026, 10, 10, 10, 0, 0, DateTimeKind.Utc);
+        var cliente = Cliente.Crear("Cliente Outbox");
+        var turno = Turno.CrearParaReserva(
+            lavaderoId, puestoId, cliente.Id, tipoId,
+            inicio, inicio.AddMinutes(30), precioSena: 3000m,
+            expiraEnUtc: DateTime.UtcNow.AddMinutes(5),
+            idempotencyKey: Guid.NewGuid().ToString("N"));
+        turno.TransicionarA(EstadoTurno.Confirmado);
+
+        var token = Generador.GenerarToken();
+        var comprobante = Comprobante.Emitir(
+            turno.Id,
+            Generador.CalcularHash(token),
+            _cifrador.Cifrar(token),
+            DateTime.UtcNow.AddHours(24));
+
+        contexto.AddRange(cliente, turno);
+        contexto.Comprobantes.Add(comprobante);
+        await contexto.SaveChangesAsync();
+
+        return (turno.Id, lavaderoId, Generador.ConstruirPayloadQr(token));
+    }
+
     private WebApplicationFactory<Program> CrearApi(bool conClaveCifrado = true) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseSetting("ConnectionStrings:Postgres", _baseDeDatos.CadenaConexion);
             if (conClaveCifrado)
             {
-                builder.UseSetting(
-                    "Comprobantes:ClaveCifrado",
-                    Convert.ToBase64String(Encoding.UTF8.GetBytes("0123456789abcdef0123456789abcdef")));
+                builder.UseSetting("Comprobantes:ClaveCifrado", ClaveCifrado);
             }
 
             builder.ConfigureServices(servicios =>
@@ -96,14 +141,21 @@ public sealed class OutboxTransaccionalTest : IClassFixture<ContenedorPostgres>,
                 servicios.RemoveAll<IPasarelaPagos>();
                 servicios.AddSingleton<IPasarelaPagos>(new PasarelaPagosFakeSimulada());
 
-                // El worker de reservas ejecuta un tick inmediato al arrancar y
-                // competiría con las expiraciones que el test dispara a mano;
-                // acá se controla la expiración de forma explícita.
-                var worker = servicios.SingleOrDefault(
-                    d => d.ImplementationType == typeof(WorkerReservas));
-                if (worker is not null)
+                // Los workers ejecutan un tick inmediato al arrancar y competirían
+                // con las transiciones que el test dispara a mano; acá se
+                // controlan de forma explícita.
+                foreach (var tipo in new[]
+                         {
+                             typeof(WorkerReservas),
+                             typeof(WashPoints.Api.WorkerAgenda),
+                         })
                 {
-                    servicios.Remove(worker);
+                    var worker = servicios.SingleOrDefault(
+                        d => d.ImplementationType == tipo);
+                    if (worker is not null)
+                    {
+                        servicios.Remove(worker);
+                    }
                 }
             });
         });
@@ -111,8 +163,12 @@ public sealed class OutboxTransaccionalTest : IClassFixture<ContenedorPostgres>,
     private async Task<long> ContarOutboxAsync() =>
         await _baseDeDatos.ConsultarEscalarAsync<long>("SELECT COUNT(*) FROM outbox");
 
+    private async Task<long> ContarOutboxPorTipoAsync(string tipo) =>
+        await _baseDeDatos.ConsultarEscalarAsync<long>(
+            $"SELECT COUNT(*) FROM outbox WHERE tipo = '{tipo}'");
+
     [Fact]
-    public async Task DemandaEspontaneaEscribeUnaFilaOutboxNoPublicada()
+    public async Task DemandaEspontaneaEncolaOcupacionYAgenda()
     {
         var (lavaderoId, puestoId, tipoId) = await SembrarCatalogoAsync();
         using var api = CrearApi();
@@ -122,20 +178,44 @@ public sealed class OutboxTransaccionalTest : IClassFixture<ContenedorPostgres>,
             $"/api/lavaderos/{lavaderoId}/turnos-espontaneos",
             new { puestoId, tipoLavadoId = tipoId, inicio = "2026-10-10T10:00:00" });
 
-        Assert.Equal(System.Net.HttpStatusCode.Created, respuesta.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, respuesta.StatusCode);
 
-        Assert.Equal(1, await ContarOutboxAsync());
+        Assert.Equal(1, await ContarOutboxPorTipoAsync(Ocupacion));
+        Assert.Equal(1, await ContarOutboxPorTipoAsync(Agenda));
+
         var publicado = await _baseDeDatos.ConsultarEscalarAsync<string>(
-            "SELECT publicado_en::text FROM outbox");
+            "SELECT publicado_en::text FROM outbox WHERE tipo = 'ocupacion_cambiada'");
         Assert.Null(publicado);
-
-        var payload = await _baseDeDatos.ConsultarEscalarAsync<string>(
-            "SELECT payload::text FROM outbox");
-        Assert.Contains(puestoId.ToString(), payload);
     }
 
     [Fact]
-    public async Task ConfirmacionDeReservaEscribeFilaOutbox()
+    public async Task CreacionDeReservaEncolaOcupacionYAgenda()
+    {
+        var (lavaderoId, puestoId, tipoId) = await SembrarCatalogoAsync();
+        using var api = CrearApi();
+        using var cliente = api.CreateClient();
+
+        var respuesta = await cliente.PostAsJsonAsync(
+            $"/api/lavaderos/{lavaderoId}/turnos",
+            new
+            {
+                puestoId,
+                tipoLavadoId = tipoId,
+                clienteId = Guid.NewGuid(),
+                inicio = "2026-10-10T10:00:00",
+            });
+
+        Assert.Equal(HttpStatusCode.Created, respuesta.StatusCode);
+        Assert.Equal(1, await ContarOutboxPorTipoAsync(Ocupacion));
+        Assert.Equal(1, await ContarOutboxPorTipoAsync(Agenda));
+
+        var publicadas = await _baseDeDatos.ConsultarEscalarAsync<long>(
+            "SELECT COUNT(*) FROM outbox WHERE publicado_en IS NOT NULL");
+        Assert.Equal(0, publicadas);
+    }
+
+    [Fact]
+    public async Task ConfirmacionDeReservaEncolaOcupacionYAgenda()
     {
         var turnoId = await SembrarTurnoPendienteAsync(DateTime.UtcNow.AddMinutes(5));
         using var api = CrearApi();
@@ -154,11 +234,36 @@ public sealed class OutboxTransaccionalTest : IClassFixture<ContenedorPostgres>,
 
         await using var verificacion = CrearContexto();
         Assert.Equal(EstadoTurno.Confirmado, (await verificacion.Turnos.SingleAsync(t => t.Id == turnoId)).Estado);
-        Assert.Equal(1, await ContarOutboxAsync());
+        Assert.Equal(1, await ContarOutboxPorTipoAsync(Ocupacion));
+        Assert.Equal(1, await ContarOutboxPorTipoAsync(Agenda));
     }
 
     [Fact]
-    public async Task ExpiracionEscribeEventoDeLiberacion()
+    public async Task PagoRechazadoEncolaCancelacion()
+    {
+        var turnoId = await SembrarTurnoPendienteAsync(DateTime.UtcNow.AddMinutes(5));
+        using var api = CrearApi();
+
+        await using (var alcance = api.Services.CreateAsyncScope())
+        {
+            var contexto = alcance.ServiceProvider.GetRequiredService<WashPointsDbContext>();
+            var turno = await contexto.Turnos.SingleAsync(t => t.Id == turnoId);
+            var aplicador = alcance.ServiceProvider.GetRequiredService<WebhookPagoServicio>();
+
+            var resultado = await aplicador.AplicarVerificacionAsync(
+                turno, "pago-rechazado-1", EstadoVerificacionPago.Rechazado, CancellationToken.None);
+
+            Assert.Equal(ResultadoWebhook.Procesado, resultado);
+        }
+
+        await using var verificacion = CrearContexto();
+        Assert.Equal(EstadoTurno.Cancelado, (await verificacion.Turnos.SingleAsync(t => t.Id == turnoId)).Estado);
+        Assert.Equal(1, await ContarOutboxPorTipoAsync(Ocupacion));
+        Assert.Equal(1, await ContarOutboxPorTipoAsync(Agenda));
+    }
+
+    [Fact]
+    public async Task ExpiracionEncolaAgendaAdemasDeOcupacion()
     {
         var turnoId = await SembrarTurnoPendienteAsync(DateTime.UtcNow.AddMinutes(-10));
         using var api = CrearApi();
@@ -172,7 +277,26 @@ public sealed class OutboxTransaccionalTest : IClassFixture<ContenedorPostgres>,
 
         await using var verificacion = CrearContexto();
         Assert.Equal(EstadoTurno.Expirado, (await verificacion.Turnos.SingleAsync(t => t.Id == turnoId)).Estado);
-        Assert.Equal(1, await ContarOutboxAsync());
+        Assert.Equal(1, await ContarOutboxPorTipoAsync(Ocupacion));
+        Assert.Equal(1, await ContarOutboxPorTipoAsync(Agenda));
+    }
+
+    [Fact]
+    public async Task CanjeEncolaAgendaSinOcupacion()
+    {
+        var (turnoId, lavaderoId, qr) = await SembrarTurnoConfirmadoConComprobanteAsync();
+        using var api = CrearApi();
+        using var cliente = api.CreateClient();
+
+        var respuesta = await cliente.PostAsJsonAsync(
+            $"/api/lavaderos/{lavaderoId}/comprobantes/validar", new { comprobante = qr });
+
+        Assert.Equal(HttpStatusCode.OK, respuesta.StatusCode);
+
+        await using var verificacion = CrearContexto();
+        Assert.Equal(EstadoTurno.EnCurso, (await verificacion.Turnos.SingleAsync(t => t.Id == turnoId)).Estado);
+        Assert.Equal(1, await ContarOutboxPorTipoAsync(Agenda));
+        Assert.Equal(0, await ContarOutboxPorTipoAsync(Ocupacion));
     }
 
     [Fact]

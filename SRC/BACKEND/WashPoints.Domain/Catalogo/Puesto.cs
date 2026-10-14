@@ -35,4 +35,10 @@ public sealed class Puesto
             Nombre = nombre.Trim(),
         };
     }
+
+    /// <summary>Habilita el puesto para nuevas reservas. Idempotente.</summary>
+    public void Activar() => Activo = true;
+
+    /// <summary>Deshabilita el puesto para nuevas reservas. Idempotente.</summary>
+    public void Desactivar() => Activo = false;
 }

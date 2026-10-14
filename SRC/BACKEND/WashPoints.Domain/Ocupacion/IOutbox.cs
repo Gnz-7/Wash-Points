@@ -14,4 +14,6 @@ namespace WashPoints.Domain.Ocupacion;
 public interface IOutbox
 {
     void Encolar(EventoOcupacion evento);
+
+    void Encolar(EventoAgenda evento);
 }

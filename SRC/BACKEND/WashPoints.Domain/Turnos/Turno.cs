@@ -31,6 +31,9 @@ public sealed class Turno
             {
                 EstadoTurno.EnCurso,      // canje del comprobante (RB-3)
                 EstadoTurno.NoPresentado, // venció la ventana de llegada
+                // Cancelación administrativa de un turno ya pagado (SPECS/slice-04,
+                // D-04.3). No hay reembolso automático: eso queda abierto en §10.1.
+                EstadoTurno.Cancelado,
             },
             [EstadoTurno.EnCurso] = new HashSet<EstadoTurno>
             {

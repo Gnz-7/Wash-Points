@@ -104,6 +104,16 @@ public sealed class RespaldoYExpiracionServicio
                 turno.Estado,
                 turno.InicioUtc,
                 turno.FinUtc));
+
+            // SPECS/slice-04 §5.3: la expiración también cambia la agenda.
+            _outbox.Encolar(new EventoAgenda(
+                turno.Id,
+                turno.LavaderoId,
+                turno.PuestoId,
+                turno.Origen,
+                turno.Estado,
+                turno.InicioUtc,
+                turno.FinUtc));
         }
 
         if (vencidos.Count > 0)

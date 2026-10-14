@@ -37,6 +37,30 @@ public sealed class OcupacionRepositorio : IOcupacionRepositorio
         ORDER BY lower(rango)
         """;
 
+    private const string SqlTieneTurnosVigentes = """
+        SELECT id, lavadero_id, puesto_id, cliente_id, tipo_lavado_id,
+               rango, estado, origen, precio_sena, mp_preference_id,
+               expira_en, idempotency_key, creado_en, confirmado_en, cerrado_en
+        FROM turnos
+        WHERE lavadero_id = {0}
+          AND puesto_id = {1}
+          AND (
+                estado IN ('confirmado', 'en_curso')
+                OR (estado = 'pendiente_pago' AND expira_en > @ahoraUtc)
+              )
+          AND upper(rango) > @ahoraLocal
+        """;
+
+    private const string SqlConfirmadosVencidos = """
+        SELECT id, lavadero_id, puesto_id, cliente_id, tipo_lavado_id,
+               rango, estado, origen, precio_sena, mp_preference_id,
+               expira_en, idempotency_key, creado_en, confirmado_en, cerrado_en
+        FROM turnos
+        WHERE estado = 'confirmado'
+          AND lower(rango) <= @limiteLocal
+        ORDER BY lower(rango)
+        """;
+
     private readonly WashPointsDbContext _contexto;
 
     public OcupacionRepositorio(WashPointsDbContext contexto) => _contexto = contexto;
@@ -74,6 +98,45 @@ public sealed class OcupacionRepositorio : IOcupacionRepositorio
         return await _contexto.Turnos
             .FromSqlRaw(SqlTurnosDelDia, lavaderoId, desdeLocal, hastaLocal)
             .AsNoTracking()
+            .ToArrayAsync(ct);
+    }
+
+    public async Task<bool> TieneTurnosVigentesAsync(
+        Guid lavaderoId,
+        Guid puestoId,
+        DateTime ahoraUtc,
+        CancellationToken ct)
+    {
+        // `expira_en` es timestamptz (UTC) y `rango` es tsrange en hora local
+        // (ARCHITECTURE §10.6): del único `ahoraUtc` se derivan DOS parámetros.
+        var ahoraLocal = new NpgsqlParameter("ahoraLocal", NpgsqlDbType.Timestamp)
+        {
+            Value = ConversorHorario.ALocal(ahoraUtc),
+        };
+        var ahoraUtcParam = new NpgsqlParameter("ahoraUtc", NpgsqlDbType.TimestampTz)
+        {
+            Value = ahoraUtc,
+        };
+
+        return await _contexto.Turnos
+            .FromSqlRaw(SqlTieneTurnosVigentes, lavaderoId, puestoId, ahoraLocal, ahoraUtcParam)
+            .AsNoTracking()
+            .AnyAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<Turno>> ListarConfirmadosVencidosAsync(
+        DateTime limiteUtc,
+        CancellationToken ct)
+    {
+        var limiteLocal = new NpgsqlParameter("limiteLocal", NpgsqlDbType.Timestamp)
+        {
+            Value = ConversorHorario.ALocal(limiteUtc),
+        };
+
+        // Sin AsNoTracking: el worker de cierre muta el estado de estas filas y
+        // el mismo contexto las persiste con GuardarAsync (T-47).
+        return await _contexto.Turnos
+            .FromSqlRaw(SqlConfirmadosVencidos, limiteLocal)
             .ToArrayAsync(ct);
     }
 

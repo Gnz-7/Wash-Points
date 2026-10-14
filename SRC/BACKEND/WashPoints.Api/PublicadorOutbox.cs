@@ -31,6 +31,13 @@ public sealed class PublicadorOutbox
     /// <summary>Evento servidor→cliente; el mismo nombre que documenta ARCHITECTURE §7.3.</summary>
     public const string Evento = "disponibilidadActualizada";
 
+    /// <summary>Evento servidor→cliente del canal de agenda (D-04.5, slice-04 T-48).</summary>
+    public const string EventoAgenda = "agendaActualizada";
+
+    // Tipos de evento persistidos en la columna outbox.tipo.
+    private const string TipoOcupacion = "ocupacion_cambiada";
+    private const string TipoAgenda = "agenda_cambiada";
+
     // El payload se serializó con las mismas opciones al encolar (camelCase +
     // enums snake_case); hay que deserializarlo con ellas para leer el lavadero.
     private static readonly JsonSerializerOptions OpcionesPayload = new(JsonSerializerDefaults.Web)
@@ -74,12 +81,36 @@ public sealed class PublicadorOutbox
 
         foreach (var fila in pendientes)
         {
-            var evento = JsonSerializer.Deserialize<EventoOcupacion>(fila.Payload, OpcionesPayload)
-                ?? throw new InvalidOperationException($"Payload de outbox inválido en la fila {fila.Id}.");
+            // El ruteo depende del tipo de evento (RB-2, D-04.5): ocupación va al
+            // grupo de disponibilidad; agenda, al grupo de agenda. Ambos canales
+            // llevan el payload completo ya serializado al encolar.
+            switch (fila.Tipo)
+            {
+                case TipoOcupacion:
+                {
+                    var evento = JsonSerializer.Deserialize<EventoOcupacion>(fila.Payload, OpcionesPayload)
+                        ?? throw new InvalidOperationException($"Payload de outbox inválido en la fila {fila.Id}.");
 
-            await _hub.Clients
-                .Group(DisponibilidadHub.GrupoDe(evento.LavaderoId))
-                .SendAsync(Evento, fila.Payload, ct);
+                    await _hub.Clients
+                        .Group(DisponibilidadHub.GrupoDe(evento.LavaderoId))
+                        .SendAsync(Evento, fila.Payload, ct);
+                    break;
+                }
+                case TipoAgenda:
+                {
+                    var evento = JsonSerializer.Deserialize<EventoAgenda>(fila.Payload, OpcionesPayload)
+                        ?? throw new InvalidOperationException($"Payload de outbox inválido en la fila {fila.Id}.");
+
+                    await _hub.Clients
+                        .Group(DisponibilidadHub.GrupoAgendaDe(evento.LavaderoId))
+                        .SendAsync(EventoAgenda, fila.Payload, ct);
+                    break;
+                }
+                default:
+                    // Tipo desconocido: se marca como publicado sin emitir para
+                    // no bloquear la cola ante un emisor más nuevo.
+                    break;
+            }
 
             fila.MarcarPublicado(ahora);
         }

@@ -139,10 +139,38 @@ public sealed class WebhookPagoServicio
                     turno.Estado,
                     turno.InicioUtc,
                     turno.FinUtc));
+                _outbox.Encolar(new EventoAgenda(
+                    turno.Id,
+                    turno.LavaderoId,
+                    turno.PuestoId,
+                    turno.Origen,
+                    turno.Estado,
+                    turno.InicioUtc,
+                    turno.FinUtc));
             }
             else if (estado == EstadoVerificacionPago.Rechazado)
             {
                 turno.TransicionarA(EstadoTurno.Cancelado);
+
+                // RB-2 (SPECS/slice-04 §5.3): el rechazo libera el pendiente que
+                // bloqueaba el puesto, así que emite ocupación; y todo cambio de
+                // estado emite agenda. Mismo SaveChangesAsync que la transición.
+                _outbox.Encolar(new EventoOcupacion(
+                    turno.Id,
+                    turno.LavaderoId,
+                    turno.PuestoId,
+                    turno.Origen,
+                    turno.Estado,
+                    turno.InicioUtc,
+                    turno.FinUtc));
+                _outbox.Encolar(new EventoAgenda(
+                    turno.Id,
+                    turno.LavaderoId,
+                    turno.PuestoId,
+                    turno.Origen,
+                    turno.Estado,
+                    turno.InicioUtc,
+                    turno.FinUtc));
             }
         }
 

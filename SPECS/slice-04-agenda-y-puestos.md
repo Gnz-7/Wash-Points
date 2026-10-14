@@ -360,18 +360,18 @@ Cada tarea tiene un test que debe **fallar primero**. T-40 es el delta de diseñ
 **Interfaces:**
 - Produces: `DisponibilidadHub.GrupoAgendaDe(Guid) => $"agenda-{id}"`; métodos `UnirseAAgenda`/`SalirDeAgenda`. Constante `PublicadorOutbox.EventoAgenda = "agendaActualizada"`.
 
-- [ ] **Step 1 (test que falla):** `AgendaSignalRTest` (siguiendo `PublicadorSignalRTest`): una conexión unida a `agenda-{id}` recibe `agendaActualizada` al crear/finalizar un turno; **no** recibe eventos de otro lavadero (CA-S4.8, CA-S4.16). Correr → **FAIL**.
-- [ ] **Step 2 (prerrequisito Context7):** validar la API vigente de SignalR (`Groups.AddToGroupAsync`, `IHubContext.Clients.Group`) **antes** de escribir. Implementar el ruteo: deserializar por `fila.Tipo` (`EventoOcupacion`/`EventoAgenda`) y enviar al grupo/evento correspondiente.
-- [ ] **Step 3 (verificación):** `dotnet test` → SignalR de agenda verde (CA-S4.8).
+- [x] **Step 1 (test que falla):** `AgendaSignalRTest` (siguiendo `PublicadorSignalRTest`): una conexión unida a `agenda-{id}` recibe `agendaActualizada` al crear/finalizar un turno; **no** recibe eventos de otro lavadero (CA-S4.8, CA-S4.16). Correr → **FAIL** (3/3).
+- [x] **Step 2 (prerrequisito Context7):** validar la API vigente de SignalR (`Groups.AddToGroupAsync`, `IHubContext.Clients.Group`) **antes** de escribir. Implementar el ruteo: deserializar por `fila.Tipo` (`EventoOcupacion`/`EventoAgenda`) y enviar al grupo/evento correspondiente.
+- [x] **Step 3 (verificación):** `dotnet test` → SignalR de agenda verde (3/3; CA-S4.8).
 
 ### T-49 · Verificación final
 
 **Files:**
 - Modify: `.superpowers/sdd/slice-04/progress.md` (ledger)
 
-- [ ] **Step 1:** `dotnet build SRC\BACKEND\WashPoints.sln` → 0 errores / 0 warnings.
-- [ ] **Step 2:** `dotnet test SRC\BACKEND\WashPoints.sln` → suite completa verde, **dos corridas consecutivas**.
-- [ ] **Step 3:** registrar en el ledger; ningún CA sin comando + salida.
+- [x] **Step 1:** `dotnet build SRC\BACKEND\WashPoints.sln` → 0 errores / 0 warnings.
+- [x] **Step 2:** `dotnet test SRC\BACKEND\WashPoints.sln` → suite completa verde, **dos corridas consecutivas** (84 unit + 98 integración = 182/182 en ambas).
+- [x] **Step 3:** registrar en el ledger; ningún CA sin comando + salida.
 
 ---
 
@@ -423,7 +423,7 @@ Notas:
 2. **ABM de tipos de lavado** (CU-05 A3): diferido (D-04.4). La edición de duración aplica a turnos nuevos cuando se implemente.
 3. **Compatibilidad puesto↔tipo y `sin_capacidad`** (CU-07 Q3, `§10.7`): diferida (D-04.6). El rechazo se acota a `slot_ya_ocupado` y `puesto_con_turnos_activos`.
 4. **Auth real / `403`** (CU-10): ownership por datos (D-04.7); el rechazo por perfil llega con CU-10.
-5. **Contrato SignalR de la agenda** (nombre del método Hub): se confirma en T-48 tras Context7.
+5. **Contrato SignalR de la agenda** (nombre del método Hub): **resuelto en T-48** — métodos `UnirseAAgenda`/`SalirDeAgenda`, grupo `agenda-{id}`, evento `agendaActualizada` (API confirmada con Context7: `/dotnet/aspnetcore.docs`, `Groups.AddToGroupAsync` + `IHubContext.Clients.Group(...).SendAsync`).
 
 ## 12. Trazabilidad
 

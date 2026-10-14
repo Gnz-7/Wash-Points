@@ -28,6 +28,7 @@ public sealed class ReservaServicio
     private readonly IOcupacionRepositorio _repositorio;
     private readonly IUnidadDeTrabajo _unidadDeTrabajo;
     private readonly IConsultaCatalogo _catalogo;
+    private readonly IOutbox _outbox;
     private readonly IPasarelaPagos _pasarela;
     private readonly OpcionesPago _opciones;
     private readonly TimeProvider _reloj;
@@ -36,6 +37,7 @@ public sealed class ReservaServicio
         IOcupacionRepositorio repositorio,
         IUnidadDeTrabajo unidadDeTrabajo,
         IConsultaCatalogo catalogo,
+        IOutbox outbox,
         IPasarelaPagos pasarela,
         OpcionesPago opciones,
         TimeProvider reloj)
@@ -43,6 +45,7 @@ public sealed class ReservaServicio
         _repositorio = repositorio;
         _unidadDeTrabajo = unidadDeTrabajo;
         _catalogo = catalogo;
+        _outbox = outbox;
         _pasarela = pasarela;
         _opciones = opciones;
         _reloj = reloj;
@@ -75,6 +78,27 @@ public sealed class ReservaServicio
             {
                 // 1) Insertar el turno: la EXCLUDE decide el slot acá.
                 await _repositorio.AgregarAsync(turno, ctTransaccion);
+
+                // RB-2 (SPECS/slice-04 §5.3): la creación bloquea el puesto (el
+                // pendiente_pago vigente ocupa), así que encola ocupación y
+                // agenda. Viajan en el mismo flush que el turno (D-04.10).
+                _outbox.Encolar(new EventoOcupacion(
+                    turno.Id,
+                    turno.LavaderoId,
+                    turno.PuestoId,
+                    turno.Origen,
+                    turno.Estado,
+                    turno.InicioUtc,
+                    turno.FinUtc));
+                _outbox.Encolar(new EventoAgenda(
+                    turno.Id,
+                    turno.LavaderoId,
+                    turno.PuestoId,
+                    turno.Origen,
+                    turno.Estado,
+                    turno.InicioUtc,
+                    turno.FinUtc));
+
                 await _repositorio.GuardarAsync(ctTransaccion);
 
                 // 2) Preferencia de pago. Si falla, la transacción revierte el
