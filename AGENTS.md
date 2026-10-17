@@ -198,7 +198,7 @@ ctx7 skills remove <name>             # desinstalar skill
 **Instalación aplicada en este entorno:**
 
 - Paquete instalado en el prefijo global de opencode: `~/.config/opencode/node_modules/superpowers` (v6.4.2), mediante `npm install superpowers@git+https://github.com/obra/superpowers.git --prefix ~/.config/opencode`.
-- Registro en `~/.config/opencode/opencode.jsonc`: `"plugin": ["./node_modules/superpowers"]`. Se usa la instalación local por npm en lugar del spec `git+https` porque en Windows el gestor de plugins de opencode no resuelve de forma fiable los specs git-backed.
+- Registro en `~/.config/opencode/opencode.jsonc`, en el array **`plugins`** (campo nativo de OpenCode V2). Ese array contiene dos entradas: `"./node_modules/superpowers"` y `"@tarquinen/opencode-dcp@latest"`. Se usa la instalación local por npm en lugar del spec `git+https` porque en Windows el gestor de plugins de opencode no resuelve de forma fiable los specs git-backed. (Antes del 2026-10-17 Superpowers vivía en el campo V1 `plugin`, hoy deprecado; se consolidó en `plugins` al instalar DCP.)
 - Efectos del plugin: (1) registra el directorio de skills de Superpowers para que opencode las descubra, y (2) inyecta el bootstrap `using-superpowers` en la primera sesión de nivel superior (no en subagentes, para no reiniciar ciclos de aprobación ya resueltos).
 
 **Directivas de uso:**
@@ -226,19 +226,55 @@ npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$H
 
 **Limitaciones conocidas en este entorno:** algunos builds de opencode para Windows fallan al instalar plugins desde specs `git+https` (Bun no encuentra `git.exe`, rutas de cache). El flujo alternativo en npm + ruta local, ya aplicado aquí, es la vía soportada. Reiniciar opencode es obligatorio después de cualquier cambio de configuración: la config no se recarga en caliente.
 
-### 5.3 Inventario de configuración
+### 5.3 Dynamic Context Pruning (DCP) — Gestión de contexto
+
+**Propósito.** `@tarquinen/opencode-dcp` (repo `Tarquinen/opencode-dynamic-context-pruning`, licencia AGPL-3.0-or-later) es un plugin de OpenCode que reduce el uso de tokens gestionando el contexto de la conversación. Expone una herramienta `compress` que reemplaza contenido obsoleto por resúmenes técnicos, deduplica llamadas repetidas de herramientas (misma herramienta, mismos argumentos) y purga las entradas de llamadas fallidas. **No modifica el historial de la sesión**: sustituye el contenido podado por placeholders antes de enviar la petición al modelo.
+
+**Instalación aplicada en este entorno:**
+
+- Instalado con el CLI V2: `opencode plugin add @tarquinen/opencode-dcp@latest` (v3.2.0). El CLI lo agregó al array `plugins` de `~/.config/opencode/opencode.jsonc`.
+- El paquete vive en el caché de opencode (`~/.cache/opencode/npm/@tarquinen/opencode-dcp@latest/.../dist/index.js`), **no** en `node_modules` del config global.
+- Config propia del plugin: `~/.config/opencode/dcp.jsonc` (creada automáticamente en el primer arranque; sólo trae `$schema`, o sea usa defaults).
+- Comandos: `/dcp` abre el panel con contexto y estadísticas; `/dcp-compress [foco]` dispara una pasada de compresión.
+
+**Directivas de uso:**
+
+1. **No reemplaza la disciplina de contexto.** Evitar volcar logs/payloads enteros en un prompt sigue siendo la primera línea de defensa.
+2. **Config por niveles:** global (`~/.config/opencode/dcp.jsonc`) < proyecto (`.opencode/dcp.jsonc`). Este repo **no** define overrides de proyecto: DCP corre con defaults.
+3. **Trade-off de caché de prompt:** podar cambia los mensajes e invalida el prefijo cacheado del proveedor → puede subir el costo por cache miss. No es neutral para el gasto; el balance depende del precio del proveedor elegido.
+4. **Ventana del modelo:** si el modelo activo tiene contexto chico, bajar `compress.minContextLimit`/`compress.maxContextLimit` en `dcp.jsonc`.
+
+**Verificación y mantenimiento:**
+
+```bash
+opencode plugin list                              # debe listar opencode-dcp 3.2.0
+opencode plugin check                             # busca actualizaciones
+opencode plugin update                            # actualiza
+opencode plugin remove @tarquinen/opencode-dcp    # desinstalar
+
+# Verificar carga real con un arranque fresco (servidor privado, sin tocar el servicio compartido):
+opencode run --standalone --print-logs "ok" 2>&1 | Select-String -Pattern 'loading plugin'
+```
+
+`--standalone` fuerza un arranque fresco con servidor privado; es la vía confiable para confirmar cambios de config sin reiniciar el servicio compartido.
+
+**Limitaciones conocidas:** el desarrollo upstream se ralentizó (el autor migró su foco a "Sleev"); DCP sigue disponible para usuarios del plugin de OpenCode. Licencia AGPL-3.0-or-later (relevante sólo si algún día se redistribuye).
+
+### 5.4 Inventario de configuración
 
 | Artefacto | Ruta | Responsabilidad |
 |-----------|------|------------------|
 | Config opencode del proyecto | `opencode.json` | `skills.paths`, `instructions` (sin MCP) |
 | Diseño técnico | `DOCS/ARCHITECTURE.md` | `architect` |
 | Especificación funcional | `REQUIREMENTS/` (`README.md`, `CU/`, `US/`) | `analyst` |
-| Config opencode del entorno | `~/.config/opencode/opencode.jsonc` | plugin Superpowers |
+| Config opencode del entorno | `~/.config/opencode/opencode.jsonc` | `plugins` (array V2): Superpowers + DCP |
+| Config de DCP | `~/.config/opencode/dcp.jsonc` | `devops` (defaults; sin overrides de proyecto) |
+| Paquete DCP (caché) | `~/.cache/opencode/npm/@tarquinen/opencode-dcp@latest/...` | `devops` |
 | Skills Context7 del proyecto | `.agents/skills/context7-cli/` | `devops` |
 | Paquete Superpowers | `~/.config/opencode/node_modules/superpowers` | `devops` |
 | Regla persistente de Context7 | bloque `<!-- context7 -->` en `AGENTS.md` | `devops` (no editar a mano; la gestiona `ctx7 setup`) |
 
-### 5.4 Comandos de verificación (T-08)
+### 5.5 Comandos de verificación (T-08)
 
 | Comando | Propósito | Salida verificada (Slice 0) |
 |---------|-----------|------------------------------|
