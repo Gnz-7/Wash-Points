@@ -38,7 +38,7 @@ public sealed class AutenticacionServicio
             throw new UsuarioNoEncontradoException("Credenciales inválidas.");
         }
 
-        var sesion = _emisor.Emitir(usuario.Id, usuario.Rol, usuario.LavaderoId);
+        var sesion = _emisor.Emitir(usuario.Id, usuario.Rol, usuario.LavaderoId, usuario.ClienteId);
 
         return new SesionIniciada(sesion, usuario.Rol, usuario.LavaderoId);
     }

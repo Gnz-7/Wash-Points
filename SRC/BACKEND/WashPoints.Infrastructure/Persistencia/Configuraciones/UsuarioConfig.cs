@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using WashPoints.Domain.Catalogo;
 using WashPoints.Domain.Seguridad;
 
 namespace WashPoints.Infrastructure.Persistencia.Configuraciones;
@@ -27,6 +28,12 @@ public sealed class UsuarioConfig : IEntityTypeConfiguration<Usuario>
             tabla.HasCheckConstraint(
                 "usuarios_admin_requiere_lavadero",
                 "rol <> 'administrador' OR lavadero_id IS NOT NULL");
+
+            // D-06.1 (cliente_id): el vínculo es del cliente de negocio; el
+            // administrador se vincula al lavadero, nunca a un cliente.
+            tabla.HasCheckConstraint(
+                "usuarios_admin_sin_cliente",
+                "rol <> 'administrador' OR cliente_id IS NULL");
         });
 
         usuario.HasKey(u => u.Id);
@@ -46,6 +53,10 @@ public sealed class UsuarioConfig : IEntityTypeConfiguration<Usuario>
             .HasMaxLength(32)
             .IsRequired();
         usuario.Property(u => u.LavaderoId).HasColumnName("lavadero_id");
+
+        // D-06.1: vínculo con el cliente de negocio (nulo mientras no exista
+        // alta/vinculación; D-05.9).
+        usuario.Property(u => u.ClienteId).HasColumnName("cliente_id");
         usuario.Property(u => u.Activo).HasColumnName("activo").IsRequired();
         usuario.Property(u => u.CreadoEn)
             .HasColumnName("creado_en")
@@ -53,5 +64,14 @@ public sealed class UsuarioConfig : IEntityTypeConfiguration<Usuario>
 
         // La credencial se localiza por nombre en el login: debe ser única.
         usuario.HasIndex(u => u.NombreUsuario).IsUnique();
+
+        // Sin UNIQUE: un cliente de negocio podría tener más de una cuenta
+        // (cardinalidad flexible, D-06.1).
+        usuario.HasIndex(u => u.ClienteId);
+
+        usuario.HasOne<Cliente>()
+            .WithMany()
+            .HasForeignKey(u => u.ClienteId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

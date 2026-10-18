@@ -1,6 +1,10 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http.Headers;
+using System.Security.Claims;
+using System.Text;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.IdentityModel.Tokens;
 using WashPoints.Domain.Seguridad;
 using WashPoints.Infrastructure.Seguridad;
 
@@ -54,9 +58,38 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
     public string TokenAdministrador(Guid lavaderoId) =>
         _emisor.Emitir(Guid.NewGuid(), RolUsuario.Administrador, lavaderoId).Token;
 
-    /// <summary>Token de cliente (sin lavadero).</summary>
-    public string TokenCliente() =>
-        _emisor.Emitir(Guid.NewGuid(), RolUsuario.Cliente, null).Token;
+    /// <summary>
+    /// Token de cliente. Con <paramref name="clienteId"/> lleva además el claim
+    /// de vínculo con el cliente de negocio (slice-05b, D-06.2).
+    /// </summary>
+    public string TokenCliente(Guid? clienteId = null)
+    {
+        var usuarioId = Guid.NewGuid();
+        if (clienteId is null)
+        {
+            return _emisor.Emitir(usuarioId, RolUsuario.Cliente, null).Token;
+        }
+
+        // El emisor de producción agrega el claim en T-59; acá se firma a mano
+        // para poder probar la regla de propiedad antes de implementarla.
+        var claims = new[]
+        {
+            new Claim(ClaimsWashPoints.Sub, usuarioId.ToString()),
+            new Claim(ClaimsWashPoints.Rol, ClaimsWashPoints.Cliente),
+            new Claim(ClaimsWashPoints.ClienteId, clienteId.Value.ToString()),
+        };
+        var clave = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(ClaveJwt));
+        var credenciales = new SigningCredentials(clave, SecurityAlgorithms.HmacSha256);
+        var ahora = DateTime.UtcNow;
+        var token = new JwtSecurityToken(
+            issuer: Emisor,
+            audience: Audiencia,
+            claims: claims,
+            notBefore: ahora,
+            expires: ahora.AddMinutes(60),
+            signingCredentials: credenciales);
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
 
     /// <summary>Token bien formado pero firmado con otra clave: firma inválida.</summary>
     public string TokenFirmaInvalida() =>
@@ -87,7 +120,8 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
     }
 
     /// <summary>Cliente con sesión de cliente (cualquier rol).</summary>
-    public HttpClient CrearClienteDeCliente() => CrearClienteConToken(TokenCliente());
+    public HttpClient CrearClienteDeCliente(Guid? clienteId = null) =>
+        CrearClienteConToken(TokenCliente(clienteId));
 
     /// <summary>Cliente con sesión de administrador del lavadero indicado.</summary>
     public HttpClient CrearClienteAdmin(Guid lavaderoId) => CrearClienteConToken(TokenAdministrador(lavaderoId));

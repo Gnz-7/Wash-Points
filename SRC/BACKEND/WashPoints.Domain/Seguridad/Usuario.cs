@@ -31,6 +31,12 @@ public sealed class Usuario
     /// <summary>Lavadero del administrador; nulo para un cliente (D-05.1).</summary>
     public Guid? LavaderoId { get; private set; }
 
+    /// <summary>
+    /// Cliente de negocio vinculado a la cuenta (slice-05b, D-06.1). Nulo
+    /// mientras no exista vinculación: sin vínculo no se accede a comprobantes.
+    /// </summary>
+    public Guid? ClienteId { get; private set; }
+
     public bool Activo { get; private set; }
 
     public DateTime CreadoEn { get; private set; }

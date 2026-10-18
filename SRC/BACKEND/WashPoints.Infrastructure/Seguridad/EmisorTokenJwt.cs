@@ -51,7 +51,11 @@ public sealed class EmisorTokenJwt : IEmisorToken
     }
 
     /// <inheritdoc />
-    public SesionEmitida Emitir(Guid usuarioId, RolUsuario rol, Guid? lavaderoId)
+    public SesionEmitida Emitir(
+        Guid usuarioId,
+        RolUsuario rol,
+        Guid? lavaderoId,
+        Guid? clienteId = null)
     {
         var ahora = _reloj.GetUtcNow().UtcDateTime;
         var expira = ahora.AddMinutes(_minutosVida);
@@ -67,6 +71,12 @@ public sealed class EmisorTokenJwt : IEmisorToken
         if (lavaderoId is { } id)
         {
             claims.Add(new Claim(ClaimsWashPoints.LavaderoId, id.ToString()));
+        }
+
+        // D-06.2: el vínculo con el cliente de negocio viaja solo si existe.
+        if (clienteId is { } idCliente)
+        {
+            claims.Add(new Claim(ClaimsWashPoints.ClienteId, idCliente.ToString()));
         }
 
         var token = new JwtSecurityToken(

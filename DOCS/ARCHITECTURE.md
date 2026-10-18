@@ -313,6 +313,8 @@ El único cliente Flutter cubre cliente y administrador, differentiated por rol 
 
 **Sesión de usuario (slice-05, decidida).** La autenticación emite un **JWT** (HS256; `Jwt:ClaveSecreta` por entorno, **nunca** en el repositorio) con los claims `sub` (id de `usuarios`), `rol` (`cliente` \| `administrador`) y `lavaderoId` (solo para administradores). El servidor valida firma, `iss`, `aud` y `exp`, y resuelve la autorización: sin sesión ⇒ `401`; rol fuera de alcance o administrador sobre otro lavadero ⇒ `403`. Flutter solo refleja el permiso. El ownership por **sub-recurso** (`puestoId`/`turnoId` ajeno dentro del lavadero de ruta) sigue devolviendo `404` (D-04.7 de slice-04).
 
+**Ownership de recursos de cliente (slice-05b, decidida).** Cuando la ruta **no nombra un lavadero** (por ejemplo `GET /api/turnos/{id}/comprobante`), la autorización no puede comparar contra el `{id}` de ruta: compara el vínculo del token con el del recurso. El cliente accede solo si su claim `clienteId` coincide con el `cliente_id` del turno; el administrador, solo si su `lavaderoId` coincide con el lavadero del turno. Cualquier otro caso —incluido un `id` inexistente— devuelve **`404` homogéneo**, para que el UUID no funcione como oráculo de existencia. El `403 no_es_propietario` queda reservado a las rutas que ya nombran el lavadero.
+
 ### 7.2 Mercado Pago
 
 - **Preferencia de pago** creada por `IPasarelaPagos.CrearPreferenciaAsync` con `PreferenceClient`. El SDK inyecta `X-Idempotency-Key` automáticamente; además se envía una clave explícita derivada del `turnoId` para que un reintento del cliente no cree una preferencia nueva.
@@ -386,15 +388,17 @@ Para no bloquear la migración inicial del slice 0, se las creó con el mínimo 
 | `lavaderos` | `id`, `nombre`, `activo` | dirección, coordenadas para el mapa, horarios de atención, teléfono |
 | `puestos` | `id`, `lavadero_id`, `nombre`, `activo` | orden, tipos de lavado compatibles, alta/baja por el admin |
 | `clientes` | `id`, `nombre` | teléfono, patente, historial; cualquier dato es PII (AGENTS.md §3.4) |
-| `usuarios` | `id`, `nombre_usuario` (único), `hash_contrasena`, `rol`, `lavadero_id` (NULL para `cliente`), `activo`, `creado_en` (slice-05) | mapeo 1:1 con `clientes`; alta/provisión de credenciales |
+| `usuarios` | `id`, `nombre_usuario` (único), `hash_contrasena`, `rol`, `lavadero_id` (NULL para `cliente`), `cliente_id` (NULL; FK a `clientes`, slice-05b), `activo`, `creado_en` | alta/provisión de credenciales |
 
 Además quedó sin decidir si `puestos.lavadero_id` y `turnos.lavadero_id` ganan FK explícita a `lavaderos`: hoy son simples `uuid` sin constraint, igual que `tipos_lavado.lavadero_id`.
 
 **Impacto:** ninguna regla de negocio depende de estas columnas todavía. El módulo `Catalogo` (§2.2) es el dueño de completarlas, y `architect` debe traer el esquema definitivo antes de que `US-A07` se implemente.
 
-**Decisión de slice-05 (T-50).** La tabla `usuarios` queda **fijada** por `SPECS/slice-05-auth-y-permisos.md` (D-05.1): `id`, `nombre_usuario` único, `hash_contrasena` (PBKDF2), `rol` (`cliente`/`administrador`), `lavadero_id` (NULL para `cliente`, obligatorio para `administrador`), `activo`, `creado_en`. El resto del catálogo (`lavaderos`/`puestos`/`clientes`) sigue como estaba; el mapeo 1:1 entre `usuarios` y `clientes` queda diferido.
+**Decisión de slice-05 (T-50).** La tabla `usuarios` queda **fijada** por `SPECS/slice-05-auth-y-permisos.md` (D-05.1): `id`, `nombre_usuario` único, `hash_contrasena` (PBKDF2), `rol` (`cliente`/`administrador`), `lavadero_id` (NULL para `cliente`, obligatorio para `administrador`), `activo`, `creado_en`. El resto del catálogo (`lavaderos`/`puestos`/`clientes`) sigue como estaba.
 
-**Estado:** abierta. Resoluble por `architect` (§2.1 de AGENTS.md) sin intervención del responsable del producto, a diferencia de las 1 a 5.
+**Decisión de slice-05b (T-56).** El vínculo entre la cuenta y el cliente de negocio queda **resuelto** por `SPECS/slice-05b-ownership-comprobante.md` (D-06.1): `usuarios.cliente_id` (`uuid NULL`) con FK real `REFERENCES clientes(id) ON DELETE RESTRICT`, índice **sin** `UNIQUE` y `CHECK (rol <> 'administrador' OR cliente_id IS NULL)`. El vínculo viaja como claim `clienteId` y es la base del ownership de los recursos que no nombran lavadero (p. ej. `GET /api/turnos/{id}/comprobante`). El alta y la vinculación de credenciales siguen fuera de alcance (D-05.9).
+
+**Estado:** abierta para el resto del catálogo (dirección, coordenadas para el mapa, horarios, tipos de lavado por puesto). Resoluble por `architect` (§2.1 de AGENTS.md) sin intervención del responsable del producto, a diferencia de las 1 a 5.
 
 ### 10.8 `pendiente_pago` bloquea mientras vigente (decidida) e impacto en `REQUIREMENTS`
 

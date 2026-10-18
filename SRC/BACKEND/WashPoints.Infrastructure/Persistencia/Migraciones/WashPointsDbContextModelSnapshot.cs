@@ -193,6 +193,10 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
                         .HasColumnType("boolean")
                         .HasColumnName("activo");
 
+                    b.Property<Guid?>("ClienteId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("cliente_id");
+
                     b.Property<DateTime>("CreadoEn")
                         .HasColumnType("timestamptz")
                         .HasColumnName("creado_en");
@@ -221,12 +225,16 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ClienteId");
+
                     b.HasIndex("NombreUsuario")
                         .IsUnique();
 
                     b.ToTable("usuarios", null, t =>
                         {
                             t.HasCheckConstraint("usuarios_admin_requiere_lavadero", "rol <> 'administrador' OR lavadero_id IS NOT NULL");
+
+                            t.HasCheckConstraint("usuarios_admin_sin_cliente", "rol <> 'administrador' OR cliente_id IS NULL");
 
                             t.HasCheckConstraint("usuarios_rol_valido", "rol IN ('cliente', 'administrador')");
                         });
@@ -402,6 +410,14 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
                         .HasForeignKey("TurnoId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("WashPoints.Domain.Seguridad.Usuario", b =>
+                {
+                    b.HasOne("WashPoints.Domain.Catalogo.Cliente", null)
+                        .WithMany()
+                        .HasForeignKey("ClienteId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("WashPoints.Domain.Turnos.Turno", b =>

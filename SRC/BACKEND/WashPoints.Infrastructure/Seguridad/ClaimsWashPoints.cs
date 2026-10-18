@@ -16,6 +16,12 @@ public static class ClaimsWashPoints
     /// <summary>Lavadero del administrador; ausente para un cliente.</summary>
     public const string LavaderoId = "lavaderoId";
 
+    /// <summary>
+    /// Cliente de negocio vinculado a la cuenta (slice-05b, D-06.2); ausente si
+    /// la cuenta no tiene vínculo.
+    /// </summary>
+    public const string ClienteId = "clienteId";
+
     /// <summary>Valor del claim <see cref="Rol"/> para un cliente.</summary>
     public const string Cliente = "cliente";
 

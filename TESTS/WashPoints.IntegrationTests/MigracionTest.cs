@@ -336,6 +336,7 @@ public sealed class MigracionTest : IClassFixture<ContenedorPostgres>, IAsyncLif
         Assert.True(await ExisteColumna("hash_contrasena"), "Falta usuarios.hash_contrasena.");
         Assert.True(await ExisteColumna("rol"), "Falta usuarios.rol.");
         Assert.True(await ExisteColumna("lavadero_id"), "Falta usuarios.lavadero_id.");
+        Assert.True(await ExisteColumna("cliente_id"), "Falta usuarios.cliente_id (slice-05b).");
         Assert.True(await ExisteColumna("activo"), "Falta usuarios.activo.");
         Assert.True(await ExisteColumna("creado_en"), "Falta usuarios.creado_en.");
 

@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -386,10 +387,12 @@ app.MapPost("/api/lavaderos/{id:guid}/turnos-espontaneos", async (
 // no existe o todavía no fue confirmado (no tiene comprobante).
 app.MapGet("/api/turnos/{id:guid}/comprobante", async (
     Guid id,
+    ClaimsPrincipal usuario,
     EntregaComprobanteServicio servicio,
     CancellationToken ct) =>
 {
-    var comprobante = await servicio.ObtenerAsync(id, ct);
+    // D-06.3: el turnoId no es control de acceso; la propiedad sale del token.
+    var comprobante = await servicio.ObtenerAsync(id, IdentidadDelToken.De(usuario), ct);
     if (comprobante is null)
     {
         return Results.NotFound(new { error = "comprobante_no_encontrado" });

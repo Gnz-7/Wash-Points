@@ -54,7 +54,7 @@ public sealed class EmisionComprobanteTest : IClassFixture<ContenedorPostgres>, 
             .UseNpgsql(_baseDeDatos.CadenaConexion)
             .Options);
 
-    private async Task<Guid> SembrarTurnoPendienteAsync()
+    private async Task<(Guid TurnoId, Guid ClienteId)> SembrarTurnoPendienteAsync()
     {
         await using var contexto = CrearContexto();
 
@@ -72,7 +72,7 @@ public sealed class EmisionComprobanteTest : IClassFixture<ContenedorPostgres>, 
         contexto.AddRange(lavadero, puesto, tipo, cliente, turno);
         await contexto.SaveChangesAsync();
 
-        return turno.Id;
+        return (turno.Id, cliente.Id);
     }
 
     private CustomWebApplicationFactory CrearApi(
@@ -130,7 +130,7 @@ public sealed class EmisionComprobanteTest : IClassFixture<ContenedorPostgres>, 
     [Fact]
     public async Task AprobarLaSenaEmiteExactamenteUnComprobante()
     {
-        var turnoId = await SembrarTurnoPendienteAsync();
+        var (turnoId, _) = await SembrarTurnoPendienteAsync();
         var pasarela = new PasarelaPagosFakeSimulada();
         pasarela.ScriptearVerificacion("pago-1", ResultadoVerificacionPago.Aprobado(turnoId, "pago-1"));
         using var api = CrearApi(pasarela, ClaveCifrado);
@@ -162,7 +162,7 @@ public sealed class EmisionComprobanteTest : IClassFixture<ContenedorPostgres>, 
     [Fact]
     public async Task UnWebhookDuplicadoNoReemiteElComprobante()
     {
-        var turnoId = await SembrarTurnoPendienteAsync();
+        var (turnoId, _) = await SembrarTurnoPendienteAsync();
         var pasarela = new PasarelaPagosFakeSimulada();
         pasarela.ScriptearVerificacion("pago-1", ResultadoVerificacionPago.Aprobado(turnoId, "pago-1"));
         using var api = CrearApi(pasarela, ClaveCifrado);
@@ -180,7 +180,7 @@ public sealed class EmisionComprobanteTest : IClassFixture<ContenedorPostgres>, 
     [Fact]
     public async Task SinClaveDeCifradoLaEmisionFallaSinConfirmarElTurno()
     {
-        var turnoId = await SembrarTurnoPendienteAsync();
+        var (turnoId, _) = await SembrarTurnoPendienteAsync();
         var pasarela = new PasarelaPagosFakeSimulada();
         pasarela.ScriptearVerificacion("pago-1", ResultadoVerificacionPago.Aprobado(turnoId, "pago-1"));
         using var api = CrearApi(pasarela, claveCifrado: null);
@@ -203,11 +203,11 @@ public sealed class EmisionComprobanteTest : IClassFixture<ContenedorPostgres>, 
     public async Task ElComprobanteSeRecuperaDesdeElServidorYElClaroNuncaSeGuarda()
     {
         const string prefijoQr = "washpoints://comprobante/";
-        var turnoId = await SembrarTurnoPendienteAsync();
+        var (turnoId, clienteId) = await SembrarTurnoPendienteAsync();
         var pasarela = new PasarelaPagosFakeSimulada();
         pasarela.ScriptearVerificacion("pago-1", ResultadoVerificacionPago.Aprobado(turnoId, "pago-1"));
         using var api = CrearApi(pasarela, ClaveCifrado);
-        using var cliente = api.CreateClient();
+        using var cliente = api.CrearClienteDeCliente(clienteId);
 
         await EnviarWebhookAsync(cliente, "pago-1");
 
@@ -238,10 +238,10 @@ public sealed class EmisionComprobanteTest : IClassFixture<ContenedorPostgres>, 
     [Fact]
     public async Task UnTurnoPendienteNoTieneComprobanteRecuperable()
     {
-        var turnoId = await SembrarTurnoPendienteAsync();
+        var (turnoId, clienteId) = await SembrarTurnoPendienteAsync();
         var pasarela = new PasarelaPagosFakeSimulada();
         using var api = CrearApi(pasarela, ClaveCifrado);
-        using var cliente = api.CreateClient();
+        using var cliente = api.CrearClienteDeCliente(clienteId);
 
         var respuesta = await cliente.GetAsync($"/api/turnos/{turnoId}/comprobante");
 

@@ -1,5 +1,7 @@
 using WashPoints.Domain.Comprobantes;
 using WashPoints.Domain.Ocupacion;
+using WashPoints.Domain.Seguridad;
+using WashPoints.Domain.Turnos;
 
 namespace WashPoints.Application.Comprobantes;
 
@@ -12,6 +14,10 @@ public sealed record ComprobanteEntregable(string PayloadQr, string CodigoRespal
 /// Descifra el token desde la copia cifrada y reconstruye las dos
 /// representaciones (QR y código Base32), ambas apuntando al mismo token
 /// canónico (CA-S2.3). Es la única superficie que expone el token en claro.
+///
+/// Desde slice-05b la entrega exige **propiedad**: el comprobante es un token
+/// de acceso (RB-3) y el <c>turnoId</c> es un UUID enumerable, no un control de
+/// acceso (D-06.3).
 /// </summary>
 public sealed class EntregaComprobanteServicio
 {
@@ -33,13 +39,24 @@ public sealed class EntregaComprobanteServicio
     }
 
     /// <summary>
-    /// Devuelve el comprobante del turno, o <c>null</c> si el turno no existe o
-    /// todavía no fue confirmado (no tiene comprobante).
+    /// Devuelve el comprobante del turno si la identidad puede verlo, o
+    /// <c>null</c> en cualquier otro caso: turno inexistente, sin comprobante,
+    /// sin sesión o sin propiedad. El rechazo es homogéneo a propósito —no
+    /// distingue "no existe" de "no es tuyo"— para no filtrar la existencia de
+    /// turnos ajenos (D-06.3, CU-10 A2, CA-9.3).
     /// </summary>
-    public async Task<ComprobanteEntregable?> ObtenerAsync(Guid turnoId, CancellationToken ct)
+    public async Task<ComprobanteEntregable?> ObtenerAsync(
+        Guid turnoId,
+        IdentidadUsuario? identidad,
+        CancellationToken ct)
     {
+        if (identidad is null)
+        {
+            return null;
+        }
+
         var turno = await _turnos.ObtenerAsync(turnoId, ct);
-        if (turno is null)
+        if (turno is null || !PuedeVer(identidad, turno))
         {
             return null;
         }
@@ -56,4 +73,14 @@ public sealed class EntregaComprobanteServicio
             _generador.ConstruirCodigoRespaldo(token),
             comprobante.ExpiraEn);
     }
+
+    /// <summary>
+    /// Regla de propiedad (D-06.3): el cliente ve sus turnos por el vínculo de
+    /// negocio; el administrador, los de su lavadero. Cualquier otra
+    /// combinación queda fuera.
+    /// </summary>
+    private static bool PuedeVer(IdentidadUsuario identidad, Turno turno) =>
+        identidad.Rol == RolUsuario.Administrador
+            ? identidad.LavaderoId is { } lavaderoId && lavaderoId == turno.LavaderoId
+            : identidad.ClienteId is { } clienteId && clienteId == turno.ClienteId;
 }
