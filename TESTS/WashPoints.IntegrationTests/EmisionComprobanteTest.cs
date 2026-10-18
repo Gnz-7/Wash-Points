@@ -75,11 +75,11 @@ public sealed class EmisionComprobanteTest : IClassFixture<ContenedorPostgres>, 
         return turno.Id;
     }
 
-    private WebApplicationFactory<Program> CrearApi(
+    private CustomWebApplicationFactory CrearApi(
         PasarelaPagosFakeSimulada pasarela,
         string? claveCifrado)
     {
-        var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        var factory = new CustomWebApplicationFactory(_baseDeDatos.CadenaConexion, builder =>
         {
             builder.UseSetting("ConnectionStrings:Postgres", _baseDeDatos.CadenaConexion);
             builder.UseSetting("Pagos:WebhookSecret", Secreto);

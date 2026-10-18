@@ -72,8 +72,8 @@ public sealed class DemandaEspontaneaTest : IClassFixture<ContenedorPostgres>, I
         await contexto.SaveChangesAsync();
     }
 
-    private WebApplicationFactory<Program> CrearApi() =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+    private CustomWebApplicationFactory CrearApi() =>
+        new(_baseDeDatos.CadenaConexion, builder =>
             builder.UseSetting("ConnectionStrings:Postgres", _baseDeDatos.CadenaConexion));
 
     private static object Cuerpo(Guid puestoId, Guid tipoId, string inicioLocal) => new

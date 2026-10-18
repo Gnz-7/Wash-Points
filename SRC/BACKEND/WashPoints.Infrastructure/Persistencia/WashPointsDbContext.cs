@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using NpgsqlTypes;
 using WashPoints.Domain.Catalogo;
 using WashPoints.Domain.Comprobantes;
+using WashPoints.Domain.Seguridad;
 using WashPoints.Domain.Turnos;
 using WashPoints.Infrastructure.Pagos;
 using WashPoints.Infrastructure.Tiempo;
@@ -31,6 +32,7 @@ public sealed class WashPointsDbContext : DbContext
     public DbSet<Pago> Pagos => Set<Pago>();
     public DbSet<Comprobante> Comprobantes => Set<Comprobante>();
     public DbSet<Outbox> Outbox => Set<Outbox>();
+    public DbSet<Usuario> Usuarios => Set<Usuario>();
 
     protected override void OnModelCreating(ModelBuilder modelo)
     {
@@ -40,6 +42,7 @@ public sealed class WashPointsDbContext : DbContext
         modelo.ApplyConfiguration(new Configuraciones.PagoConfig());
         modelo.ApplyConfiguration(new Configuraciones.ComprobanteConfig());
         modelo.ApplyConfiguration(new Configuraciones.OutboxConfig());
+        modelo.ApplyConfiguration(new Configuraciones.UsuarioConfig());
         ConfigurarCatalogo(modelo);
     }
 

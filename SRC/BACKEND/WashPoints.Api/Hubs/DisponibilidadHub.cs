@@ -1,6 +1,8 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using WashPoints.Domain.Ocupacion;
 using WashPoints.Domain.Turnos;
+using WashPoints.Infrastructure.Seguridad;
 using WashPoints.Infrastructure.Tiempo;
 
 namespace WashPoints.Api.Hubs;
@@ -16,7 +18,12 @@ namespace WashPoints.Api.Hubs;
 /// <see cref="SolicitarSnapshot"/> cubre CA-5.3 (versión backend): devuelve la
 /// ocupación vigente en hora local, tomada de la misma consulta que alimenta el
 /// endpoint REST (una sola fuente de verdad para reservas y espontáneas).
+///
+/// Slice-05 (CU-10): toda conexión exige sesión válida. La disponibilidad la ve
+/// cualquier sesión; la agenda (canal administrativo) exige, además, ser el
+/// administrador dueño del lavadero.
 /// </summary>
+[Authorize]
 public sealed class DisponibilidadHub : Hub
 {
     private readonly IDisponibilidadConsulta _consulta;
@@ -41,9 +48,26 @@ public sealed class DisponibilidadHub : Hub
     public Task SalirDeLavadero(Guid lavaderoId) =>
         Groups.RemoveFromGroupAsync(Context.ConnectionId, GrupoDe(lavaderoId));
 
-    /// <summary>Suscribe la conexión a los cambios de agenda del lavadero.</summary>
-    public Task UnirseAAgenda(Guid lavaderoId) =>
-        Groups.AddToGroupAsync(Context.ConnectionId, GrupoAgendaDe(lavaderoId));
+    /// <summary>
+    /// Suscribe la conexión a los cambios de agenda del lavadero. Es el canal
+    /// administrativo: exige ser el administrador dueño de ese lavadero (D-05.7).
+    /// Un intento ajeno se rechaza sin unir la conexión, con el mismo criterio
+    /// que el 403 de los endpoints.
+    /// </summary>
+    public Task UnirseAAgenda(Guid lavaderoId)
+    {
+        var rol = Context.User?.FindFirst(ClaimsWashPoints.Rol)?.Value;
+        var propio = Context.User?.FindFirst(ClaimsWashPoints.LavaderoId)?.Value;
+
+        if (rol != ClaimsWashPoints.Administrador ||
+            !Guid.TryParse(propio, out var lavaderoPropio) ||
+            lavaderoPropio != lavaderoId)
+        {
+            throw new HubException("no_es_propietario");
+        }
+
+        return Groups.AddToGroupAsync(Context.ConnectionId, GrupoAgendaDe(lavaderoId));
+    }
 
     /// <summary>Da de baja la conexión del grupo de agenda del lavadero.</summary>
     public Task SalirDeAgenda(Guid lavaderoId) =>

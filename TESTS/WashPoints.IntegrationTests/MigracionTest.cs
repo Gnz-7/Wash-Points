@@ -313,4 +313,67 @@ public sealed class MigracionTest : IClassFixture<ContenedorPostgres>, IAsyncLif
 
         Assert.True(indiceParcial, "Falta el índice parcial sobre outbox.publicado_en (publicado_en IS NULL).");
     }
+
+    [Fact]
+    public async Task LaTablaUsuariosExisteConRestricciones()
+    {
+        // Slice-05 (T-51, D-05.1): la identidad server-side se persiste en
+        // `usuarios`. La tabla no existía antes de esta migración.
+        var existe = await _baseDeDatos.ConsultarEscalarAsync<bool>(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'usuarios')");
+        Assert.True(existe, "Falta la tabla usuarios (identidad server-side, CU-10).");
+
+        async Task<bool> ExisteColumna(string columna) =>
+            await _baseDeDatos.ConsultarEscalarAsync<bool>($"""
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'usuarios' AND column_name = '{columna}'
+                )
+                """);
+
+        Assert.True(await ExisteColumna("id"), "Falta usuarios.id.");
+        Assert.True(await ExisteColumna("nombre_usuario"), "Falta usuarios.nombre_usuario.");
+        Assert.True(await ExisteColumna("hash_contrasena"), "Falta usuarios.hash_contrasena.");
+        Assert.True(await ExisteColumna("rol"), "Falta usuarios.rol.");
+        Assert.True(await ExisteColumna("lavadero_id"), "Falta usuarios.lavadero_id.");
+        Assert.True(await ExisteColumna("activo"), "Falta usuarios.activo.");
+        Assert.True(await ExisteColumna("creado_en"), "Falta usuarios.creado_en.");
+
+        // UNIQUE(nombre_usuario): la credencial se localiza por nombre y no se repite.
+        var unicoPorNombre = await _baseDeDatos.ConsultarEscalarAsync<bool>("""
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_index i
+                JOIN pg_class t ON t.oid = i.indrelid
+                JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = i.indkey[0]
+                WHERE t.relname = 'usuarios'
+                  AND i.indisunique
+                  AND a.attname = 'nombre_usuario'
+            )
+            """);
+        Assert.True(unicoPorNombre, "usuarios.nombre_usuario no es único.");
+
+        // D-05.1 (rol): solo se aceptan los roles 'cliente' y 'administrador'.
+        var checkRolValido = await _baseDeDatos.ConsultarEscalarAsync<bool>("""
+            SELECT EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conrelid = 'usuarios'::regclass
+                  AND contype = 'c'
+                  AND pg_get_constraintdef(oid) LIKE '%cliente%'
+            )
+            """);
+        Assert.True(checkRolValido, "Falta el CHECK que restringe usuarios.rol a los roles válidos.");
+
+        // D-05.1 (lavadero_id): un 'administrador' siempre pertenece a un lavadero.
+        var checkAdminRequiereLavadero = await _baseDeDatos.ConsultarEscalarAsync<bool>("""
+            SELECT EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conrelid = 'usuarios'::regclass
+                  AND contype = 'c'
+                  AND pg_get_constraintdef(oid) LIKE '%administrador%'
+                  AND pg_get_constraintdef(oid) LIKE '%lavadero_id%'
+            )
+            """);
+        Assert.True(checkAdminRequiereLavadero, "Falta el CHECK administrador ⇒ lavadero_id NOT NULL.");
+    }
 }

@@ -182,6 +182,56 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
                     b.ToTable("comprobantes", (string)null);
                 });
 
+            modelBuilder.Entity("WashPoints.Domain.Seguridad.Usuario", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Activo")
+                        .HasColumnType("boolean")
+                        .HasColumnName("activo");
+
+                    b.Property<DateTime>("CreadoEn")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("creado_en");
+
+                    b.Property<string>("HashContrasena")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("hash_contrasena");
+
+                    b.Property<Guid?>("LavaderoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lavadero_id");
+
+                    b.Property<string>("NombreUsuario")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("nombre_usuario");
+
+                    b.Property<string>("Rol")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("rol");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NombreUsuario")
+                        .IsUnique();
+
+                    b.ToTable("usuarios", null, t =>
+                        {
+                            t.HasCheckConstraint("usuarios_admin_requiere_lavadero", "rol <> 'administrador' OR lavadero_id IS NOT NULL");
+
+                            t.HasCheckConstraint("usuarios_rol_valido", "rol IN ('cliente', 'administrador')");
+                        });
+                });
+
             modelBuilder.Entity("WashPoints.Domain.Turnos.Turno", b =>
                 {
                     b.Property<Guid>("Id")

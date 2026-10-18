@@ -127,8 +127,8 @@ public sealed class OutboxTransaccionalTest : IClassFixture<ContenedorPostgres>,
         return (turno.Id, lavaderoId, Generador.ConstruirPayloadQr(token));
     }
 
-    private WebApplicationFactory<Program> CrearApi(bool conClaveCifrado = true) =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+    private CustomWebApplicationFactory CrearApi(bool conClaveCifrado = true) =>
+        new(_baseDeDatos.CadenaConexion, builder =>
         {
             builder.UseSetting("ConnectionStrings:Postgres", _baseDeDatos.CadenaConexion);
             if (conClaveCifrado)

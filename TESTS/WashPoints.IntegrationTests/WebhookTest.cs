@@ -81,8 +81,8 @@ public sealed class WebhookTest : IClassFixture<ContenedorPostgres>, IDisposable
         return turnoId;
     }
 
-    private WebApplicationFactory<Program> CrearApi(PasarelaPagosFakeSimulada pasarela) =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+    private CustomWebApplicationFactory CrearApi(PasarelaPagosFakeSimulada pasarela) =>
+        new(_baseDeDatos.CadenaConexion, builder =>
         {
             builder.UseSetting("ConnectionStrings:Postgres", _baseDeDatos.CadenaConexion);
             builder.UseSetting("Pagos:WebhookSecret", Secreto);

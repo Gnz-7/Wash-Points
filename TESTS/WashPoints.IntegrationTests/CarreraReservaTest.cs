@@ -59,8 +59,8 @@ public sealed class CarreraReservaTest : IClassFixture<ContenedorPostgres>, IDis
         return (lavadero.Id, puesto.Id, tipo.Id);
     }
 
-    private WebApplicationFactory<Program> CrearApi(PasarelaPagosFakeSimulada pasarela) =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+    private CustomWebApplicationFactory CrearApi(PasarelaPagosFakeSimulada pasarela) =>
+        new(_baseDeDatos.CadenaConexion, builder =>
         {
             builder.UseSetting("ConnectionStrings:Postgres", _baseDeDatos.CadenaConexion);
             builder.ConfigureServices(servicios =>

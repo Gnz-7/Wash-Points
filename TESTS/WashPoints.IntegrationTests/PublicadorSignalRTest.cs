@@ -71,8 +71,8 @@ public sealed class PublicadorSignalRTest : IClassFixture<ContenedorPostgres>, I
         await contexto.SaveChangesAsync();
     }
 
-    private WebApplicationFactory<Program> CrearApi() =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+    private CustomWebApplicationFactory CrearApi() =>
+        new(_baseDeDatos.CadenaConexion, builder =>
         {
             builder.UseSetting("ConnectionStrings:Postgres", _baseDeDatos.CadenaConexion);
             builder.ConfigureServices(servicios =>
@@ -95,13 +95,14 @@ public sealed class PublicadorSignalRTest : IClassFixture<ContenedorPostgres>, I
             });
         });
 
-    private async Task<HubConnection> ConectarAsync(WebApplicationFactory<Program> api)
+    private async Task<HubConnection> ConectarAsync(CustomWebApplicationFactory api)
     {
         var conexion = new HubConnectionBuilder()
             .WithUrl(new Uri(api.Server.BaseAddress, "hubs/disponibilidad"), opciones =>
             {
                 opciones.HttpMessageHandlerFactory = _ => api.Server.CreateHandler();
                 opciones.Transports = HttpTransportType.LongPolling;
+                opciones.AccessTokenProvider = () => Task.FromResult<string?>(api.TokenCliente());
             })
             .Build();
 
@@ -109,7 +110,7 @@ public sealed class PublicadorSignalRTest : IClassFixture<ContenedorPostgres>, I
         return conexion;
     }
 
-    private static async Task PublicarAsync(WebApplicationFactory<Program> api)
+    private static async Task PublicarAsync(CustomWebApplicationFactory api)
     {
         await using var alcance = api.Services.CreateAsyncScope();
         var publicador = alcance.ServiceProvider.GetRequiredService<WashPoints.Api.PublicadorOutbox>();

@@ -45,8 +45,8 @@ public sealed class CierreAgendaWorkerTest : IClassFixture<ContenedorPostgres>, 
             .UseNpgsql(_baseDeDatos.CadenaConexion)
             .Options);
 
-    private WebApplicationFactory<Program> CrearApi() =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+    private CustomWebApplicationFactory CrearApi() =>
+        new(_baseDeDatos.CadenaConexion, builder =>
         {
             builder.UseSetting("ConnectionStrings:Postgres", _baseDeDatos.CadenaConexion);
             builder.ConfigureServices(servicios =>
@@ -101,7 +101,7 @@ public sealed class CierreAgendaWorkerTest : IClassFixture<ContenedorPostgres>, 
         return turno.Id;
     }
 
-    private static async Task<int> EjecutarTickAsync(WebApplicationFactory<Program> api)
+    private static async Task<int> EjecutarTickAsync(CustomWebApplicationFactory api)
     {
         await using var alcance = api.Services.CreateAsyncScope();
         var servicio = alcance.ServiceProvider.GetRequiredService<CierreAgendaServicio>();

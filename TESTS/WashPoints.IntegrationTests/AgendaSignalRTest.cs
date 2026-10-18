@@ -45,8 +45,8 @@ public sealed class AgendaSignalRTest : IClassFixture<ContenedorPostgres>, IDisp
             .UseNpgsql(_baseDeDatos.CadenaConexion)
             .Options);
 
-    private WebApplicationFactory<Program> CrearApi() =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+    private CustomWebApplicationFactory CrearApi() =>
+        new(_baseDeDatos.CadenaConexion, builder =>
         {
             builder.UseSetting("ConnectionStrings:Postgres", _baseDeDatos.CadenaConexion);
             builder.ConfigureServices(servicios =>
@@ -97,13 +97,14 @@ public sealed class AgendaSignalRTest : IClassFixture<ContenedorPostgres>, IDisp
         return turno.Id;
     }
 
-    private async Task<HubConnection> ConectarAsync(WebApplicationFactory<Program> api)
+    private async Task<HubConnection> ConectarAsync(CustomWebApplicationFactory api, Guid lavaderoId)
     {
         var conexion = new HubConnectionBuilder()
             .WithUrl(new Uri(api.Server.BaseAddress, "hubs/disponibilidad"), opciones =>
             {
                 opciones.HttpMessageHandlerFactory = _ => api.Server.CreateHandler();
                 opciones.Transports = HttpTransportType.LongPolling;
+                opciones.AccessTokenProvider = () => Task.FromResult<string?>(api.TokenAdministrador(lavaderoId));
             })
             .Build();
 
@@ -111,7 +112,7 @@ public sealed class AgendaSignalRTest : IClassFixture<ContenedorPostgres>, IDisp
         return conexion;
     }
 
-    private static async Task PublicarAsync(WebApplicationFactory<Program> api)
+    private static async Task PublicarAsync(CustomWebApplicationFactory api)
     {
         await using var alcance = api.Services.CreateAsyncScope();
         var publicador = alcance.ServiceProvider.GetRequiredService<WashPoints.Api.PublicadorOutbox>();
@@ -130,7 +131,7 @@ public sealed class AgendaSignalRTest : IClassFixture<ContenedorPostgres>, IDisp
     {
         var (lavaderoId, puestoId, tipoId) = await SembrarCatalogoAsync("Lavadero Agenda");
         using var api = CrearApi();
-        await using var conexion = await ConectarAsync(api);
+        await using var conexion = await ConectarAsync(api, lavaderoId);
 
         var agenda = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         var disponibilidad = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -162,7 +163,7 @@ public sealed class AgendaSignalRTest : IClassFixture<ContenedorPostgres>, IDisp
         var turnoId = await SembrarTurnoEnCursoAsync(lavaderoId, puestoId, tipoId);
 
         using var api = CrearApi();
-        await using var conexion = await ConectarAsync(api);
+        await using var conexion = await ConectarAsync(api, lavaderoId);
 
         var agenda = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         conexion.On<string>("agendaActualizada", payload => agenda.TrySetResult(payload));
@@ -187,7 +188,7 @@ public sealed class AgendaSignalRTest : IClassFixture<ContenedorPostgres>, IDisp
         var (lavaderoB, puestoB, tipoB) = await SembrarCatalogoAsync("Lavadero B");
 
         using var api = CrearApi();
-        await using var conexion = await ConectarAsync(api);
+        await using var conexion = await ConectarAsync(api, lavaderoA);
 
         var recibido = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         conexion.On<string>("agendaActualizada", payload => recibido.TrySetResult(payload));

@@ -49,8 +49,8 @@ public sealed class CanjeComprobanteTest : IClassFixture<ContenedorPostgres>, ID
             .UseNpgsql(_baseDeDatos.CadenaConexion)
             .Options);
 
-    private WebApplicationFactory<Program> CrearApi() =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+    private CustomWebApplicationFactory CrearApi() =>
+        new(_baseDeDatos.CadenaConexion, builder =>
         {
             builder.UseSetting("ConnectionStrings:Postgres", _baseDeDatos.CadenaConexion);
             builder.UseSetting("Comprobantes:ClaveCifrado", ClaveCifrado);

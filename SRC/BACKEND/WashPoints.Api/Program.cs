@@ -1,22 +1,30 @@
+using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using WashPoints.Api;
 using WashPoints.Api.Hubs;
+using WashPoints.Api.Seguridad;
 using WashPoints.Application.Agenda;
 using WashPoints.Application.Catalogo;
 using WashPoints.Application.Comprobantes;
 using WashPoints.Application.Espontanea;
 using WashPoints.Application.Pagos;
 using WashPoints.Application.ReservarTurno;
+using WashPoints.Application.Seguridad;
 using WashPoints.Domain.Catalogo;
 using WashPoints.Domain.Comprobantes;
 using WashPoints.Domain.Ocupacion;
 using WashPoints.Domain.Puertos;
+using WashPoints.Domain.Seguridad;
 using WashPoints.Domain.Turnos;
 using WashPoints.Infrastructure.Comprobantes;
 using WashPoints.Infrastructure.MercadoPago;
 using WashPoints.Infrastructure.Pagos;
 using WashPoints.Infrastructure.Persistencia;
+using WashPoints.Infrastructure.Seguridad;
 using WashPoints.Infrastructure.Tiempo;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -86,6 +94,65 @@ builder.Services.AddScoped<CanjeComprobanteServicio>();
 builder.Services.AddScoped<VigentesComprobanteServicio>();
 builder.Services.AddScoped<ReconciliacionComprobantesServicio>();
 
+// Autenticación (CU-10, slice-05 T-53): login que emite la sesión JWT. La clave
+// de firma va por variable de entorno (Jwt:ClaveSecreta, nunca en el repo,
+// AGENTS §3.4); si falta, se usa una clave aleatoria de arranque (default
+// seguro: ninguna sesión previa se valida hasta configurarla).
+var opcionesJwt = builder.Configuration.GetSection("Jwt").Get<OpcionesJwt>() ?? new OpcionesJwt();
+if (string.IsNullOrWhiteSpace(opcionesJwt.ClaveSecreta))
+{
+    opcionesJwt.ClaveSecreta = Guid.NewGuid().ToString("N");
+}
+
+builder.Services.AddSingleton(opcionesJwt);
+builder.Services.AddSingleton<IEmisorToken>(servicios => new EmisorTokenJwt(
+    opcionesJwt.ClaveSecreta,
+    opcionesJwt.Emisor,
+    opcionesJwt.Audiencia,
+    opcionesJwt.MinutosVida,
+    servicios.GetRequiredService<TimeProvider>()));
+builder.Services.AddSingleton<IHasheadorContrasena, HasheadorContrasenaPbkdf2>();
+builder.Services.AddScoped<IUsuarioRepositorio, UsuarioRepositorio>();
+builder.Services.AddScoped<AutenticacionServicio>();
+
+// Identidad server-side (slice-05, CU-10): el bearer se valida en el pipeline y
+// la autorización se resuelve por claims. La Api es la única autoridad; el
+// cliente nunca decide permisos (ARCHITECTURE §7.1). El token se emite y se
+// valida con la MISMA clave configurada (o el fallback de arranque).
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(opciones =>
+    {
+        opciones.MapInboundClaims = false;
+        opciones.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = opcionesJwt.Emisor,
+            ValidateAudience = true,
+            ValidAudience = opcionesJwt.Audiencia,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(opcionesJwt.ClaveSecreta)),
+            ValidateLifetime = true,
+        };
+    });
+
+// Políticas de autorización (§5.2). `Administrador` cubre los endpoints de
+// administración sin lavadero en ruta; `PropietarioDelLavadero` exige, además,
+// que el `lavaderoId` de la sesión coincida con el `{id}` de la ruta (D-05.7).
+builder.Services.AddAuthorization(opciones =>
+{
+    opciones.AddPolicy(Politicas.Administrador, politica =>
+        politica.RequireClaim(ClaimsWashPoints.Rol, ClaimsWashPoints.Administrador));
+
+    opciones.AddPolicy(Politicas.PropietarioDelLavadero, politica =>
+    {
+        politica.RequireClaim(ClaimsWashPoints.Rol, ClaimsWashPoints.Administrador);
+        politica.AddRequirements(new RequisitoPropietarioLavadero());
+    });
+});
+builder.Services.AddSingleton<IAuthorizationHandler, ManejadorPropietarioLavadero>();
+builder.Services.AddSingleton<IAuthorizationMiddlewareResultHandler, ManejadorResultadoAutorizacion>();
+
 builder.Services.AddSingleton(TimeProvider.System);
 
 // Worker de conciliación (T-21): respaldo a los 3 min y expiración del TTL.
@@ -125,6 +192,10 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+// Pipeline de identidad: autenticar (valida el bearer) y autorizar (policies).
+app.UseAuthentication();
+app.UseAuthorization();
 
 // Hub de disponibilidad en tiempo real (RB-2): el cliente se une al grupo de su
 // lavadero y recibe `disponibilidadActualizada` cuando cambia la ocupación.
@@ -180,6 +251,7 @@ app.MapGet("/api/lavaderos/{id:guid}/disponibilidad", async (
     }
 })
 .WithName("ConsultarDisponibilidad")
+.RequireAuthorization()
 .WithOpenApi();
 
 // Reserva con seña (T-15, US-C01). Crea el turno pendiente_pago que bloquea el
@@ -248,6 +320,7 @@ app.MapPost("/api/lavaderos/{id:guid}/turnos", async (
     }
 })
 .WithName("ReservarTurno")
+.RequireAuthorization()
 .WithOpenApi();
 
 // Demanda espontánea (CU-07, slice-03 T-36): el local registra a un cliente que
@@ -305,6 +378,7 @@ app.MapPost("/api/lavaderos/{id:guid}/turnos-espontaneos", async (
     }
 })
 .WithName("RegistrarDemandaEspontanea")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
 .WithOpenApi();
 
 // Comprobante del turno (RB-3, US-C08 CA-8.4): el cliente recupera el QR y el
@@ -329,6 +403,7 @@ app.MapGet("/api/turnos/{id:guid}/comprobante", async (
     });
 })
 .WithName("ObtenerComprobante")
+.RequireAuthorization()
 .WithOpenApi();
 
 // Canje del comprobante en destino (RB-3, US-A02/US-A04): el panel del
@@ -377,6 +452,7 @@ app.MapPost("/api/lavaderos/{id:guid}/comprobantes/validar", async (
     }
 })
 .WithName("ValidarComprobante")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
 .WithOpenApi();
 
 // Caché de vigentes para el modo offline (RB-3, US-A03 CA-3.1): el admin
@@ -411,6 +487,7 @@ app.MapGet("/api/lavaderos/{id:guid}/comprobantes/vigentes", async (
     return Results.Ok(new { fecha = dia.ToString("yyyy-MM-dd"), hashes });
 })
 .WithName("ComprobantesVigentes")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
 .WithOpenApi();
 
 // Reconciliación de canjes offline (RB-3, US-A03 CA-3.4/CA-3.5): el servidor es
@@ -444,6 +521,7 @@ app.MapPost("/api/lavaderos/{id:guid}/comprobantes/reconciliar", async (
     });
 })
 .WithName("ReconciliarComprobantes")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
 .WithOpenApi();
 
 // Gestión de puestos de lavado (CU-05, SPECS/slice-04 T-44). El admin crea,
@@ -460,6 +538,7 @@ app.MapGet("/api/lavaderos/{id:guid}/puestos", async (
     return Results.Ok(puestos.Select(PuestoAJson));
 })
 .WithName("ListarPuestos")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
 .WithOpenApi();
 
 app.MapPost("/api/lavaderos/{id:guid}/puestos", async (
@@ -483,6 +562,7 @@ app.MapPost("/api/lavaderos/{id:guid}/puestos", async (
     }
 })
 .WithName("CrearPuesto")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
 .WithOpenApi();
 
 app.MapPost("/api/lavaderos/{id:guid}/puestos/{puestoId:guid}/desactivar", async (
@@ -506,6 +586,7 @@ app.MapPost("/api/lavaderos/{id:guid}/puestos/{puestoId:guid}/desactivar", async
     }
 })
 .WithName("DesactivarPuesto")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
 .WithOpenApi();
 
 app.MapPost("/api/lavaderos/{id:guid}/puestos/{puestoId:guid}/activar", async (
@@ -525,6 +606,7 @@ app.MapPost("/api/lavaderos/{id:guid}/puestos/{puestoId:guid}/activar", async (
     }
 })
 .WithName("ActivarPuesto")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
 .WithOpenApi();
 
 // Agenda del lavadero (CU-06, SPECS/slice-04 T-46). Lista los turnos del día en
@@ -574,6 +656,7 @@ app.MapGet("/api/lavaderos/{id:guid}/agenda", async (
     return Results.Ok(agenda.Select(TurnoAgendaAJson));
 })
 .WithName("ConsultarAgenda")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
 .WithOpenApi();
 
 // Ciclo de vida del turno desde la agenda (CU-06, US-A06): finalizar (en_curso),
@@ -599,6 +682,7 @@ app.MapPost("/api/lavaderos/{id:guid}/turnos/{turnoId:guid}/finalizar", async (
     }
 })
 .WithName("FinalizarTurno")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
 .WithOpenApi();
 
 app.MapPost("/api/lavaderos/{id:guid}/turnos/{turnoId:guid}/cancelar", async (
@@ -620,6 +704,7 @@ app.MapPost("/api/lavaderos/{id:guid}/turnos/{turnoId:guid}/cancelar", async (
     }
 })
 .WithName("CancelarTurno")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
 .WithOpenApi();
 
 app.MapPost("/api/lavaderos/{id:guid}/turnos/{turnoId:guid}/no-presentado", async (
@@ -641,6 +726,44 @@ app.MapPost("/api/lavaderos/{id:guid}/turnos/{turnoId:guid}/no-presentado", asyn
     }
 })
 .WithName("MarcarNoPresentado")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
+.WithOpenApi();
+
+// Login (CU-10, SPECS/slice-05 T-53). Endpoint anónimo: verifica credenciales y
+// emite la sesión. El rechazo es siempre 401 con el mismo cuerpo genérico
+// (CA-9.4): no distingue usuario inexistente, inactivo ni contraseña errónea.
+app.MapPost("/api/auth/login", async (
+    SolicitudLoginHttp cuerpo,
+    AutenticacionServicio servicio,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(cuerpo.NombreUsuario) ||
+        string.IsNullOrWhiteSpace(cuerpo.Contrasena))
+    {
+        return Results.BadRequest(new { error = "datos_invalidos" });
+    }
+
+    try
+    {
+        var sesion = await servicio.IniciarSesionAsync(
+            new SolicitudLogin(cuerpo.NombreUsuario, cuerpo.Contrasena), ct);
+
+        return Results.Ok(new
+        {
+            token = sesion.Sesion.Token,
+            expiraEn = sesion.Sesion.ExpiraEnUtc,
+            rol = RolAJson(sesion.Rol),
+            lavaderoId = sesion.LavaderoId,
+        });
+    }
+    catch (UsuarioNoEncontradoException)
+    {
+        return Results.Json(
+            new { error = "credenciales_invalidas" },
+            statusCode: StatusCodes.Status401Unauthorized);
+    }
+})
+.WithName("IniciarSesion")
 .WithOpenApi();
 
 // Webhook IPN de Mercado Pago (T-17..T-19). Es la ÚNICA puerta de confirmación
@@ -761,6 +884,10 @@ static object TurnoAgendaAJson(TurnoAgenda turno) => new
     hasta = ConversorHorario.ALocal(turno.FinUtc),
 };
 
+/// <summary>Rol del usuario en su forma snake_case para la respuesta de login (§5.1).</summary>
+static string RolAJson(RolUsuario rol) =>
+    rol == RolUsuario.Administrador ? "administrador" : "cliente";
+
 /// <summary>Parsea el filtro de estado de la agenda en su forma snake_case (§5.1).</summary>
 static bool TryParseEstado(string valor, out EstadoTurno estado)
 {
@@ -802,6 +929,9 @@ public sealed record SolicitudReservaHttp(
 
 /// <summary>Cuerpo de la creación de puesto (CU-05).</summary>
 public sealed record SolicitudPuestoHttp(string? Nombre);
+
+/// <summary>Cuerpo del login (CU-10); credenciales en claro solo en tránsito.</summary>
+public sealed record SolicitudLoginHttp(string? NombreUsuario, string? Contrasena);
 
 /// <summary>Cuerpo de la demanda espontánea. `inicio` en hora local del lavadero.</summary>
 public sealed record SolicitudEspontaneaHttp(

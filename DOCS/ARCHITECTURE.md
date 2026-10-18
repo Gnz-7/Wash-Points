@@ -311,6 +311,8 @@ public interface IGeocodificador
 
 El único cliente Flutter cubre cliente y administrador, differentiated por rol en el login. La autorización se resuelve **siempre** en el servidor: el token del administrador habilita los endpoints de `Turnos`, `Comprobantes` y `Metricas`; el cliente nunca recibe esos permisos por confianza en el dispositivo.
 
+**Sesión de usuario (slice-05, decidida).** La autenticación emite un **JWT** (HS256; `Jwt:ClaveSecreta` por entorno, **nunca** en el repositorio) con los claims `sub` (id de `usuarios`), `rol` (`cliente` \| `administrador`) y `lavaderoId` (solo para administradores). El servidor valida firma, `iss`, `aud` y `exp`, y resuelve la autorización: sin sesión ⇒ `401`; rol fuera de alcance o administrador sobre otro lavadero ⇒ `403`. Flutter solo refleja el permiso. El ownership por **sub-recurso** (`puestoId`/`turnoId` ajeno dentro del lavadero de ruta) sigue devolviendo `404` (D-04.7 de slice-04).
+
 ### 7.2 Mercado Pago
 
 - **Preferencia de pago** creada por `IPasarelaPagos.CrearPreferenciaAsync` con `PreferenceClient`. El SDK inyecta `X-Idempotency-Key` automáticamente; además se envía una clave explícita derivada del `turnoId` para que un reintento del cliente no cree una preferencia nueva.
@@ -336,6 +338,7 @@ El único cliente Flutter cubre cliente y administrador, differentiated por rol 
 - Datos de cliente (nombre, teléfono, patente) son PII: permisos mínimos, sin payloads completos en logs, y no se exponen en respuestas de API que no los necesiten.
 - El comprobante se trata como credencial: token de alta entropía (nunca enumerable), un solo uso y con expiración. En reposo **nunca** se guarda el claro: solo el `hash` SHA-256 (búsqueda/canje) y `token_cifrado` (AES-GCM, clave exclusivamente en configuración/entorno). Los endpoints de caché exponen **hashes**, jamás el token.
 - El panel de administrador valida la firma del webhook antes de tocar cualquier estado.
+- **Identidad (slice-05).** El token de sesión (JWT) se trata como credencial: la clave de firma vive exclusivamente en configuración/entorno y no se loguean tokens ni payloads de login. La contraseña se persiste **solo** como hash PBKDF2 con salt por usuario; nunca en claro.
 
 ## 9. Estrategia de pruebas
 
@@ -383,10 +386,13 @@ Para no bloquear la migración inicial del slice 0, se las creó con el mínimo 
 | `lavaderos` | `id`, `nombre`, `activo` | dirección, coordenadas para el mapa, horarios de atención, teléfono |
 | `puestos` | `id`, `lavadero_id`, `nombre`, `activo` | orden, tipos de lavado compatibles, alta/baja por el admin |
 | `clientes` | `id`, `nombre` | teléfono, patente, historial; cualquier dato es PII (AGENTS.md §3.4) |
+| `usuarios` | `id`, `nombre_usuario` (único), `hash_contrasena`, `rol`, `lavadero_id` (NULL para `cliente`), `activo`, `creado_en` (slice-05) | mapeo 1:1 con `clientes`; alta/provisión de credenciales |
 
 Además quedó sin decidir si `puestos.lavadero_id` y `turnos.lavadero_id` ganan FK explícita a `lavaderos`: hoy son simples `uuid` sin constraint, igual que `tipos_lavado.lavadero_id`.
 
 **Impacto:** ninguna regla de negocio depende de estas columnas todavía. El módulo `Catalogo` (§2.2) es el dueño de completarlas, y `architect` debe traer el esquema definitivo antes de que `US-A07` se implemente.
+
+**Decisión de slice-05 (T-50).** La tabla `usuarios` queda **fijada** por `SPECS/slice-05-auth-y-permisos.md` (D-05.1): `id`, `nombre_usuario` único, `hash_contrasena` (PBKDF2), `rol` (`cliente`/`administrador`), `lavadero_id` (NULL para `cliente`, obligatorio para `administrador`), `activo`, `creado_en`. El resto del catálogo (`lavaderos`/`puestos`/`clientes`) sigue como estaba; el mapeo 1:1 entre `usuarios` y `clientes` queda diferido.
 
 **Estado:** abierta. Resoluble por `architect` (§2.1 de AGENTS.md) sin intervención del responsable del producto, a diferencia de las 1 a 5.
 
