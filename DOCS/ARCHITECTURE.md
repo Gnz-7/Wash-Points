@@ -58,6 +58,8 @@ Seis módulos lógicos. **Ningún módulo lee tablas de otro módulo**: toda la 
 
 Dependencias permitidas: `Turnos → Ocupacion`, `Pagos → Turnos` (notifica transición, no la decide), `Comprobantes → Turnos`, `Metricas → {Turnos, Pagos}` (solo lectura).
 
+**Contrato de lectura de `Metricas` (slice-06, decidido).** `Metricas` agrega sobre el esquema existente (`turnos`, `pagos`, `puestos`, `tipos_lavado`) con consultas de **solo lectura**: no cambia estados, no escribe filas ni encola en `outbox`. Informa **tres magnitudes independientes** —señas cobradas, facturado total y facturado de mostrador— que **nunca se suman** entre sí: la seña es un adelanto y el facturado, el valor del servicio entregado (CU-09, US-A08 CA-8.2). El día se calcula en la zona local del lavadero (`America/Argentina/Buenos_Aires`, §10.6) y el alcance es siempre el `lavaderoId` del token verificado contra el `{id}` de ruta (§7.1): un administrador no puede leer métricas de otro lavadero.
+
 Tanto la reserva como la **demanda espontánea** (`RegistrarDemandaEspontanea`) escriben la disponibilidad por la **misma** puerta `IOcupacionRepositorio` (una sola tabla `turnos`) y encolan el evento de ocupación en `outbox` **dentro de la misma transacción** de base de datos. Esa puerta única + outbox transaccional es el mecanismo concreto que protege RB-2 (§6, §7.3).
 
 ## 3. Alternativas de modelo de datos evaluadas
@@ -361,6 +363,8 @@ Las ambigüedades 1 a 5 están en `OVERVIEW.md` y **no se resuelven por decisió
 1. **Cancelación y reembolso.** `OVERVIEW.md` no define qué ocurre si el cliente cancela después de pagar la seña. El modelo ya contempla `cancelado` y el flujo de devolución por la pasarela está preparado, pero la política (plazo, porcentaje devuelto, quién asume el costo del horario perdido) no está definida.
 2. **Proveedor de mapas.** Sin definir. El puerto `IGeocodificador` está listo; falta la decisión.
 3. **Moneda y política de redondeo.** El modelo guarda `numeric` sin fijar moneda. `OVERVIEW.md` no la especifica.
+
+   > **Decisión de slice-06 (métricas).** Las métricas exponen **ARS** y redondean a **2 decimales** (half-up) al presentar importes. No hay migración de esquema: las señas se derivan de `turnos.precio_sena` (turnos con pago `approved` cuyo `procesado_en` cae en el día local) y el facturado de `tipos_lavado.precio_total` (turnos atendidos del día). El DTO declara `moneda: "ARS"`. La pregunta sigue **abierta** para el resto del sistema: no hay soporte multi-moneda.
 4. **Ventana de canje offline.** Cuánto tiempo puede validar el administrador sin conexión antes de que la reconciliación rechace el canje. Requiere definir el comportamiento esperado del panel durante ese período.
 5. **Duración por tipo de lavado.** El modelo asume duraciones fijas declaradas en `tipos_lavado` (consecuencia directa de elegir la alternativa A). Si el negocio necesita duraciones variables, hay que revisar esta decisión.
 

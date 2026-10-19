@@ -12,11 +12,13 @@ using WashPoints.Application.Agenda;
 using WashPoints.Application.Catalogo;
 using WashPoints.Application.Comprobantes;
 using WashPoints.Application.Espontanea;
+using WashPoints.Application.Metricas;
 using WashPoints.Application.Pagos;
 using WashPoints.Application.ReservarTurno;
 using WashPoints.Application.Seguridad;
 using WashPoints.Domain.Catalogo;
 using WashPoints.Domain.Comprobantes;
+using WashPoints.Domain.Metricas;
 using WashPoints.Domain.Ocupacion;
 using WashPoints.Domain.Puertos;
 using WashPoints.Domain.Seguridad;
@@ -51,6 +53,8 @@ builder.Services.AddScoped<IConsultaAgenda, ConsultaAgenda>();
 builder.Services.AddScoped<GestionPuestosServicio>();
 builder.Services.AddScoped<AgendaServicio>();
 builder.Services.AddScoped<CierreAgendaServicio>();
+builder.Services.AddScoped<IMetricasConsulta, ConsultaMetricas>();
+builder.Services.AddScoped<MetricasServicio>();
 builder.Services.AddScoped<ReservaServicio>();
 builder.Services.AddScoped<WebhookPagoServicio>();
 builder.Services.AddScoped<RespaldoYExpiracionServicio>();
@@ -662,6 +666,109 @@ app.MapGet("/api/lavaderos/{id:guid}/agenda", async (
 .RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
 .WithOpenApi();
 
+// Métricas y BI (CU-09, US-A08): lecturas agregadas de solo lectura para el
+// panel del administrador. El día se resuelve en hora local del lavadero
+// (ARCHITECTURE §10.6) y las tres magnitudes de dinero viajan separadas: la
+// seña es un adelanto y el facturado, el servicio entregado (CA-8.2).
+app.MapGet("/api/lavaderos/{id:guid}/metricas/resumen", async (
+    Guid id,
+    string? fecha,
+    MetricasServicio servicio,
+    CancellationToken ct) =>
+{
+    if (!TryParseDiaLocal(fecha, out var dia))
+    {
+        return Results.BadRequest(new { error = "fecha_invalida" });
+    }
+
+    var (desdeUtc, hastaUtc) = RangoDelDiaLocal(dia);
+
+    try
+    {
+        var resumen = await servicio.ObtenerResumenAsync(id, dia, desdeUtc, hastaUtc, ct);
+        return Results.Ok(ResumenMetricasAJson(resumen));
+    }
+    catch (VentanaInvalidaException)
+    {
+        return Results.BadRequest(new { error = "ventana_invalida" });
+    }
+    catch (System.Data.Common.DbException)
+    {
+        return Results.Json(
+            new { error = "metricas_no_disponibles" },
+            statusCode: StatusCodes.Status500InternalServerError);
+    }
+})
+.WithName("ConsultarResumenMetricas")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
+.WithOpenApi();
+
+app.MapGet("/api/lavaderos/{id:guid}/metricas/ocupacion", async (
+    Guid id,
+    string? fecha,
+    Guid? puestoId,
+    string? desde,
+    string? hasta,
+    MetricasServicio servicio,
+    CancellationToken ct) =>
+{
+    if (!TryParseDiaLocal(fecha, out var dia))
+    {
+        return Results.BadRequest(new { error = "fecha_invalida" });
+    }
+
+    DateTime desdeUtc;
+    DateTime hastaUtc;
+
+    if (string.IsNullOrWhiteSpace(desde) && string.IsNullOrWhiteSpace(hasta))
+    {
+        (desdeUtc, hastaUtc) = RangoDelDiaLocal(dia);
+    }
+    else if (DateTimeOffset.TryParse(
+                 desde,
+                 System.Globalization.CultureInfo.InvariantCulture,
+                 System.Globalization.DateTimeStyles.AssumeUniversal,
+                 out var inicio)
+             && DateTimeOffset.TryParse(
+                 hasta,
+                 System.Globalization.CultureInfo.InvariantCulture,
+                 System.Globalization.DateTimeStyles.AssumeUniversal,
+                 out var fin))
+    {
+        desdeUtc = inicio.UtcDateTime;
+        hastaUtc = fin.UtcDateTime;
+    }
+    else
+    {
+        return Results.BadRequest(new { error = "ventana_invalida" });
+    }
+
+    try
+    {
+        var ocupacion = await servicio.ObtenerOcupacionAsync(id, desdeUtc, hastaUtc, puestoId, ct);
+
+        if (puestoId is not null && ocupacion.Puestos.Count == 0)
+        {
+            return Results.NotFound(new { error = "puesto_no_encontrado" });
+        }
+
+        return Results.Ok(OcupacionMetricasAJson(ocupacion));
+    }
+    catch (VentanaInvalidaException)
+    {
+        return Results.BadRequest(new { error = "ventana_invalida" });
+    }
+    catch (System.Data.Common.DbException)
+    {
+        return Results.Json(
+            new { error = "metricas_no_disponibles" },
+            statusCode: StatusCodes.Status500InternalServerError);
+    }
+})
+.WithName("ConsultarOcupacionMetricas")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
+.WithOpenApi();
+
 // Ciclo de vida del turno desde la agenda (CU-06, US-A06): finalizar (en_curso),
 // cancelar (confirmado, D-04.3) y no_presentado manual (confirmado). Toda
 // transición pasa por Turno.TransicionarA; una no permitida da 409
@@ -885,6 +992,75 @@ static object TurnoAgendaAJson(TurnoAgenda turno) => new
     estado = EstadoAJson(turno.Estado),
     desde = ConversorHorario.ALocal(turno.InicioUtc),
     hasta = ConversorHorario.ALocal(turno.FinUtc),
+};
+
+/// <summary>
+/// Resuelve el día local del lavadero (o el de hoy si no se pidió fecha).
+/// Devuelve <c>false</c> cuando el formato no es <c>yyyy-MM-dd</c>.
+/// </summary>
+static bool TryParseDiaLocal(string? fecha, out DateOnly dia)
+{
+    if (string.IsNullOrWhiteSpace(fecha))
+    {
+        dia = DateOnly.FromDateTime(ConversorHorario.ALocal(DateTime.UtcNow));
+        return true;
+    }
+
+    return DateOnly.TryParseExact(
+        fecha,
+        "yyyy-MM-dd",
+        System.Globalization.CultureInfo.InvariantCulture,
+        System.Globalization.DateTimeStyles.None,
+        out dia);
+}
+
+/// <summary>Límites UTC del día local: [00:00 local, 00:00 local del día siguiente).</summary>
+static (DateTime DesdeUtc, DateTime HastaUtc) RangoDelDiaLocal(DateOnly dia)
+{
+    var inicioLocal = dia.ToDateTime(TimeOnly.MinValue);
+    return (ConversorHorario.AUtc(inicioLocal), ConversorHorario.AUtc(inicioLocal.AddDays(1)));
+}
+
+/// <summary>Proyección del resumen: tres magnitudes de dinero que no se suman (CA-8.2).</summary>
+static object ResumenMetricasAJson(ResumenDiario resumen) => new
+{
+    fecha = resumen.Fecha.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+    capacidad = new
+    {
+        puestosTotal = resumen.Capacidad.PuestosTotal,
+        puestosActivos = resumen.Capacidad.PuestosActivos,
+        puestosOcupados = resumen.Capacidad.PuestosOcupados,
+        calculadaEn = resumen.Capacidad.CalculadoEnUtc,
+    },
+    ingresos = new
+    {
+        senasCobradas = resumen.Ingresos.SenasCobradas,
+        facturadoTotal = resumen.Ingresos.FacturadoTotal,
+        facturadoMostrador = resumen.Ingresos.FacturadoMostrador,
+        moneda = resumen.Ingresos.Moneda,
+    },
+    turnos = new
+    {
+        atendidos = resumen.Turnos.Atendidos,
+        espontaneos = resumen.Turnos.Espontaneos,
+        noPresentados = resumen.Turnos.NoPresentados,
+        cancelaciones = resumen.Turnos.Cancelaciones,
+    },
+};
+
+/// <summary>Proyección de la ocupación: la tasa siempre viaja con su ventana.</summary>
+static object OcupacionMetricasAJson(OcupacionDelDia ocupacion) => new
+{
+    desde = ocupacion.DesdeUtc,
+    hasta = ocupacion.HastaUtc,
+    puestos = ocupacion.Puestos.Select(puesto => new
+    {
+        puestoId = puesto.PuestoId,
+        nombre = puesto.Nombre,
+        minutosOcupados = puesto.MinutosOcupados,
+        minutosVentana = puesto.MinutosVentana,
+        tasa = puesto.Tasa,
+    }),
 };
 
 /// <summary>Rol del usuario en su forma snake_case para la respuesta de login (§5.1).</summary>
