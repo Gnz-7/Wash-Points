@@ -23,6 +23,7 @@ namespace WashPoints.Infrastructure.Persistencia;
 public sealed class OcupacionRepositorio : IOcupacionRepositorio
 {
     private const string SqlStateExclusionViolation = "23P01";
+    private const string SqlStateDeadlock = "40P01";
     private const string SqlStateUniqueViolation = "23505";
     private const string IndiceIdempotencia = "turnos_idempotency_unicos";
 
@@ -152,6 +153,20 @@ public sealed class OcupacionRepositorio : IOcupacionRepositorio
         {
             // RE-ordenar no ayuda: la restricción se evalúa por fila. El
             // conflicto se eleva al dominio para que la reserva lo maneje.
+            throw new TurnoConflictoException(
+                $"El puesto tiene otro turno en el mismo rango. (detalle: {postgres.MessageText})");
+        }
+        catch (DbUpdateException ex)
+            when (ex.InnerException is PostgresException postgres &&
+                  postgres.SqlState == SqlStateDeadlock)
+        {
+            // Varias transacciones que insertan rangos solapados en el mismo
+            // puesto se bloquean mutuamente al evaluar la constraint EXCLUDE;
+            // PostgreSQL resuelve el ciclo de espera matando víctimas con
+            // "deadlock detected". El ganador ya se quedó el slot, así que el
+            // perdedor enfrenta el mismo conflicto de negocio que la violación
+            // de exclusión (RB-2), no un fallo transitorio: EF no reintenta
+            // dentro de una transacción abierta por el llamador.
             throw new TurnoConflictoException(
                 $"El puesto tiene otro turno en el mismo rango. (detalle: {postgres.MessageText})");
         }
