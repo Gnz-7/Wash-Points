@@ -14,6 +14,12 @@ public static class Politicas
     /// </summary>
     public const string PropietarioDelLavadero = "PropietarioDelLavadero";
 
+    /// <summary>
+    /// Endpoints del cliente conductor: exige rol <c>cliente</c>. Un
+    /// administrador autenticado recibe 403 (slice-07, D-08.7).
+    /// </summary>
+    public const string Cliente = "Cliente";
+
     /// <summary>Error 403: el rol de la sesión no alcanza para el endpoint.</summary>
     public const string ErrorRolInsuficiente = "rol_insuficiente";
 

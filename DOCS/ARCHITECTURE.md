@@ -116,8 +116,19 @@ CREATE EXTENSION IF NOT EXISTS btree_gist;
 CREATE TABLE lavaderos (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   nombre text NOT NULL,
-  activo boolean NOT NULL DEFAULT true
+  activo boolean NOT NULL DEFAULT true,
+  -- Ubicación (slice-07, D-08.1). Nullable: un lavadero sin coordenadas no
+  -- aparece en la búsqueda por proximidad, pero sigue visible para agenda y
+  -- métricas. El par latitud/longitud va completo o no va.
+  direccion text NULL,
+  latitud   double precision NULL CHECK (latitud IS NULL OR latitud BETWEEN -90 AND 90),
+  longitud  double precision NULL CHECK (longitud IS NULL OR longitud BETWEEN -180 AND 180),
+  CONSTRAINT ck_lavaderos_ubicacion_completa CHECK ((latitud IS NULL) = (longitud IS NULL))
 );
+
+-- Búsqueda por proximidad (§7.4): Haversine en SQL directo, sin PostGIS.
+CREATE INDEX ix_lavaderos_ubicacion
+  ON lavaderos (latitud, longitud) WHERE latitud IS NOT NULL;
 
 CREATE TABLE puestos (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -304,10 +315,18 @@ public interface IPasarelaPagos
 
 public interface IGeocodificador
 {
-    Task<IReadOnlyList<LavaderoProximo>> BuscarPorProximidadAsync(
-        double latitud, double longitud, int radioMetros, CancellationToken ct);
+    Task<Coordenadas?> GeocodificarAsync(string direccion, CancellationToken ct = default);
+}
+
+public interface IBusquedaLavaderos
+{
+    Task<IReadOnlyList<LavaderoCercano>> BuscarCercanosAsync(
+        double latitud, double longitud, int radioMetros,
+        DateTime ahoraUtc, CancellationToken ct = default);
 }
 ```
+
+> **Separación decidida en slice-07 (D-08.3/D-08.4).** La búsqueda por proximidad no pasa por un proveedor externo: la resuelve `ConsultaBusquedaLavaderos` con Haversine sobre `lavaderos.latitud`/`longitud`. `IGeocodificador` queda acotado a **texto → coordenadas**; su stub lanza `ProveedorMapasNoConfiguradoException` (⇒ `503 proveedor_mapas_no_configurado`) y devuelve `null` cuando el proveedor no encuentra la dirección.
 
 `ResultadoVerificacionPago` es un discriminante explícito: `Aprobado`, `Pendiente`, `Rechazado`. No se modela como booleano porque los tres caminos producen efectos distintos en la máquina de estados.
 
@@ -333,7 +352,7 @@ El único cliente Flutter cubre cliente y administrador, differentiated por rol 
 
 ### 7.4 Mapas y geolocalización
 
-`IGeocodificador` está declarado, con una implementación stub que devuelve un error explícito "proveedor no configurado". Ningún módulo depende de un proveedor concreto: cuando se decida, se agrega una implementación sin tocar el flujo de reserva. Las claves de API van solo por variables de entorno.
+**Búsqueda por proximidad (slice-07, D-08.2…D-08.4).** La búsqueda por latitud/longitud **no** depende de un proveedor externo: se resuelve en la base local con Haversine en SQL directo sobre `lavaderos.latitud`/`lavaderos.longitud` (radio terrestre 6 371 000 m, sin PostGIS). `IGeocodificador` queda declarado con una única responsabilidad —convertir una dirección escrita en coordenadas— y su implementación stub devuelve un error explícito "proveedor no configurado" (`503 proveedor_mapas_no_configurado`), nunca un resultado vacío. Ningún módulo depende de un proveedor concreto: cuando se decida, se agrega una implementación sin tocar el flujo de reserva. Las claves de API van solo por variables de entorno.
 
 ## 8. Seguridad
 
@@ -389,7 +408,7 @@ Para no bloquear la migración inicial del slice 0, se las creó con el mínimo 
 
 | Tabla | Columnas creadas | Queda pendiente |
 |-------|------------------|-----------------|
-| `lavaderos` | `id`, `nombre`, `activo` | dirección, coordenadas para el mapa, horarios de atención, teléfono |
+| `lavaderos` | `id`, `nombre`, `activo`, `direccion`, `latitud`, `longitud` | horarios de atención, teléfono |
 | `puestos` | `id`, `lavadero_id`, `nombre`, `activo` | orden, tipos de lavado compatibles, alta/baja por el admin |
 | `clientes` | `id`, `nombre` | teléfono, patente, historial; cualquier dato es PII (AGENTS.md §3.4) |
 | `usuarios` | `id`, `nombre_usuario` (único), `hash_contrasena`, `rol`, `lavadero_id` (NULL para `cliente`), `cliente_id` (NULL; FK a `clientes`, slice-05b), `activo`, `creado_en` | alta/provisión de credenciales |
@@ -402,7 +421,7 @@ Además quedó sin decidir si `puestos.lavadero_id` y `turnos.lavadero_id` ganan
 
 **Decisión de slice-05b (T-56).** El vínculo entre la cuenta y el cliente de negocio queda **resuelto** por `SPECS/slice-05b-ownership-comprobante.md` (D-06.1): `usuarios.cliente_id` (`uuid NULL`) con FK real `REFERENCES clientes(id) ON DELETE RESTRICT`, índice **sin** `UNIQUE` y `CHECK (rol <> 'administrador' OR cliente_id IS NULL)`. El vínculo viaja como claim `clienteId` y es la base del ownership de los recursos que no nombran lavadero (p. ej. `GET /api/turnos/{id}/comprobante`). El alta y la vinculación de credenciales siguen fuera de alcance (D-05.9).
 
-**Estado:** abierta para el resto del catálogo (dirección, coordenadas para el mapa, horarios, tipos de lavado por puesto). Resoluble por `architect` (§2.1 de AGENTS.md) sin intervención del responsable del producto, a diferencia de las 1 a 5.
+**Estado:** abierta para el resto del catálogo (horarios de atención, teléfono, tipos de lavado por puesto). Dirección y coordenadas quedaron **decididas** en slice-07 (`ARCHITECTURE §4.1`, D-08.1). Resoluble por `architect` (§2.1 de AGENTS.md) sin intervención del responsable del producto, a diferencia de las 1 a 5.
 
 ### 10.8 `pendiente_pago` bloquea mientras vigente (decidida) e impacto en `REQUIREMENTS`
 

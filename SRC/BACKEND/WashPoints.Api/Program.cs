@@ -12,18 +12,21 @@ using WashPoints.Application.Agenda;
 using WashPoints.Application.Catalogo;
 using WashPoints.Application.Comprobantes;
 using WashPoints.Application.Espontanea;
+using WashPoints.Application.Geo;
 using WashPoints.Application.Metricas;
 using WashPoints.Application.Pagos;
 using WashPoints.Application.ReservarTurno;
 using WashPoints.Application.Seguridad;
 using WashPoints.Domain.Catalogo;
 using WashPoints.Domain.Comprobantes;
+using WashPoints.Domain.Geo;
 using WashPoints.Domain.Metricas;
 using WashPoints.Domain.Ocupacion;
 using WashPoints.Domain.Puertos;
 using WashPoints.Domain.Seguridad;
 using WashPoints.Domain.Turnos;
 using WashPoints.Infrastructure.Comprobantes;
+using WashPoints.Infrastructure.Geo;
 using WashPoints.Infrastructure.MercadoPago;
 using WashPoints.Infrastructure.Pagos;
 using WashPoints.Infrastructure.Persistencia;
@@ -55,6 +58,12 @@ builder.Services.AddScoped<AgendaServicio>();
 builder.Services.AddScoped<CierreAgendaServicio>();
 builder.Services.AddScoped<IMetricasConsulta, ConsultaMetricas>();
 builder.Services.AddScoped<MetricasServicio>();
+
+// Búsqueda por proximidad (CU-01, US-C07, slice-07).
+builder.Services.AddScoped<IBusquedaLavaderos, ConsultaBusquedaLavaderos>();
+builder.Services.AddScoped<IGeocodificador, GeocodificadorStub>();
+builder.Services.AddScoped<BusquedaLavaderosServicio>();
+
 builder.Services.AddScoped<ReservaServicio>();
 builder.Services.AddScoped<WebhookPagoServicio>();
 builder.Services.AddScoped<RespaldoYExpiracionServicio>();
@@ -154,6 +163,11 @@ builder.Services.AddAuthorization(opciones =>
         politica.RequireClaim(ClaimsWashPoints.Rol, ClaimsWashPoints.Administrador);
         politica.AddRequirements(new RequisitoPropietarioLavadero());
     });
+
+    // Búsqueda por proximidad (CU-01, US-C07, D-08.7): solo el cliente conductor.
+    // Un administrador autenticado cae en 403 rol_insuficiente.
+    opciones.AddPolicy(Politicas.Cliente, politica =>
+        politica.RequireClaim(ClaimsWashPoints.Rol, ClaimsWashPoints.Cliente));
 });
 builder.Services.AddSingleton<IAuthorizationHandler, ManejadorPropietarioLavadero>();
 builder.Services.AddSingleton<IAuthorizationMiddlewareResultHandler, ManejadorResultadoAutorizacion>();
@@ -769,6 +783,96 @@ app.MapGet("/api/lavaderos/{id:guid}/metricas/ocupacion", async (
 .RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
 .WithOpenApi();
 
+// Búsqueda por proximidad (CU-01, US-C07). Dos modos excluyentes: coordenadas
+// directas —la distancia se calcula en la base local con Haversine, D-08.2— o
+// una dirección que se resuelve con el puerto IGeocodificador (D-08.4). Con el
+// stub el modo dirección responde 503: "proveedor no configurado" nunca se
+// confunde con "no hay lavaderos en el radio" (CA-7.4).
+app.MapGet("/api/lavaderos/cercanos", async (
+    string? lat,
+    string? lon,
+    string? radioMetros,
+    string? direccion,
+    BusquedaLavaderosServicio servicio,
+    CancellationToken ct) =>
+{
+    var tieneUbicacion = !string.IsNullOrWhiteSpace(lat) || !string.IsNullOrWhiteSpace(lon);
+    var tieneDireccion = !string.IsNullOrWhiteSpace(direccion);
+
+    if (tieneUbicacion == tieneDireccion)
+    {
+        return Results.BadRequest(new { error = "parametros_invalidos" });
+    }
+
+    var radio = BusquedaLavaderosServicio.RadioPorDefectoMetros;
+    if (!string.IsNullOrWhiteSpace(radioMetros) &&
+        !int.TryParse(
+            radioMetros,
+            System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out radio))
+    {
+        return Results.BadRequest(new { error = "radio_invalido" });
+    }
+
+    try
+    {
+        ResultadoBusqueda resultado;
+
+        if (tieneDireccion)
+        {
+            resultado = await servicio.BuscarPorDireccionAsync(direccion!, radio, ct);
+        }
+        else
+        {
+            if (!double.TryParse(
+                    lat,
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var latitud) ||
+                !double.TryParse(
+                    lon,
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var longitud))
+            {
+                return Results.BadRequest(new { error = "ubicacion_invalida" });
+            }
+
+            resultado = await servicio.BuscarPorUbicacionAsync(latitud, longitud, radio, ct);
+        }
+
+        return Results.Ok(BusquedaLavaderosAJson(resultado));
+    }
+    catch (UbicacionInvalidaException)
+    {
+        return Results.BadRequest(new { error = "ubicacion_invalida" });
+    }
+    catch (RadioInvalidoException)
+    {
+        return Results.BadRequest(new { error = "radio_invalido" });
+    }
+    catch (DireccionNoEncontradaException)
+    {
+        return Results.NotFound(new { error = "direccion_no_encontrada" });
+    }
+    catch (ProveedorMapasNoConfiguradoException)
+    {
+        return Results.Json(
+            new { error = "proveedor_mapas_no_configurado" },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+    catch (System.Data.Common.DbException)
+    {
+        return Results.Json(
+            new { error = "busqueda_no_disponible" },
+            statusCode: StatusCodes.Status500InternalServerError);
+    }
+})
+.WithName("BuscarLavaderosCercanos")
+.RequireAuthorization(Politicas.Cliente)
+.WithOpenApi();
+
 // Ciclo de vida del turno desde la agenda (CU-06, US-A06): finalizar (en_curso),
 // cancelar (confirmado, D-04.3) y no_presentado manual (confirmado). Toda
 // transición pasa por Turno.TransicionarA; una no permitida da 409
@@ -1046,6 +1150,29 @@ static object ResumenMetricasAJson(ResumenDiario resumen) => new
         noPresentados = resumen.Turnos.NoPresentados,
         cancelaciones = resumen.Turnos.Cancelaciones,
     },
+};
+
+/// <summary>
+/// Proyección de la búsqueda: la distancia viaja con el centro y el radio que
+/// la produjeron, y la ocupación es una foto del momento (D-08.5, D-08.9).
+/// </summary>
+static object BusquedaLavaderosAJson(ResultadoBusqueda resultado) => new
+{
+    centro = new { latitud = resultado.Latitud, longitud = resultado.Longitud },
+    radioMetros = resultado.RadioMetros,
+    resultados = resultado.Resultados.Select(lavadero => new
+    {
+        lavaderoId = lavadero.LavaderoId,
+        nombre = lavadero.Nombre,
+        direccion = lavadero.Direccion,
+        distanciaMetros = Math.Round(lavadero.DistanciaMetros, 1, MidpointRounding.AwayFromZero),
+        ocupacion = new
+        {
+            puestosTotales = lavadero.PuestosTotales,
+            puestosActivos = lavadero.PuestosActivos,
+            ocupadosAhora = lavadero.OcupadosAhora,
+        },
+    }),
 };
 
 /// <summary>Proyección de la ocupación: la tasa siempre viaja con su ventana.</summary>

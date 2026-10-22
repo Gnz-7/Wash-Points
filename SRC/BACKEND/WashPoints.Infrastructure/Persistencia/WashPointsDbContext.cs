@@ -145,11 +145,27 @@ public sealed class WashPointsDbContext : DbContext
         // Tablas mínimas para resolver las FK de `turnos`. El esquema definitivo
         // está pendiente: ver DOCS/ARCHITECTURE.md §10.7.
         var lavadero = modelo.Entity<Lavadero>();
-        lavadero.ToTable("lavaderos");
+        lavadero.ToTable("lavaderos", tabla =>
+        {
+            // Las coordenadas son opcionales, pero nunca a medias: la búsqueda
+            // por proximidad solo considera lavaderos con ambas (D-08.1).
+            tabla.HasCheckConstraint(
+                "ck_lavaderos_latitud", "latitud IS NULL OR (latitud >= -90 AND latitud <= 90)");
+            tabla.HasCheckConstraint(
+                "ck_lavaderos_longitud", "longitud IS NULL OR (longitud >= -180 AND longitud <= 180)");
+            tabla.HasCheckConstraint(
+                "ck_lavaderos_ubicacion_completa", "(latitud IS NULL) = (longitud IS NULL)");
+        });
         lavadero.HasKey(x => x.Id);
         lavadero.Property(x => x.Id).HasColumnName("id");
         lavadero.Property(x => x.Nombre).HasColumnName("nombre").HasMaxLength(120).IsRequired();
         lavadero.Property(x => x.Activo).HasColumnName("activo").IsRequired();
+        lavadero.Property(x => x.Direccion).HasColumnName("direccion").HasMaxLength(200);
+        lavadero.Property(x => x.Latitud).HasColumnName("latitud");
+        lavadero.Property(x => x.Longitud).HasColumnName("longitud");
+        lavadero.HasIndex(x => new { x.Latitud, x.Longitud })
+            .HasFilter(@"""latitud"" IS NOT NULL")
+            .HasDatabaseName("ix_lavaderos_ubicacion");
 
         var puesto = modelo.Entity<Puesto>();
         puesto.ToTable("puestos");

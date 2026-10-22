@@ -52,6 +52,19 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
                         .HasColumnType("boolean")
                         .HasColumnName("activo");
 
+                    b.Property<string>("Direccion")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("direccion");
+
+                    b.Property<double?>("Latitud")
+                        .HasColumnType("double precision")
+                        .HasColumnName("latitud");
+
+                    b.Property<double?>("Longitud")
+                        .HasColumnType("double precision")
+                        .HasColumnName("longitud");
+
                     b.Property<string>("Nombre")
                         .IsRequired()
                         .HasMaxLength(120)
@@ -60,7 +73,18 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
 
                     b.HasKey("Id");
 
-                    b.ToTable("lavaderos", (string)null);
+                    b.HasIndex("Latitud", "Longitud")
+                        .HasDatabaseName("ix_lavaderos_ubicacion")
+                        .HasFilter("\"latitud\" IS NOT NULL");
+
+                    b.ToTable("lavaderos", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_lavaderos_latitud", "latitud IS NULL OR (latitud >= -90 AND latitud <= 90)");
+
+                            t.HasCheckConstraint("ck_lavaderos_longitud", "longitud IS NULL OR (longitud >= -180 AND longitud <= 180)");
+
+                            t.HasCheckConstraint("ck_lavaderos_ubicacion_completa", "(latitud IS NULL) = (longitud IS NULL)");
+                        });
                 });
 
             modelBuilder.Entity("WashPoints.Domain.Catalogo.Puesto", b =>
