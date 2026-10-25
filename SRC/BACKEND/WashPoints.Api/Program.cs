@@ -16,6 +16,9 @@ using WashPoints.Application.Geo;
 using WashPoints.Application.Metricas;
 using WashPoints.Application.Pagos;
 using WashPoints.Application.ReservarTurno;
+// El alta de cuentas (slice-08) trae una `UbicacionInvalidaException` propia que
+// choca de nombre con la de Geo; se califica el namespace en vez de importarlo.
+using Registro = WashPoints.Application.Registro;
 using WashPoints.Application.Seguridad;
 using WashPoints.Domain.Catalogo;
 using WashPoints.Domain.Comprobantes;
@@ -128,6 +131,12 @@ builder.Services.AddSingleton<IEmisorToken>(servicios => new EmisorTokenJwt(
 builder.Services.AddSingleton<IHasheadorContrasena, HasheadorContrasenaPbkdf2>();
 builder.Services.AddScoped<IUsuarioRepositorio, UsuarioRepositorio>();
 builder.Services.AddScoped<AutenticacionServicio>();
+
+// Alta de cuentas (slice-08, T-84): los repositorios de catálogo solo escriben;
+// el servicio compone la transacción y emite la sesión.
+builder.Services.AddScoped<IClienteRepositorio, ClienteRepositorio>();
+builder.Services.AddScoped<ILavaderoRepositorio, LavaderoRepositorio>();
+builder.Services.AddScoped<Registro.RegistroServicio>();
 
 // Identidad server-side (slice-05, CU-10): el bearer se valida en el pipeline y
 // la autorización se resuelve por claims. La Api es la única autoridad; el
@@ -980,6 +989,131 @@ app.MapPost("/api/auth/login", async (
 .WithName("IniciarSesion")
 .WithOpenApi();
 
+// Alta de cuentas (CU-11, SPECS/slice-08 T-84). Endpoints anónimos: quien se
+// registra todavía no tiene sesión. Cada alta corre dentro de una única
+// transacción y responde 201 con el token ya emitido (D-09.2/D-09.3). La
+// proyección es por endpoint (§5.5): la clave que no aplica no viaja, ni
+// siquiera como null.
+app.MapPost("/api/registro/cliente", async (
+    RegistroClienteHttp cuerpo,
+    Registro.RegistroServicio servicio,
+    CancellationToken ct) =>
+{
+    if (cuerpo is null)
+    {
+        return Results.BadRequest(new { error = "datos_invalidos" });
+    }
+
+    try
+    {
+        var registro = await servicio.RegistrarClienteAsync(
+            new Registro.ClienteNuevo(
+                cuerpo.Nombre ?? string.Empty,
+                cuerpo.Usuario ?? string.Empty,
+                cuerpo.Contrasena ?? string.Empty),
+            ct);
+
+        return Results.Created($"/api/registro/cliente/{registro.UsuarioId}", new
+        {
+            usuarioId = registro.UsuarioId,
+            clienteId = registro.ClienteId!.Value,
+            rol = RolAJson(registro.Rol),
+            token = registro.Sesion.Token,
+            expiraEn = registro.Sesion.ExpiraEnUtc,
+        });
+    }
+    catch (Registro.NombreInvalidoException)
+    {
+        return Results.BadRequest(new { error = "nombre_invalido" });
+    }
+    catch (Registro.UsuarioInvalidoException)
+    {
+        return Results.BadRequest(new { error = "usuario_invalido" });
+    }
+    catch (Registro.ContrasenaInvalidaException)
+    {
+        return Results.BadRequest(new { error = "contrasena_invalida" });
+    }
+    catch (UsuarioYaExisteException)
+    {
+        return Results.Conflict(new { error = "usuario_ya_existe" });
+    }
+    catch (DbUpdateException)
+    {
+        return Results.Json(
+            new { error = "registro_no_disponible" },
+            statusCode: StatusCodes.Status500InternalServerError);
+    }
+})
+.WithName("RegistrarCliente")
+.WithOpenApi();
+
+app.MapPost("/api/registro/administrador", async (
+    RegistroAdministradorHttp cuerpo,
+    Registro.RegistroServicio servicio,
+    CancellationToken ct) =>
+{
+    if (cuerpo is null)
+    {
+        return Results.BadRequest(new { error = "datos_invalidos" });
+    }
+
+    try
+    {
+        var registro = await servicio.RegistrarAdministradorAsync(
+            new Registro.AdministradorNuevo(
+                cuerpo.Nombre ?? string.Empty,
+                cuerpo.Usuario ?? string.Empty,
+                cuerpo.Contrasena ?? string.Empty,
+                cuerpo.NombreLavadero ?? string.Empty,
+                cuerpo.Direccion,
+                cuerpo.Latitud,
+                cuerpo.Longitud),
+            ct);
+
+        return Results.Created($"/api/registro/administrador/{registro.UsuarioId}", new
+        {
+            usuarioId = registro.UsuarioId,
+            lavaderoId = registro.LavaderoId!.Value,
+            rol = RolAJson(registro.Rol),
+            token = registro.Sesion.Token,
+            expiraEn = registro.Sesion.ExpiraEnUtc,
+        });
+    }
+    catch (Registro.NombreInvalidoException)
+    {
+        return Results.BadRequest(new { error = "nombre_invalido" });
+    }
+    catch (Registro.UsuarioInvalidoException)
+    {
+        return Results.BadRequest(new { error = "usuario_invalido" });
+    }
+    catch (Registro.ContrasenaInvalidaException)
+    {
+        return Results.BadRequest(new { error = "contrasena_invalida" });
+    }
+    catch (Registro.LavaderoInvalidoException)
+    {
+        return Results.BadRequest(new { error = "lavadero_invalido" });
+    }
+    catch (Registro.UbicacionInvalidaException)
+    {
+        return Results.BadRequest(new { error = "ubicacion_invalida" });
+    }
+    catch (UsuarioYaExisteException)
+    {
+        return Results.Conflict(new { error = "usuario_ya_existe" });
+    }
+    catch (DbUpdateException)
+    {
+        return Results.Json(
+            new { error = "registro_no_disponible" },
+            statusCode: StatusCodes.Status500InternalServerError);
+    }
+})
+.WithName("RegistrarAdministrador")
+.WithOpenApi();
+
 // Webhook IPN de Mercado Pago (T-17..T-19). Es la ÚNICA puerta de confirmación
 // de un turno (RB-1, AGENTS §2.4): el retorno del navegador del cliente no
 // confirma nada. Secuencia: extraer el pago notificado, validar la firma HMAC
@@ -1238,6 +1372,23 @@ public sealed record SolicitudPuestoHttp(string? Nombre);
 
 /// <summary>Cuerpo del login (CU-10); credenciales en claro solo en tránsito.</summary>
 public sealed record SolicitudLoginHttp(string? NombreUsuario, string? Contrasena);
+
+/// <summary>Cuerpo del alta de cliente (slice-08, D-09.2).</summary>
+public sealed record RegistroClienteHttp(string? Nombre, string? Usuario, string? Contrasena);
+
+/// <summary>
+/// Cuerpo del alta de administrador (slice-08, D-09.3). La ubicación del
+/// lavadero es obligatoria para que el local aparezca en la búsqueda por
+/// proximidad; `direccion` es opcional.
+/// </summary>
+public sealed record RegistroAdministradorHttp(
+    string? Nombre,
+    string? Usuario,
+    string? Contrasena,
+    string? NombreLavadero,
+    double? Latitud,
+    double? Longitud,
+    string? Direccion);
 
 /// <summary>Cuerpo de la demanda espontánea. `inicio` en hora local del lavadero.</summary>
 public sealed record SolicitudEspontaneaHttp(

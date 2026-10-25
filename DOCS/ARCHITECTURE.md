@@ -336,6 +336,8 @@ El único cliente Flutter cubre cliente y administrador, differentiated por rol 
 
 **Ownership de recursos de cliente (slice-05b, decidida).** Cuando la ruta **no nombra un lavadero** (por ejemplo `GET /api/turnos/{id}/comprobante`), la autorización no puede comparar contra el `{id}` de ruta: compara el vínculo del token con el del recurso. El cliente accede solo si su claim `clienteId` coincide con el `cliente_id` del turno; el administrador, solo si su `lavaderoId` coincide con el lavadero del turno. Cualquier otro caso —incluido un `id` inexistente— devuelve **`404` homogéneo**, para que el UUID no funcione como oráculo de existencia. El `403 no_es_propietario` queda reservado a las rutas que ya nombran el lavadero.
 
+**Alta de cuentas (slice-08, decidida).** El registro es **anónimo** y crea la cuenta y la sesión en la misma llamada: `POST /api/registro/cliente` (nombre, usuario y contraseña) y `POST /api/registro/administrador` (datos de la cuenta, nombre del lavadero y su ubicación). Ambos responden `201` con un token emitido por `IEmisorToken` que trae los mismos claims del login (`sub`, `rol` y `clienteId` o `lavaderoId`), de modo que la UI no necesita autenticarse dos veces. El alta de administrador es **atómica**: crea `lavaderos` y `usuarios` en una sola transacción, y el lavadero nace sin puestos ni tipos de lavado. La contraseña se guarda siempre con PBKDF2 y nunca viaja de vuelta. No hay verificación de contacto ni límite de intentos: ambos quedan diferidos.
+
 ### 7.2 Mercado Pago
 
 - **Preferencia de pago** creada por `IPasarelaPagos.CrearPreferenciaAsync` con `PreferenceClient`. El SDK inyecta `X-Idempotency-Key` automáticamente; además se envía una clave explícita derivada del `turnoId` para que un reintento del cliente no cree una preferencia nueva.
@@ -411,7 +413,7 @@ Para no bloquear la migración inicial del slice 0, se las creó con el mínimo 
 | `lavaderos` | `id`, `nombre`, `activo`, `direccion`, `latitud`, `longitud` | horarios de atención, teléfono |
 | `puestos` | `id`, `lavadero_id`, `nombre`, `activo` | orden, tipos de lavado compatibles, alta/baja por el admin |
 | `clientes` | `id`, `nombre` | teléfono, patente, historial; cualquier dato es PII (AGENTS.md §3.4) |
-| `usuarios` | `id`, `nombre_usuario` (único), `hash_contrasena`, `rol`, `lavadero_id` (NULL para `cliente`), `cliente_id` (NULL; FK a `clientes`, slice-05b), `activo`, `creado_en` | alta/provisión de credenciales |
+| `usuarios` | `id`, `nombre_usuario` (único), `hash_contrasena`, `rol`, `lavadero_id` (NULL para `cliente`), `cliente_id` (NULL; FK a `clientes`, slice-05b), `activo`, `creado_en` | — (alta de credenciales **resuelta** en slice-08) |
 
 Además quedó sin decidir si `puestos.lavadero_id` y `turnos.lavadero_id` ganan FK explícita a `lavaderos`: hoy son simples `uuid` sin constraint, igual que `tipos_lavado.lavadero_id`.
 
@@ -421,7 +423,9 @@ Además quedó sin decidir si `puestos.lavadero_id` y `turnos.lavadero_id` ganan
 
 **Decisión de slice-05b (T-56).** El vínculo entre la cuenta y el cliente de negocio queda **resuelto** por `SPECS/slice-05b-ownership-comprobante.md` (D-06.1): `usuarios.cliente_id` (`uuid NULL`) con FK real `REFERENCES clientes(id) ON DELETE RESTRICT`, índice **sin** `UNIQUE` y `CHECK (rol <> 'administrador' OR cliente_id IS NULL)`. El vínculo viaja como claim `clienteId` y es la base del ownership de los recursos que no nombran lavadero (p. ej. `GET /api/turnos/{id}/comprobante`). El alta y la vinculación de credenciales siguen fuera de alcance (D-05.9).
 
-**Estado:** abierta para el resto del catálogo (horarios de atención, teléfono, tipos de lavado por puesto). Dirección y coordenadas quedaron **decididas** en slice-07 (`ARCHITECTURE §4.1`, D-08.1). Resoluble por `architect` (§2.1 de AGENTS.md) sin intervención del responsable del producto, a diferencia de las 1 a 5.
+**Decisión de slice-08 (T-81).** La provisión de credenciales queda **resuelta** por `SPECS/slice-08-registro-cuentas.md` (D-09.2/D-09.3): `POST /api/registro/cliente` y `POST /api/registro/administrador` son anónimos y devuelven `201` con un token ya emitido. El alta de administrador crea además el `lavaderos` vacío con su ubicación (`latitud`/`longitud` obligatorias, `direccion` opcional) en la misma transacción. **No se agregan columnas:** el teléfono del cliente sigue **fuera** del alcance (D-09.1) para no revertir la minimización de PII de `AGENTS §3.4`.
+
+**Estado:** abierta para el resto del catálogo (horarios de atención, teléfono del lavadero, tipos de lavado por puesto). Dirección, coordenadas y el **alta de cuentas y lavaderos** quedaron **decididos** (slice-07 `ARCHITECTURE §4.1`, D-08.1; slice-08 D-09.2/D-09.3). El **teléfono del cliente** sigue diferido por minimización de PII (D-09.1). Resoluble por `architect` (§2.1 de AGENTS.md) sin intervención del responsable del producto, a diferencia de las 1 a 5.
 
 ### 10.8 `pendiente_pago` bloquea mientras vigente (decidida) e impacto en `REQUIREMENTS`
 
