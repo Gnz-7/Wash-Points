@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/errores/api_exception.dart';
+import '../../../core/sesion/aviso_sesion.dart';
 import 'autenticacion_notifier.dart';
 
 /// Login del cliente y del administrador (T-92, CA-S9.2/CA-S9.7).
@@ -58,6 +59,7 @@ class _PantallaLoginState extends ConsumerState<PantallaLogin> {
   @override
   Widget build(BuildContext context) {
     final cargando = ref.watch(autenticacionProvider).isLoading;
+    final motivo = ref.watch(avisoSesionProvider);
 
     return Semantics(
       identifier: 'pantalla_login',
@@ -104,6 +106,18 @@ class _PantallaLoginState extends ConsumerState<PantallaLogin> {
                     onSubmitted: (_) => _ingresar(),
                   ),
                 ),
+                // CA-S10.2: la sesión se cerró porque el token no traía
+                // lavadero; el motivo viaja en la URL para no inventar un
+                // proveedor de avisos globales.
+                if (motivo == avisoSinLavadero) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    'Tu cuenta no tiene un lavadero asociado. '
+                    'Volvé a iniciar sesión o contactá al soporte.',
+                    key: const ValueKey('mensaje_sin_lavadero'),
+                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                ],
                 if (_error != null) ...[
                   const SizedBox(height: 16),
                   Text(

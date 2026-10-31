@@ -24,6 +24,16 @@ abstract interface class ClienteApi {
     String ruta, {
     Map<String, dynamic>? cuerpo,
   });
+
+  /// `GET` que devuelve el array JSON de la respuesta.
+  ///
+  /// Los listados del backend (`puestos`, `agenda`) responden un array desnudo;
+  /// [obtener] lo colapsaría a un mapa vacío y el panel vería siempre cero
+  /// filas.
+  Future<List<dynamic>> obtenerLista(
+    String ruta, {
+    Map<String, dynamic>? parametros,
+  });
 }
 
 /// Cliente HTTP de la app (D-09.3).
@@ -69,6 +79,22 @@ class ClienteHttp implements ClienteApi {
   }
 
   @override
+  Future<List<dynamic>> obtenerLista(
+    String ruta, {
+    Map<String, dynamic>? parametros,
+  }) async {
+    try {
+      final respuesta = await _dio.get<dynamic>(
+        ruta,
+        queryParameters: parametros,
+      );
+      return _comoLista(respuesta.data);
+    } on DioException catch (error) {
+      throw _traducir(error);
+    }
+  }
+
+  @override
   Future<Map<String, dynamic>> enviar(
     String ruta, {
     Map<String, dynamic>? cuerpo,
@@ -86,6 +112,13 @@ class ClienteHttp implements ClienteApi {
       return datos;
     }
     return const <String, dynamic>{};
+  }
+
+  static List<dynamic> _comoLista(dynamic datos) {
+    if (datos is List<dynamic>) {
+      return datos;
+    }
+    return const <dynamic>[];
   }
 
   static ApiException _traducir(DioException error) {

@@ -1,6 +1,8 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/sesion/aviso_sesion.dart';
 import '../core/sesion/sesion.dart';
 import '../core/sesion/sesion_provider.dart';
 import '../features/autenticacion/presentation/pantalla_login.dart';
@@ -8,7 +10,11 @@ import '../features/autenticacion/presentation/pantalla_registro.dart';
 import '../features/busqueda/presentation/pantalla_busqueda.dart';
 import '../features/comprobante/presentation/pantalla_comprobante.dart';
 import '../features/disponibilidad/presentation/pantalla_disponibilidad.dart';
-import '../features/inicio/presentation/admin_placeholder_screen.dart';
+import '../features/panel/presentation/agenda/pantalla_agenda.dart';
+import '../features/panel/presentation/metricas/pantalla_metricas.dart';
+import '../features/panel/presentation/panel_admin.dart';
+import '../features/panel/presentation/puestos/pantalla_puestos.dart';
+import '../features/panel/presentation/validar/pantalla_validar.dart';
 import '../features/reserva/domain/reserva.dart';
 import '../features/reserva/presentation/pantalla_reserva.dart';
 
@@ -25,24 +31,39 @@ final routerProvider = Provider<GoRouter>((ref) {
     redirect: (context, state) {
       final ubicacion = state.matchedLocation;
       final esPublica = ubicacion == '/login' || ubicacion == '/registro';
+      final esPanel = ubicacion.startsWith('/admin');
 
       if (sesion == null) {
         return esPublica ? null : '/login';
       }
 
-      final inicio = sesion.rol == Rol.administrador
-          ? '/admin-placeholder'
-          : '/';
+      // CA-S10.2: un administrador sin lavadero no puede operar el panel. Esa
+      // sesión no sirve para nada, así que se cierra y se avisa en el login en
+      // vez de montar un panel sin lavadero o armar rutas con un id vacío.
+      if (sesion.rol == Rol.administrador && sesion.lavaderoId == null) {
+        if (esPublica) {
+          return null;
+        }
+
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          ref.read(avisoSesionProvider.notifier).mostrar(avisoSinLavadero);
+          ref.read(sesionProvider.notifier).cerrar();
+        });
+
+        return '/login';
+      }
+
+      final inicio = sesion.rol == Rol.administrador ? '/admin/agenda' : '/';
 
       if (esPublica) {
         return inicio;
       }
 
-      if (sesion.rol == Rol.administrador && ubicacion != inicio) {
+      if (sesion.rol == Rol.cliente && esPanel) {
         return inicio;
       }
 
-      if (sesion.rol == Rol.cliente && ubicacion == '/admin-placeholder') {
+      if (sesion.rol == Rol.administrador && !esPanel) {
         return inicio;
       }
 
@@ -64,10 +85,47 @@ final routerProvider = Provider<GoRouter>((ref) {
         name: 'registro',
         builder: (context, state) => const PantallaRegistro(),
       ),
-      GoRoute(
-        path: '/admin-placeholder',
-        name: 'adminPlaceholder',
-        builder: (context, state) => const AdminPlaceholderScreen(),
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navegacion) =>
+            PanelAdmin(navegacion: navegacion),
+        branches: <StatefulShellBranch>[
+          StatefulShellBranch(
+            routes: <RouteBase>[
+              GoRoute(
+                path: '/admin/agenda',
+                name: 'adminAgenda',
+                builder: (context, state) => const PantallaAgenda(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: <RouteBase>[
+              GoRoute(
+                path: '/admin/puestos',
+                name: 'adminPuestos',
+                builder: (context, state) => const PantallaPuestos(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: <RouteBase>[
+              GoRoute(
+                path: '/admin/validar',
+                name: 'adminValidar',
+                builder: (context, state) => const PantallaValidar(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: <RouteBase>[
+              GoRoute(
+                path: '/admin/metricas',
+                name: 'adminMetricas',
+                builder: (context, state) => const PantallaMetricas(),
+              ),
+            ],
+          ),
+        ],
       ),
       GoRoute(
         path: '/lavaderos/:id/reservar',

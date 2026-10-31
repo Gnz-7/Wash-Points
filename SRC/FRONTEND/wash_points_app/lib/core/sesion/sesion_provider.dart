@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'almacen_sesion.dart';
+import 'aviso_sesion.dart';
 import 'sesion.dart';
 
 /// Almacenamiento seguro de la sesión (D-10.4).
@@ -31,8 +32,11 @@ class SesionNotifier extends Notifier<Sesion?> {
   }
 
   /// Persiste la sesión y la publica a la UI.
+  ///
+  /// Una sesión nueva deja sin efecto cualquier aviso anterior (CA-S10.2).
   Future<void> iniciar(Sesion sesion) async {
     await ref.read(almacenSesionProvider).guardar(sesion);
+    ref.read(avisoSesionProvider.notifier).limpiar();
     state = sesion;
   }
 

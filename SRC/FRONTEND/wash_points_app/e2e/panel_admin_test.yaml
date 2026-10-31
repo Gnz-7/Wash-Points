@@ -1,0 +1,40 @@
+appId: com.washpoints.wash_points_app
+name: Panel de administración — agenda y validación de arribo
+---
+# Requiere un administrador real y un comprobante vigente emitido por la app:
+#   maestro test e2e/panel_admin_test.yaml \
+#     -e ADMIN_USUARIO=... -e ADMIN_CONTRASENA=... -e COMPROBANTE=...
+# Las credenciales NO se versionan (AGENTS §3.4).
+- launchApp:
+    clearState: true
+- assertVisible:
+    id: "pantalla_login"
+- tapOn:
+    id: "campo_usuario"
+- inputText: ${ADMIN_USUARIO}
+- tapOn:
+    id: "campo_contrasena"
+- inputText: ${ADMIN_CONTRASENA}
+- tapOn:
+    id: "boton_ingresar"
+# El rol administrador aterriza en la agenda (D-10.3) y ve las cuatro pestañas.
+- assertVisible:
+    id: "pantalla_agenda"
+- assertVisible:
+    id: "pestana_puestos"
+- assertVisible:
+    id: "pestana_validar"
+- assertVisible:
+    id: "pestana_metricas"
+# Validación de arribo (RB-3): el canje habilita el turno.
+- tapOn:
+    id: "pestana_validar"
+- assertVisible:
+    id: "pantalla_validar"
+- tapOn:
+    id: "campo_comprobante"
+- inputText: ${COMPROBANTE}
+- tapOn:
+    id: "boton_validar"
+- assertVisible:
+    id: "resultado_canjeado"

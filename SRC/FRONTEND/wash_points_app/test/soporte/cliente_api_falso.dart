@@ -4,23 +4,33 @@ import 'package:wash_points_app/core/red/cliente_http.dart';
 ///
 /// Separa `GET` de `POST` porque las búsquedas usan query string y las altas
 /// usan cuerpo JSON; mezclarlas en un único registro haría los tests ambiguos.
+/// Los listados tienen su propio canal porque el backend responde un array
+/// desnudo, no un objeto.
 class ClienteApiFalso implements ClienteApi {
   ClienteApiFalso({
     this.respuesta = const <String, dynamic>{},
     this.error,
     this.respuestaGet = const <String, dynamic>{},
     this.errorGet,
+    this.respuestaListaGet = const <dynamic>[],
+    this.errorListaGet,
   });
 
   final Map<String, dynamic> respuesta;
   final Object? error;
   final Map<String, dynamic> respuestaGet;
   final Object? errorGet;
+  final List<dynamic> respuestaListaGet;
+  final Object? errorListaGet;
 
   final List<({String ruta, Map<String, dynamic>? cuerpo})> llamadas =
       <({String ruta, Map<String, dynamic>? cuerpo})>[];
 
   final List<({String ruta, Map<String, dynamic>? parametros})> llamadasGet =
+      <({String ruta, Map<String, dynamic>? parametros})>[];
+
+  final List<({String ruta, Map<String, dynamic>? parametros})>
+      llamadasListaGet =
       <({String ruta, Map<String, dynamic>? parametros})>[];
 
   @override
@@ -35,6 +45,20 @@ class ClienteApiFalso implements ClienteApi {
     }
 
     return respuestaGet;
+  }
+
+  @override
+  Future<List<dynamic>> obtenerLista(
+    String ruta, {
+    Map<String, dynamic>? parametros,
+  }) async {
+    llamadasListaGet.add((ruta: ruta, parametros: parametros));
+
+    if (errorListaGet != null) {
+      throw errorListaGet!;
+    }
+
+    return respuestaListaGet;
   }
 
   @override

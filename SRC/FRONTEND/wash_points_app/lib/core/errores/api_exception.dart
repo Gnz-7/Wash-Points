@@ -20,8 +20,20 @@ enum CodigoError {
   slotYaOcupado('slot_ya_ocupado'),
   pasarelaNoDisponible('pasarela_no_disponible'),
   turnoNoEncontrado('turno_no_encontrado'),
+  turnoTransicionInvalida('turno_transicion_invalida'),
   comprobanteNoEncontrado('comprobante_no_encontrado'),
+  puestoYaExiste('puesto_ya_existe'),
+  puestoNoEncontrado('puesto_no_encontrado'),
+  puestoConTurnosActivos('puesto_con_turnos_activos'),
   sinConexion('sin_conexion'),
+  errorDeRed('error_de_red'),
+  fechaInvalida('fecha_invalida'),
+  ventanaInvalida('ventana_invalida'),
+  metricasNoDisponibles('metricas_no_disponibles'),
+  comprobanteYaUtilizado('comprobante_ya_utilizado'),
+  pagoPendiente('pago_pendiente'),
+  comprobanteVencido('comprobante_vencido'),
+  faltaComprobante('falta_comprobante'),
   servidorNoDisponible('servidor_no_disponible'),
   desconocido('desconocido');
 
@@ -93,10 +105,34 @@ class ApiException implements Exception {
         return 'El pago no está disponible. Intentá más tarde.';
       case CodigoError.turnoNoEncontrado:
         return 'No encontramos esa reserva.';
+      case CodigoError.turnoTransicionInvalida:
+        return 'Ese turno ya cambió de estado. Actualizá la agenda.';
       case CodigoError.comprobanteNoEncontrado:
         return 'El comprobante todavía no está disponible.';
+      case CodigoError.puestoYaExiste:
+        return 'Ya existe un puesto con ese nombre.';
+      case CodigoError.puestoNoEncontrado:
+        return 'No encontramos ese puesto.';
+      case CodigoError.puestoConTurnosActivos:
+        return 'El puesto tiene turnos activos. Esperá a que terminen.';
+      case CodigoError.comprobanteYaUtilizado:
+        return 'Este comprobante ya fue utilizado.';
+      case CodigoError.pagoPendiente:
+        return 'El turno todavía no está confirmado: falta el pago de la seña.';
+      case CodigoError.comprobanteVencido:
+        return 'El comprobante venció. El cliente debe generar uno nuevo.';
+      case CodigoError.faltaComprobante:
+        return 'Ingresá el código del comprobante.';
       case CodigoError.sinConexion:
         return 'No hay conexión. Revisá tu red e intentá de nuevo.';
+      case CodigoError.errorDeRed:
+        return 'No pudimos conectarnos con el servidor. Revisá tu red.';
+      case CodigoError.fechaInvalida:
+        return 'La fecha consultada no es válida.';
+      case CodigoError.ventanaInvalida:
+        return 'La ventana de tiempo no es válida.';
+      case CodigoError.metricasNoDisponibles:
+        return 'Las métricas no están disponibles. Intentá más tarde.';
       case CodigoError.servidorNoDisponible:
         return 'El servicio no está disponible. Intentá más tarde.';
       case CodigoError.desconocido:
