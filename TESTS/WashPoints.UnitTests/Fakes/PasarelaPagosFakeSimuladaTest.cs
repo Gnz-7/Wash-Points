@@ -65,9 +65,10 @@ public sealed class PasarelaPagosFakeSimuladaTest
     {
         var pasarela = new PasarelaPagosFakeSimulada();
 
-        var id = await pasarela.CrearPreferenciaAsync(Preferencia(), CancellationToken.None);
+        var creada = await pasarela.CrearPreferenciaAsync(Preferencia(), CancellationToken.None);
 
-        Assert.False(string.IsNullOrWhiteSpace(id));
+        Assert.False(string.IsNullOrWhiteSpace(creada.PreferenceId));
+        Assert.StartsWith("https://checkout.test/", creada.InitPoint);
         Assert.Single(pasarela.PreferenciasCreadas);
     }
 }

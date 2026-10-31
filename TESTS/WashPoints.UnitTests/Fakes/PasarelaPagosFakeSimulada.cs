@@ -47,7 +47,7 @@ public sealed class PasarelaPagosFakeSimulada : IPasarelaPagos
 
     private string? _proximoIdForzado;
 
-    public Task<string> CrearPreferenciaAsync(PreferenciaPago preferencia, CancellationToken ct)
+    public Task<PreferenciaCreada> CrearPreferenciaAsync(PreferenciaPago preferencia, CancellationToken ct)
     {
         LanzarSiCayo();
 
@@ -59,7 +59,10 @@ public sealed class PasarelaPagosFakeSimulada : IPasarelaPagos
 
             var id = _proximoIdForzado ?? $"pref-{++_secuencia}";
             _proximoIdForzado = null;
-            return Task.FromResult(id);
+
+            // La URL imita el checkout real: el cliente nunca la inspecciona,
+            // solo la abre. Los tests comparan el prefijo.
+            return Task.FromResult(new PreferenciaCreada(id, $"https://checkout.test/{id}"));
         }
     }
 

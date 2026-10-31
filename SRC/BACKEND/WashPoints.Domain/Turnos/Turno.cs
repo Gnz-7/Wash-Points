@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace WashPoints.Domain.Turnos;
 
 /// <summary>
@@ -221,7 +223,12 @@ public sealed class Turno
     }
 
     /// <summary>Registra la referencia de la preferencia de Mercado Pago.</summary>
-    public void RegistrarPreferenciaDePago(string mpPreferenceId)
+    /// <param name="mpPreferenceId">Identificador externo de la preferencia.</param>
+    /// <param name="initPoint">
+    /// URL de checkout devuelta por la pasarela. Es opcional porque un turno
+    /// reconstruido desde la base no la tiene: no se persiste.
+    /// </param>
+    public void RegistrarPreferenciaDePago(string mpPreferenceId, string? initPoint = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(mpPreferenceId);
 
@@ -232,7 +239,15 @@ public sealed class Turno
         }
 
         MpPreferenceId = mpPreferenceId;
+        InitPoint = initPoint;
     }
+
+    /// <summary>
+    /// URL de checkout de la pasarela (slice-09, T-95). No se persiste: solo
+    /// viaja en la respuesta del alta para que el cliente pueda pagar la seña.
+    /// </summary>
+    [NotMapped]
+    public string? InitPoint { get; private set; }
 
     /// <summary>
     /// Fija el vencimiento del TTL de la seña. Uso previsto: la fábrica de

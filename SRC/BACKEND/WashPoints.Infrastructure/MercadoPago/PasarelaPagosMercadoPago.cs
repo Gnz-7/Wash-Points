@@ -29,7 +29,7 @@ public sealed class PasarelaPagosMercadoPago : IPasarelaPagos
         "Validar el SDK .NET vigente con Context7 (AGENTS §5.1) antes de implementarla. " +
         "En pruebas se inyecta PasarelaPagosFakeSimulada.";
 
-    public Task<string> CrearPreferenciaAsync(PreferenciaPago preferencia, CancellationToken ct) =>
+    public Task<PreferenciaCreada> CrearPreferenciaAsync(PreferenciaPago preferencia, CancellationToken ct) =>
         throw new NotSupportedException(MensajePendiente);
 
     public Task<ResultadoVerificacionPago> VerificarPagoAsync(string pagoIdExterno, CancellationToken ct) =>

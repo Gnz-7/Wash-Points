@@ -286,6 +286,22 @@ Notas:
 - Las pruebas de integración requieren Docker. El proyecto de tests deshabilita el paralelismo de colecciones xUnit (`DisableTestParallelization`) **a propósito**: con clases en paralelo se levantaban ~7 contenedores Testcontainers simultáneos y el host de pruebas colgaba (MSB4166 / `testhost` bloqueado). Serializado, cada clase levanta su contenedor `postgres:16-alpine` por vez y es estable.
 - No existe aún un analizador de código estático (rol `qa`/`devops`, condiciona lint/typecheck). El build con warnings `StrictMode`/`TreatWarningsAsErrors` no está activado; la verificación de calidad actual es la suite de tests.
 
+### 5.6 Comandos de verificación del frontend (slice-09)
+
+Proyecto Flutter único en `SRC/FRONTEND/wash_points_app` (Flutter 3.41.9 / Dart 3.11.5, Android + iOS).
+
+| Comando | Propósito | Salida verificada (T-91) |
+|---------|-----------|---------------------------|
+| `flutter pub get` | Resolución de dependencias | 80 paquetes resueltos |
+| `flutter analyze` | Lint + typecheck (`strict-casts`, `strict-inference`, `strict-raw-types` en `analysis_options.yaml`) | `No issues found!` |
+| `flutter test` | Suite de tests | `All tests passed!` |
+| `maestro test e2e/smoke_test.yaml` | Flujo de humo E2E (T-91b) | Requiere Maestro instalado y un build de debug |
+
+Notas:
+- Ejecutar siempre desde `SRC/FRONTEND/wash_points_app` (no desde la raíz del repo).
+- Los comandos de backend (§5.5) y los de frontend son independientes: la suite .NET no compila el proyecto Flutter ni al revés.
+- `riverpod_lint`/`custom_lint` están como `dev_dependencies`; sus reglas no corren en `flutter analyze` (se ejecutan con `dart run custom_lint` cuando se habilite el plugin del analyzer).
+
 <!-- context7 -->
 Use the Context7 CLI (`ctx7`) to fetch current documentation whenever the user asks about a library, framework, SDK, API, CLI tool, or cloud service — even well-known ones like React, Next.js, Prisma, Express, Tailwind, Django, or Spring Boot. This includes API syntax, configuration, version migration, library-specific debugging, setup instructions, and CLI tool usage. Use even when you think you know the answer — your training data may not reflect recent changes. Prefer this over web search for library docs.
 

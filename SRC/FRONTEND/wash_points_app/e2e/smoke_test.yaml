@@ -1,0 +1,7 @@
+appId: com.washpoints.wash_points_app
+name: Humo — arranque y login
+---
+- launchApp:
+    clearState: true
+- assertVisible:
+    id: "pantalla_login"

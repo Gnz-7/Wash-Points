@@ -11,10 +11,11 @@ public interface IPasarelaPagos
 {
     /// <summary>
     /// Crea una preferencia de pago para el turno y devuelve su identificador
-    /// externo. El prefijo de idempotencia se deriva del <c>turnoId</c> para
-    /// que un reintento del cliente no genere una preferencia nueva.
+    /// externo junto con la URL de checkout. El prefijo de idempotencia se
+    /// deriva del <c>turnoId</c> para que un reintento del cliente no genere
+    /// una preferencia nueva.
     /// </summary>
-    Task<string> CrearPreferenciaAsync(PreferenciaPago preferencia, CancellationToken ct);
+    Task<PreferenciaCreada> CrearPreferenciaAsync(PreferenciaPago preferencia, CancellationToken ct);
 
     /// <summary>
     /// Consulta el estado del pago asociado a un identificador externo.

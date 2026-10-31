@@ -108,9 +108,9 @@ public sealed class ReservaServicio
                     Monto: tipo.PrecioSena,
                     Descripcion: $"Seña {tipo.Nombre}",
                     ReferenciaExterna: turno.Id.ToString());
-                var mpPreferenceId = await _pasarela.CrearPreferenciaAsync(preferencia, ctTransaccion);
+                var creada = await _pasarela.CrearPreferenciaAsync(preferencia, ctTransaccion);
 
-                turno.RegistrarPreferenciaDePago(mpPreferenceId);
+                turno.RegistrarPreferenciaDePago(creada.PreferenceId, creada.InitPoint);
                 await _repositorio.GuardarAsync(ctTransaccion);
 
                 return turno;

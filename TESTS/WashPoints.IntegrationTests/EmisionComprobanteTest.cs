@@ -87,6 +87,14 @@ public sealed class EmisionComprobanteTest : IClassFixture<ContenedorPostgres>, 
             {
                 builder.UseSetting("Comprobantes:ClaveCifrado", claveCifrado);
             }
+            else
+            {
+                // Sin clave la emisión debe fallar. Se limpia el setting de
+                // forma explícita: si no, el host en Development toma la clave
+                // local de appsettings.Development.json y el test pierde su
+                // determinismo (hallazgo de T-95).
+                builder.UseSetting("Comprobantes:ClaveCifrado", string.Empty);
+            }
 
             builder.ConfigureServices(servicios =>
             {

@@ -9,4 +9,11 @@ namespace WashPoints.Domain.Catalogo;
 public interface IConsultaCatalogo
 {
     Task<TipoLavado?> ObtenerTipoLavadoAsync(Guid tipoLavadoId, CancellationToken ct);
+
+    /// <summary>
+    /// Catálogo del lavadero para que el cliente arme una reserva
+    /// (slice-09, T-95). Devuelve <c>null</c> si el lavadero no existe; solo
+    /// incluye puestos y tipos activos.
+    /// </summary>
+    Task<CatalogoLavadero?> ObtenerCatalogoAsync(Guid lavaderoId, CancellationToken ct);
 }

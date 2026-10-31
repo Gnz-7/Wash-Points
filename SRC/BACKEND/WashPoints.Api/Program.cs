@@ -282,6 +282,41 @@ app.MapGet("/api/lavaderos/{id:guid}/disponibilidad", async (
 .RequireAuthorization()
 .WithOpenApi();
 
+// Catálogo visible para el cliente (slice-09, T-95): puestos y tipos de lavado
+// activos del lavadero, con la seña que el servidor va a cobrar. Sin esto el
+// cliente no puede armar una reserva; el precio nunca lo decide él (RB-1).
+app.MapGet("/api/lavaderos/{id:guid}/catalogo", async (
+    Guid id,
+    IConsultaCatalogo consulta,
+    CancellationToken ct) =>
+{
+    var catalogo = await consulta.ObtenerCatalogoAsync(id, ct);
+    if (catalogo is null)
+    {
+        return Results.NotFound(new { error = "lavadero_no_encontrado" });
+    }
+
+    return Results.Ok(new
+    {
+        puestos = catalogo.Puestos.Select(p => new
+        {
+            id = p.Id,
+            nombre = p.Nombre,
+        }),
+        tiposLavado = catalogo.Tipos.Select(t => new
+        {
+            id = t.Id,
+            nombre = t.Nombre,
+            duracionMinutos = t.DuracionMinutos,
+            precioTotal = t.PrecioTotal,
+            precioSena = t.PrecioSena,
+        }),
+    });
+})
+.WithName("ObtenerCatalogoLavadero")
+.RequireAuthorization()
+.WithOpenApi();
+
 // Reserva con seña (T-15, US-C01). Crea el turno pendiente_pago que bloquea el
 // intervalo, pide la preferencia a la pasarela y devuelve 201. Los errores del
 // flujo de negocio se mapean a códigos explícitos:
@@ -327,6 +362,7 @@ app.MapPost("/api/lavaderos/{id:guid}/turnos", async (
             estado = EstadoAJson(turno.Estado),
             puestoId = turno.PuestoId,
             mpPreferenceId = turno.MpPreferenceId,
+            initPoint = turno.InitPoint,
             precioSena = turno.PrecioSena,
             desde = ConversorHorario.ALocal(turno.InicioUtc),
             hasta = ConversorHorario.ALocal(turno.FinUtc),
@@ -348,6 +384,44 @@ app.MapPost("/api/lavaderos/{id:guid}/turnos", async (
     }
 })
 .WithName("ReservarTurno")
+.RequireAuthorization()
+.WithOpenApi();
+
+// Estado de un turno propio (slice-09, T-95): el cliente sigue la seña sin
+// confiar en el retorno del checkout (RB-1, D-09.12). La propiedad sale del
+// token (D-06.3) y el 404 es homogéneo para no filtrar turnos ajenos.
+app.MapGet("/api/turnos/{id:guid}", async (
+    Guid id,
+    ClaimsPrincipal usuario,
+    IOcupacionRepositorio repositorio,
+    CancellationToken ct) =>
+{
+    var identidad = IdentidadDelToken.De(usuario);
+    if (identidad is null)
+    {
+        return Results.NotFound(new { error = "turno_no_encontrado" });
+    }
+
+    var turno = await repositorio.ObtenerAsync(id, ct);
+    if (turno is null || !EsTurnoDelPortador(turno, identidad))
+    {
+        return Results.NotFound(new { error = "turno_no_encontrado" });
+    }
+
+    return Results.Ok(new
+    {
+        id = turno.Id,
+        estado = EstadoAJson(turno.Estado),
+        puestoId = turno.PuestoId,
+        lavaderoId = turno.LavaderoId,
+        desde = ConversorHorario.ALocal(turno.InicioUtc),
+        hasta = ConversorHorario.ALocal(turno.FinUtc),
+        precioSena = turno.PrecioSena,
+        mpPreferenceId = turno.MpPreferenceId,
+        initPoint = turno.InitPoint,
+    });
+})
+.WithName("ConsultarTurno")
 .RequireAuthorization()
 .WithOpenApi();
 
@@ -1194,6 +1268,15 @@ static string? ExtraerDataId(JsonElement raiz)
         _ => null,
     };
 }
+
+/// <summary>
+/// Propiedad de un turno (slice-09, T-95): el cliente solo ve los suyos y el
+/// administrador solo los de su lavadero (misma regla que D-06.3).
+/// </summary>
+static bool EsTurnoDelPortador(Turno turno, IdentidadUsuario identidad) =>
+    identidad.Rol == RolUsuario.Cliente
+        ? identidad.ClienteId is not null && turno.ClienteId == identidad.ClienteId
+        : identidad.LavaderoId is not null && turno.LavaderoId == identidad.LavaderoId;
 
 static string EstadoAJson(EstadoTurno estado) => estado switch
 {
