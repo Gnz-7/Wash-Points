@@ -42,6 +42,8 @@ dependencies:
   intl: ^0.20.3
   url_launcher: ^6.3.3
   qr_flutter: ^4.1.0
+  path_provider: ^2.1.6
+  crypto: ^3.0.8
 
 dev_dependencies:
   flutter_test:

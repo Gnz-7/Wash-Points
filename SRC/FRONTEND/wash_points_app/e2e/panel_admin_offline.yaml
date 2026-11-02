@@ -1,0 +1,72 @@
+appId: com.washpoints.wash_points_app
+name: Panel de administración — canje offline y reconciliación
+---
+# Requiere un administrador real y un comprobante vigente de HOY, emitido por la
+# app desde una sesión de cliente:
+#   maestro test e2e/panel_admin_offline.yaml \
+#     -e ADMIN_USUARIO=... -e ADMIN_CONTRASENA=... -e COMPROBANTE=...
+# Las credenciales NO se versionan (AGENTS §3.4).
+#
+# Maestro no puede alternar la red del dispositivo. Los dos GATE MANUAL marcan
+# los puntos donde el operador activa y desactiva el modo avión; la ejecución
+# diferida se documenta como T-114b en SPECS/slice-11-validacion-offline.md.
+
+# ── Fase 1 — con red: la pestaña Validar descarga los vigentes del día ────────
+- launchApp:
+    clearState: true
+- assertVisible:
+    id: "pantalla_login"
+- tapOn:
+    id: "campo_usuario"
+- inputText: ${ADMIN_USUARIO}
+- tapOn:
+    id: "campo_contrasena"
+- inputText: ${ADMIN_CONTRASENA}
+- tapOn:
+    id: "boton_ingresar"
+- assertVisible:
+    id: "pantalla_agenda"
+- tapOn:
+    id: "pestana_validar"
+- assertVisible:
+    id: "pantalla_validar"
+- assertVisible:
+    id: "campo_comprobante"
+
+# ── GATE MANUAL 1 — activar modo avión antes de continuar ─────────────────────
+# Sin red, la validación cae al camino offline (D-11.15).
+
+- tapOn:
+    id: "campo_comprobante"
+- inputText: ${COMPROBANTE}
+- tapOn:
+    id: "boton_validar"
+
+# ── Fase 2 — canje offline: el turno se habilita y el canje queda en cola ────
+- assertVisible:
+    id: "resultado_canjeado_offline"
+- assertVisible:
+    id: "banner_canjes_pendientes"
+
+# ── Fase 3 — el pendiente se ve también en la agenda (D-11.9) ────────────────
+- tapOn:
+    id: "pestana_agenda"
+- assertVisible:
+    id: "pantalla_agenda"
+- assertVisible:
+    id: "banner_canjes_pendientes"
+
+# ── GATE MANUAL 2 — desactivar modo avión antes de reconciliar ───────────────
+# El lote viaja a POST .../comprobantes/reconciliar y la agenda se refresca.
+- tapOn:
+    id: "boton_reconciliar"
+- extendedWaitUntil:
+    notVisible:
+      id: "banner_canjes_pendientes"
+    timeout: 15000
+- assertVisible:
+    id: "pantalla_agenda"
+# El turno canjeado ya aparece como en_curso: alReconciliar dispara
+# agendaProvider.notifier.refrescar() (T-112).
+- assertVisible:
+    id: "lista_agenda"

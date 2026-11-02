@@ -12,6 +12,8 @@ class RepositorioValidacionFalso implements RepositorioValidacion {
     this.errorValidar,
     this.hashes = const <String>[],
     this.errorVigentes,
+    this.resultadoReconciliacion = const ResultadoReconciliacion(),
+    this.errorReconciliar,
   }) : resultado = resultado ??
             const ResultadoValidacion(
               tipo: TipoResultadoValidacion.canjeado,
@@ -23,6 +25,12 @@ class RepositorioValidacionFalso implements RepositorioValidacion {
   final Object? errorValidar;
   final List<String> hashes;
   final Object? errorVigentes;
+
+  /// Respuesta del servidor al reconciliar el lote.
+  final ResultadoReconciliacion resultadoReconciliacion;
+
+  /// Fuerza el fallo del lote (transporte o servidor).
+  final Object? errorReconciliar;
 
   final List<String> validados = <String>[];
   final List<({String lavaderoId, DateTime fecha})> vigentesPedidos =
@@ -65,6 +73,10 @@ class RepositorioValidacionFalso implements RepositorioValidacion {
   ) async {
     reconciliados.add((lavaderoId: lavaderoId, canjes: canjes));
 
-    return const ResultadoReconciliacion();
+    if (errorReconciliar != null) {
+      throw errorReconciliar!;
+    }
+
+    return resultadoReconciliacion;
   }
 }

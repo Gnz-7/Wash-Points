@@ -8,6 +8,7 @@ import '../../domain/estado_turno_agenda.dart';
 import '../../domain/puesto_admin.dart';
 import '../../domain/turno_agenda.dart';
 import '../puestos/puestos_notifier.dart';
+import '../banner_canjes_pendientes.dart';
 import 'agenda_notifier.dart';
 import 'dialogo_espontanea.dart';
 
@@ -62,6 +63,10 @@ class _PantallaAgendaState extends ConsumerState<PantallaAgenda> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             _Filtros(filtros: filtros),
+            BannerCanjesPendientes(
+              alReconciliar: () =>
+                  ref.read(agendaProvider.notifier).refrescar(),
+            ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
               child: Align(

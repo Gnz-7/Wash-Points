@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../features/panel/data/almacen_offline_provider.dart';
+import '../../features/panel/domain/almacen_offline.dart';
 import 'almacen_sesion.dart';
 import 'aviso_sesion.dart';
 import 'sesion.dart';
@@ -41,9 +43,31 @@ class SesionNotifier extends Notifier<Sesion?> {
   }
 
   /// Cierra la sesión local; el servidor no guarda estado de sesión.
+  ///
+  /// Antes de olvidar quién era, se borra la caché efímera de comprobantes de
+  /// su lavadero. La cola de canjes sin reconciliar **no** se toca: son
+  /// atenciones ya prestadas que nadie podría reconstruir (D-11.14,
+  /// CA-S11.13).
   Future<void> cerrar() async {
+    final lavaderoId = state?.lavaderoId;
+
     await ref.read(almacenSesionProvider).borrar();
     state = null;
+
+    await _limpiarCacheOffline(lavaderoId);
+  }
+
+  Future<void> _limpiarCacheOffline(String? lavaderoId) async {
+    if (lavaderoId == null || lavaderoId.isEmpty) {
+      return;
+    }
+
+    try {
+      final almacen = await ref.read(almacenOfflineProvider.future);
+      await almacen.borrarPorPrefijo(prefijoVigentes(lavaderoId));
+    } on Exception {
+      // Sin almacenamiento no hay caché que borrar: cerrar sesión nunca falla.
+    }
   }
 }
 

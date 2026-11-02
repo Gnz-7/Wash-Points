@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 /// vea jamás un status HTTP (CA-S10.14).
 enum TipoResultadoValidacion {
   canjeado('canjeado'),
+  canjeadoOffline('canjeado_offline'),
   yaUtilizado('ya_utilizado'),
   pagoPendiente('pago_pendiente'),
   vencido('vencido'),
@@ -61,6 +62,8 @@ class ResultadoValidacion {
   /// Explicación en español cuando el canje no habilitó el turno.
   final String? mensaje;
 
-  /// El cliente puede ser atendido.
-  bool get habilitado => tipo == TipoResultadoValidacion.canjeado;
+  /// El cliente puede ser atendido, con o sin conexión.
+  bool get habilitado =>
+      tipo == TipoResultadoValidacion.canjeado ||
+      tipo == TipoResultadoValidacion.canjeadoOffline;
 }

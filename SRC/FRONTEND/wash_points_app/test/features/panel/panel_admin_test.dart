@@ -12,6 +12,7 @@ import 'package:wash_points_app/features/panel/presentation/puestos/puestos_noti
 import '../../soporte/almacen_sesion_falso.dart';
 import '../../soporte/repositorio_agenda_falso.dart';
 import 'package:wash_points_app/features/panel/presentation/validar/validar_notifier.dart';
+import '../../soporte/almacen_offline_memoria.dart';
 import '../../soporte/repositorio_metricas_falso.dart';
 import '../../soporte/repositorio_validacion_falso.dart';
 import '../../soporte/repositorio_puestos_falso.dart';
@@ -56,6 +57,9 @@ void main() {
         ),
         repositorioValidacionProvider.overrideWithValue(
           RepositorioValidacionFalso(),
+        ),
+        almacenOfflineProvider.overrideWith(
+          (ref) async => AlmacenOfflineMemoria(),
         ),
         repositorioPuestosProvider.overrideWithValue(RepositorioPuestosFalso()),
       ],

@@ -292,15 +292,25 @@ Proyecto Flutter único en `SRC/FRONTEND/wash_points_app` (Flutter 3.41.9 / Dart
 
 | Comando | Propósito | Salida verificada (T-91) |
 |---------|-----------|---------------------------|
-| `flutter pub get` | Resolución de dependencias | 80 paquetes resueltos |
+| `flutter pub get` | Resolución de dependencias | `Got dependencies!` (116 paquetes en `pubspec.lock`) |
 | `flutter analyze` | Lint + typecheck (`strict-casts`, `strict-inference`, `strict-raw-types` en `analysis_options.yaml`) | `No issues found!` |
 | `flutter test` | Suite de tests | `All tests passed!` |
 | `maestro test e2e/smoke_test.yaml` | Flujo de humo E2E (T-91b) | Requiere Maestro instalado y un build de debug |
+| `maestro test e2e/panel_admin_offline.yaml` | Canje offline y reconciliación (T-114) | Redactado y diferido (T-114b): requiere dispositivo, credenciales reales y alternar el modo avión a mano |
 
 Notas:
 - Ejecutar siempre desde `SRC/FRONTEND/wash_points_app` (no desde la raíz del repo).
 - Los comandos de backend (§5.5) y los de frontend son independientes: la suite .NET no compila el proyecto Flutter ni al revés.
 - `riverpod_lint`/`custom_lint` están como `dev_dependencies`; sus reglas no corren en `flutter analyze` (se ejecutan con `dart run custom_lint` cuando se habilite el plugin del analyzer).
+
+#### 5.6.1 Dependencias de runtime del slice-11
+
+Aprobadas en `SPECS/slice-11-validacion-offline.md` (D-11.2 y D-11.5). Son las dos únicas dependencias de runtime nuevas desde T-91 y ninguna es de test.
+
+| Paquete | Versión | Para qué | Por qué |
+|---------|---------|----------|---------|
+| `path_provider` | `^2.1.6` | `getApplicationSupportDirectory()` desde `AlmacenOfflineArchivos.abrir()` | El modo offline tiene que sobrevivir al cierre de la app: la caché de vigentes y la cola de canjes se persisten como archivos JSON. El SDK no expone un directorio de soporte, `Directory.systemTemp` puede ser purgado por el sistema y `shared_preferences` no sirve para documentos con estructura propia. Sólo lo importa `data/almacen_offline_archivos.dart`: el resto habla con el puerto `AlmacenOffline`, así que el paquete no se filtra a la lógica ni a la UI. |
+| `crypto` | `^3.0.8` | `sha256.convert(utf8.encode(token))` en `CodificadorComprobante` | El backend identifica el comprobante por el SHA-256 hex de su token y el cliente necesita calcular el mismo hash para buscar en la caché. `dart:convert` no trae SHA-256. Es Dart puro, sin dependencia nativa, y la alternativa —preguntarle a la API por cada código— anularía el modo offline. |
 
 <!-- context7 -->
 Use the Context7 CLI (`ctx7`) to fetch current documentation whenever the user asks about a library, framework, SDK, API, CLI tool, or cloud service — even well-known ones like React, Next.js, Prisma, Express, Tailwind, Django, or Spring Boot. This includes API syntax, configuration, version migration, library-specific debugging, setup instructions, and CLI tool usage. Use even when you think you know the answer — your training data may not reflect recent changes. Prefer this over web search for library docs.

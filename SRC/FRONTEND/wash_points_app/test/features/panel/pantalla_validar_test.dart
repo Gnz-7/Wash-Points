@@ -7,12 +7,14 @@ import 'package:wash_points_app/features/panel/presentation/lavadero_actual.dart
 import 'package:wash_points_app/features/panel/presentation/validar/pantalla_validar.dart';
 import 'package:wash_points_app/features/panel/presentation/validar/validar_notifier.dart';
 
+import '../../soporte/almacen_offline_memoria.dart';
 import '../../soporte/repositorio_validacion_falso.dart';
 
 Widget _app(RepositorioValidacionFalso repositorio) => ProviderScope(
       overrides: <Override>[
         repositorioValidacionProvider.overrideWithValue(repositorio),
         lavaderoActualProvider.overrideWithValue('lavadero-5'),
+        almacenOfflineProvider.overrideWith((ref) async => AlmacenOfflineMemoria()),
       ],
       child: const MaterialApp(home: Scaffold(body: PantallaValidar())),
     );
@@ -137,7 +139,7 @@ void main() {
     expect(repositorio.validados, isEmpty);
   });
 
-  testWidgets('un fallo de transporte muestra el mensaje traducido',
+  testWidgets('sin red, un código fuera de la caché no habilita la atención',
       (tester) async {
     await tester.pumpWidget(
       _app(
@@ -150,7 +152,34 @@ void main() {
 
     await _validar(tester, 'ABCD1234');
 
-    expect(find.byKey(const ValueKey('mensaje_error')), findsOneWidget);
-    expect(find.textContaining('conexión'), findsOneWidget);
+    // La pestaña sincronizó al abrir, así que la caché del día existe y está
+    // vacía: el panel no puede verificar el comprobante (CA-S11.3).
+    expect(
+      find.byKey(const ValueKey('resultado_no_encontrado')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Sin conexión'), findsOneWidget);
+    expect(find.byKey(const ValueKey('mensaje_error')), findsNothing);
+  });
+
+  testWidgets('un canje sin conexión se informa como tal', (tester) async {
+    await tester.pumpWidget(
+      _app(
+        RepositorioValidacionFalso(
+          resultado: const ResultadoValidacion(
+            tipo: TipoResultadoValidacion.canjeadoOffline,
+            mensaje: 'Canje registrado sin conexión.',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await _validar(tester, 'ABCD1234');
+
+    expect(
+      find.byKey(const ValueKey('resultado_canjeado_offline')),
+      findsOneWidget,
+    );
   });
 }

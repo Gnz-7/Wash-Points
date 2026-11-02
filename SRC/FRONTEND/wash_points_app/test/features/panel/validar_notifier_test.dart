@@ -5,6 +5,7 @@ import 'package:wash_points_app/features/panel/domain/resultado_validacion.dart'
 import 'package:wash_points_app/features/panel/presentation/lavadero_actual.dart';
 import 'package:wash_points_app/features/panel/presentation/validar/validar_notifier.dart';
 
+import '../../soporte/almacen_offline_memoria.dart';
 import '../../soporte/repositorio_validacion_falso.dart';
 
 ProviderContainer _contenedor(RepositorioValidacionFalso repositorio) {
@@ -12,6 +13,9 @@ ProviderContainer _contenedor(RepositorioValidacionFalso repositorio) {
     overrides: <Override>[
       repositorioValidacionProvider.overrideWithValue(repositorio),
       lavaderoActualProvider.overrideWithValue('lavadero-5'),
+      almacenOfflineProvider.overrideWith(
+        (ref) async => AlmacenOfflineMemoria(),
+      ),
     ],
   );
   addTearDown(contenedor.dispose);

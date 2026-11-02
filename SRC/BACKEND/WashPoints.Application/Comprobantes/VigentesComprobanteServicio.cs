@@ -1,5 +1,6 @@
 using WashPoints.Domain.Comprobantes;
 using WashPoints.Domain.Ocupacion;
+using WashPoints.Domain.Turnos;
 
 namespace WashPoints.Application.Comprobantes;
 
@@ -30,6 +31,15 @@ public sealed class VigentesComprobanteServicio
     /// <summary>
     /// Lista los hash vigentes del lavadero con inicio en <c>[desdeUtc, hastaUtc)</c>.
     /// </summary>
+    /// <remarks>
+    /// Solo cuentan los turnos que pueden habilitar una atención: con seña
+    /// acreditada (<see cref="EstadoTurno.Confirmado"/>) o ya en curso. El filtro
+    /// es deliberadamente por estado del turno y no solo por el comprobante:
+    /// esta lista alimenta el modo offline, donde el hash es la única prueba de
+    /// presencia, así que un <see cref="EstadoTurno.PendientePago"/> en la caché
+    /// habilitaría la atención sin pago (RB-1, CA-S11.12). Un turno cancelado,
+    /// vencido, ausente o finalizado tampoco debe aparecer.
+    /// </remarks>
     public async Task<IReadOnlyList<string>> ListarAsync(
         Guid lavaderoId,
         DateTime desdeUtc,
@@ -42,7 +52,15 @@ public sealed class VigentesComprobanteServicio
             return Array.Empty<string>();
         }
 
-        var ids = turnos.Select(t => t.Id).ToList();
+        var ids = turnos
+            .Where(t => t.Estado is EstadoTurno.Confirmado or EstadoTurno.EnCurso)
+            .Select(t => t.Id)
+            .ToList();
+
+        if (ids.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
         return await _comprobantes.ListarHashesVigentesAsync(
             ids, _reloj.GetUtcNow().UtcDateTime, ct);
     }

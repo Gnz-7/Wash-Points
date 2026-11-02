@@ -1,3 +1,5 @@
+import 'codificador_comprobante.dart';
+
 /// Puerto de lectura del comprobante que presenta el cliente (D-10.7).
 ///
 /// Hoy la única implementación es manual (tipear o pegar el código). Cuando se
@@ -11,16 +13,19 @@ abstract interface class LectorComprobante {
   String? leer(String entrada);
 }
 
-/// Lector manual: el operador tipea o pega el código alfanumérico.
+/// Lector manual: el operador tipea o pega el código.
+///
+/// No normaliza por su cuenta: delega en [CodificadorComprobante], que conoce
+/// la diferencia entre un payload QR (sensible al caso, con prefijo ordinal) y
+/// un código de respaldo (Base32 Crockford, insensible al caso). Pasar todo a
+/// mayúsculas corrompía el token del QR (D-11.13).
 class LectorComprobanteManual implements LectorComprobante {
-  const LectorComprobanteManual();
+  const LectorComprobanteManual({
+    this.codificador = const CodificadorComprobanteCanonico(),
+  });
+
+  final CodificadorComprobante codificador;
 
   @override
-  String? leer(String entrada) {
-    // El QR y el código de respaldo son Base32: sin espacios y en mayúsculas.
-    // Pegar desde un lector suele arrastrar saltos de línea y espacios.
-    final limpio = entrada.replaceAll(RegExp(r'\s+'), '').toUpperCase();
-
-    return limpio.isEmpty ? null : limpio;
-  }
+  String? leer(String entrada) => codificador.normalizar(entrada);
 }
