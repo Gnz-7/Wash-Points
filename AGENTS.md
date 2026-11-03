@@ -276,25 +276,26 @@ opencode run --standalone --print-logs "ok" 2>&1 | Select-String -Pattern 'loadi
 
 ### 5.5 Comandos de verificación (T-08)
 
-| Comando | Propósito | Salida verificada (Slice 0) |
+| Comando | Propósito | Salida verificada (última corrida, 2026-11-03) |
 |---------|-----------|------------------------------|
 | `dotnet build SRC\BACKEND\WashPoints.sln` | Compilación de la solución | 0 errores, 0 warnings (SDK 8.0.425) |
-| `dotnet test SRC\BACKEND\WashPoints.sln` | Suite completa (unit + integración) | 25 unit + 17 integración = 42/42 superados |
+| `dotnet test SRC\BACKEND\WashPoints.sln` | Suite completa (unit + integración) | 125 unit + 163 integración = **288/288 superados** |
 
 Notas:
 - Ejecutar `dotnet test` siempre desde la raíz del repo contra `SRC\BACKEND\WashPoints.sln` (➜ evita MSB1003). Pasar el `.csproj` del proyecto de integración es válido para acotar.
 - Las pruebas de integración requieren Docker. El proyecto de tests deshabilita el paralelismo de colecciones xUnit (`DisableTestParallelization`) **a propósito**: con clases en paralelo se levantaban ~7 contenedores Testcontainers simultáneos y el host de pruebas colgaba (MSB4166 / `testhost` bloqueado). Serializado, cada clase levanta su contenedor `postgres:16-alpine` por vez y es estable.
 - No existe aún un analizador de código estático (rol `qa`/`devops`, condiciona lint/typecheck). El build con warnings `StrictMode`/`TreatWarningsAsErrors` no está activado; la verificación de calidad actual es la suite de tests.
+- La clave AES de comprobantes **no está en el repositorio** (T-124). `Comprobantes:ClaveCifrado` se carga por User Secrets con `dotnet user-secrets set "Comprobantes:ClaveCifrado" "<base64>" --project SRC\BACKEND\WashPoints.Api`, o por la variable de entorno `Comprobantes__ClaveCifrado` en despliegue. Sin clave la emisión de comprobantes falla de forma explícita, nunca degradada (RB-1), y la suite lo cubre.
 
 ### 5.6 Comandos de verificación del frontend (slice-09)
 
 Proyecto Flutter único en `SRC/FRONTEND/wash_points_app` (Flutter 3.41.9 / Dart 3.11.5, Android + iOS).
 
-| Comando | Propósito | Salida verificada (T-91) |
+| Comando | Propósito | Salida verificada (T-127) |
 |---------|-----------|---------------------------|
 | `flutter pub get` | Resolución de dependencias | `Got dependencies!` (116 paquetes en `pubspec.lock`) |
 | `flutter analyze` | Lint + typecheck (`strict-casts`, `strict-inference`, `strict-raw-types` en `analysis_options.yaml`) | `No issues found!` |
-| `flutter test` | Suite de tests | `All tests passed!` |
+| `flutter test` | Suite de tests (318) | `02:37 +318: All tests passed!` |
 | `maestro test e2e/smoke_test.yaml` | Flujo de humo E2E (T-91b) | Requiere Maestro instalado y un build de debug |
 | `maestro test e2e/panel_admin_offline.yaml` | Canje offline y reconciliación (T-114) | Redactado y diferido (T-114b): requiere dispositivo, credenciales reales y alternar el modo avión a mano |
 
@@ -302,6 +303,7 @@ Notas:
 - Ejecutar siempre desde `SRC/FRONTEND/wash_points_app` (no desde la raíz del repo).
 - Los comandos de backend (§5.5) y los de frontend son independientes: la suite .NET no compila el proyecto Flutter ni al revés.
 - `riverpod_lint`/`custom_lint` están como `dev_dependencies`; sus reglas no corren en `flutter analyze` (se ejecutan con `dart run custom_lint` cuando se habilite el plugin del analyzer).
+- Slice-12 (tiempo real): los tests usan `CanalTiempoRealFalso` (`test/soporte/canal_tiempo_real_falso.dart`) y nunca abren un socket. Toda pantalla que monte `TiempoRealNotifier` debe overridear `canalTiempoRealProvider` con la fábrica del doble y `esperaReconexionProvider` con `Duration.zero`; sin eso el reintento real deja un `Timer` pendiente y el test falla. La reconexión con espera cero necesita `tester.runAsync` porque `StreamSubscription.cancel()` no se resuelve con el reloj falso.
 
 #### 5.6.1 Dependencias de runtime del slice-11
 

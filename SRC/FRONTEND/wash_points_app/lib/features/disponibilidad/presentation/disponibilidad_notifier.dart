@@ -3,10 +3,15 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/tiempo_real/canal_tiempo_real.dart';
-import '../../../core/tiempo_real/estado_conexion.dart';
+import '../../../core/tiempo_real/evento_tiempo_real.dart';
+import '../../../core/tiempo_real/tiempo_real_notifier.dart';
 import '../domain/intervalo_ocupado.dart';
 
-/// Foto de la disponibilidad de un lavadero (T-94, RB-2).
+/// Foto de la disponibilidad de un lavadero (CU-05, RB-2).
+///
+/// `conexion` es el estado del canal compartido de la app: la pantalla no
+/// inventa disponibilidad cuando no hay tiempo real, la marca como degradada
+/// (CA-S12.4, D-12.6).
 class EstadoDisponibilidad {
   const EstadoDisponibilidad({
     required this.conexion,
@@ -14,99 +19,84 @@ class EstadoDisponibilidad {
     this.actualizadaEn,
   });
 
-  final EstadoConexion conexion;
-
-  /// Intervalos que ocupan puesto, sin duplicados por turno.
+  final EstadoCanal conexion;
   final List<IntervaloOcupado> ocupados;
-
-  /// Momento del último snapshot o evento aplicado. La UI lo muestra cuando
-  /// el canal está degradado: el usuario sabe de cuándo son los datos.
   final DateTime? actualizadaEn;
 
-  /// `true` cuando la pantalla no puede garantizar frescura (RB-2).
-  bool get degradado => conexion.degradado;
+  /// No hay tiempo real: los datos pueden estar viejos.
+  bool get degradado => conexion != EstadoCanal.conectado;
 
+  /// Puestos ocupados en la ventana consultada.
   int get ocupadosAhora => ocupados.length;
 }
 
-/// Disponibilidad en tiempo real de un lavadero.
-///
-/// Ciclo de vida (D-09.7):
-/// 1. conecta el canal,
-/// 2. se une al grupo del lavadero,
-/// 3. pide el snapshot y solo entonces expone datos (antes, `AsyncLoading`),
-/// 4. en cada reconexión repite 2 y 3.
-///
-/// Los eventos se aplican de forma idempotente: el turno se identifica por
-/// `turnoId`, así un duplicado de la outbox no duplica la ocupación.
-final disponibilidadProvider =
-    AsyncNotifierProvider.family<DisponibilidadNotifier, EstadoDisponibilidad, String>(
+final disponibilidadProvider = AsyncNotifierProvider.family<
+    DisponibilidadNotifier, EstadoDisponibilidad, String>(
   DisponibilidadNotifier.new,
 );
 
+/// Disponibilidad de un lavadero para el cliente.
+///
+/// No abre su propia conexión: usa la única conexión de la app (D-12.8) a
+/// través de [tiempoRealProvider], se une al grupo del lavadero y se re-suscribe
+/// cuando el canal vuelve (D-12.9).
 class DisponibilidadNotifier
     extends FamilyAsyncNotifier<EstadoDisponibilidad, String> {
-  /// Ventana de la consulta de snapshot, en hora local del dispositivo.
+  /// Ventana de ocupación que se pide al hub.
   static const _ventana = Duration(hours: 8);
 
-  CanalTiempoReal? _canal;
-  StreamSubscription<EstadoConexion>? _suscripcionEstados;
-  StreamSubscription<Map<String, dynamic>>? _suscripcionEventos;
+  StreamSubscription<EventoTiempoReal>? _suscripcionEventos;
 
-  var _conexion = EstadoConexion.desconectado;
+  var _conexion = EstadoCanal.desconectado;
   var _ocupados = <IntervaloOcupado>[];
   DateTime? _actualizadaEn;
   var _listo = false;
+  late String _lavaderoId;
 
   @override
   Future<EstadoDisponibilidad> build(String lavaderoId) async {
-    _listo = false;
-    _conexion = EstadoConexion.desconectado;
+    _lavaderoId = lavaderoId;
+    _conexion = EstadoCanal.desconectado;
     _ocupados = <IntervaloOcupado>[];
     _actualizadaEn = null;
+    _listo = false;
 
-    final canal = ref.watch(canalTiempoRealProvider);
-    _canal = canal;
+    _suscripcionEventos =
+        ref.read(eventosTiempoRealProvider).listen(_aplicarEvento);
 
-    _suscripcionEstados = canal.estados.listen(_alCambiarEstado);
-    _suscripcionEventos = canal.eventos.listen(_aplicarEvento);
-
-    ref.onDispose(() {
-      _suscripcionEstados?.cancel();
-      _suscripcionEventos?.cancel();
-      unawaited(canal.desconectar());
+    ref.onDispose(() async {
+      await _suscripcionEventos?.cancel();
     });
 
-    await canal.conectar();
-    await canal.unirseALavadero(lavaderoId);
+    final tiempoReal = ref.read(tiempoRealProvider.notifier);
 
-    final snapshot = await canal.solicitarSnapshot(
-      lavaderoId: lavaderoId,
-      desde: DateTime.now(),
-      hasta: DateTime.now().add(_ventana),
+    ref.listen<EstadoCanal>(
+      tiempoRealProvider,
+      (_, nuevo) => _alCambiarEstado(nuevo),
     );
 
-    _ocupados = snapshot
-        .map(IntervaloOcupado.desdeSnapshot)
-        .toList(growable: false);
+    await tiempoReal.iniciar();
+    await tiempoReal.unirseALavadero(lavaderoId);
+
+    _conexion = ref.read(tiempoRealProvider);
+    _ocupados = await _pedirSnapshot(tiempoReal, lavaderoId);
     _actualizadaEn = DateTime.now();
-    _conexion = EstadoConexion.conectado;
     _listo = true;
 
     return EstadoDisponibilidad(
       conexion: _conexion,
-      ocupados: _ocupados,
+      ocupados: List<IntervaloOcupado>.unmodifiable(_ocupados),
       actualizadaEn: _actualizadaEn,
     );
   }
 
-  void _alCambiarEstado(EstadoConexion estado) {
+  void _alCambiarEstado(EstadoCanal nuevo) {
     final anterior = _conexion;
-    _conexion = estado;
+    _conexion = nuevo;
 
-    // Reconexión exitosa: los grupos NO se re-unen solos (D-09.7).
-    if (estado == EstadoConexion.conectado &&
-        anterior == EstadoConexion.reconectando) {
+    // El servidor olvida los grupos de la conexión anterior (D-12.9).
+    if (nuevo == EstadoCanal.conectado &&
+        anterior == EstadoCanal.reconectando) {
       unawaited(_resincronizar());
     }
 
@@ -114,38 +104,59 @@ class DisponibilidadNotifier
   }
 
   Future<void> _resincronizar() async {
-    final canal = _canal;
-    if (canal == null) {
-      return;
-    }
+    final tiempoReal = ref.read(tiempoRealProvider.notifier);
 
-    await canal.unirseALavadero(arg);
-
-    final snapshot = await canal.solicitarSnapshot(
-      lavaderoId: arg,
-      desde: DateTime.now(),
-      hasta: DateTime.now().add(_ventana),
-    );
-
-    _ocupados = snapshot
-        .map(IntervaloOcupado.desdeSnapshot)
-        .toList(growable: false);
+    await tiempoReal.unirseALavadero(_lavaderoId);
+    _ocupados = await _pedirSnapshot(tiempoReal, _lavaderoId);
     _actualizadaEn = DateTime.now();
     _publicar();
   }
 
-  void _aplicarEvento(Map<String, dynamic> json) {
-    final intervalo = IntervaloOcupado.desdeEvento(json);
-
-    final restantes =
-        _ocupados.where((i) => i.turnoId != intervalo.turnoId).toList();
-    if (intervalo.ocupaPuesto) {
-      restantes.add(intervalo);
+  /// Un evento trae el estado completo del turno: puede ocupar o liberar.
+  void _aplicarEvento(EventoTiempoReal evento) {
+    if (evento.tipo != 'disponibilidad_actualizada' ||
+        !evento.esDe(_lavaderoId)) {
+      return;
     }
 
-    _ocupados = restantes;
-    _actualizadaEn = DateTime.now();
+    final intervalo = IntervaloOcupado.desdeEvento(<String, dynamic>{
+      'turnoId': evento.turnoId,
+      'puestoId': evento.puestoId,
+      'origen': evento.origen,
+      'desdeUtc': evento.desdeUtc.toIso8601String(),
+      'hastaUtc': evento.hastaUtc.toIso8601String(),
+      'estado': evento.estado,
+    });
+
+    final otros = _ocupados.where((i) => i.turnoId != intervalo.turnoId);
+
+    _ocupados = intervalo.ocupaPuesto
+        ? <IntervaloOcupado>[...otros, intervalo]
+        : otros.toList(growable: false);
+
     _publicar();
+  }
+
+  Future<List<IntervaloOcupado>> _pedirSnapshot(
+    TiempoRealNotifier tiempoReal,
+    String lavaderoId,
+  ) async {
+    final ahora = DateTime.now();
+
+    try {
+      final snapshot = await tiempoReal.solicitarSnapshot(
+        lavaderoId: lavaderoId,
+        desde: ahora,
+        hasta: ahora.add(_ventana),
+      );
+
+      return snapshot.map(IntervaloOcupado.desdeSnapshot).toList(
+            growable: false,
+          );
+    } on Object {
+      // Sin snapshot no se inventan puestos: la foto queda vacía y degradada.
+      return <IntervaloOcupado>[];
+    }
   }
 
   void _publicar() {

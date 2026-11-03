@@ -99,9 +99,9 @@ class _Banner extends StatelessWidget {
         : DateFormat('HH:mm').format(actualizadaEn!.toLocal());
 
     return Semantics(
-      identifier: 'banner_sin_tiempo_real',
+      identifier: 'datos_desactualizados',
       child: Container(
-        key: const ValueKey('banner_sin_tiempo_real'),
+        key: const ValueKey('datos_desactualizados'),
         width: double.infinity,
         color: Theme.of(context).colorScheme.errorContainer,
         padding: const EdgeInsets.all(12),

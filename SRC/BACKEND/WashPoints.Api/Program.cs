@@ -157,6 +157,29 @@ builder.Services
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(opcionesJwt.ClaveSecreta)),
             ValidateLifetime = true,
         };
+
+        // SignalR (slice-12, T-117b): el handshake WebSocket no puede llevar el
+        // header Authorization, así que el cliente manda el token en
+        // `access_token`. Se acepta SOLO en la ruta del hub: el resto de la API
+        // sigue exigiendo el header y un token no queda expuesto en una URL
+        // cualquiera (AGENTS §3.4).
+        opciones.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = contexto =>
+            {
+                if (contexto.HttpContext.Request.Path.StartsWithSegments("/hubs/disponibilidad"))
+                {
+                    var tokenDeQuery = contexto.Request.Query["access_token"];
+
+                    if (!string.IsNullOrEmpty(tokenDeQuery))
+                    {
+                        contexto.Token = tokenDeQuery;
+                    }
+                }
+
+                return Task.CompletedTask;
+            },
+        };
     });
 
 // Políticas de autorización (§5.2). `Administrador` cubre los endpoints de

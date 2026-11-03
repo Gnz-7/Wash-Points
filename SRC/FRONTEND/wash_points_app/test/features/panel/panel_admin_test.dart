@@ -16,6 +16,8 @@ import '../../soporte/almacen_offline_memoria.dart';
 import '../../soporte/repositorio_metricas_falso.dart';
 import '../../soporte/repositorio_validacion_falso.dart';
 import '../../soporte/repositorio_puestos_falso.dart';
+import 'package:wash_points_app/core/tiempo_real/tiempo_real_notifier.dart';
+import '../../soporte/canal_tiempo_real_falso.dart';
 
 /// T-98 (slice-10, CA-S10.2/CA-S10.3): el panel de administración es un shell
 /// con cuatro ramas y el rol decide quién entra.
@@ -62,6 +64,11 @@ void main() {
           (ref) async => AlmacenOfflineMemoria(),
         ),
         repositorioPuestosProvider.overrideWithValue(RepositorioPuestosFalso()),
+        // El canal de tiempo real también sale a la red: sin este doble el
+        // notifier reintenta con timers reales y el test queda con un Timer
+        // pendiente (T-122).
+        canalTiempoRealProvider.overrideWithValue(CanalTiempoRealFalso.new),
+        esperaReconexionProvider.overrideWithValue((_) => Duration.zero),
       ],
     );
     addTearDown(contenedor.dispose);

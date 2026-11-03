@@ -15,12 +15,21 @@ final repositorioAgendaProvider = Provider<RepositorioAgenda>(
   (ref) => RepositorioAgendaHttp(ref.watch(clienteHttpProvider)),
 );
 
-/// Cada cuánto se refresca sola la agenda (D-10.4).
+/// Cada cuánto se refresca sola la agenda cuando **no** hay canal (D-12.7).
 ///
-/// No hay hub de agenda en el backend: 30 s es la latencia que se acepta y se
-/// declara en pantalla. Es inyectable para que los tests no esperen de verdad.
+/// Con SignalR conectado el polling está apagado: los cambios llegan por
+/// evento. Esta es la red de seguridad para cuando el canal se cae, y es
+/// inyectable para que los tests no esperen de verdad.
 final intervaloPollingAgendaProvider = Provider<Duration>(
   (ref) => const Duration(seconds: 30),
+);
+
+/// Ventana de agrupación de eventos de agenda (D-12.3).
+///
+/// Varias escrituras seguidas en el mismo lavadero llegan como varios eventos;
+/// se agrupan en un solo refresco REST para no amplificar la carga.
+final debounceAgendaProvider = Provider<Duration>(
+  (ref) => const Duration(milliseconds: 400),
 );
 
 /// Filtros vigentes de la agenda.

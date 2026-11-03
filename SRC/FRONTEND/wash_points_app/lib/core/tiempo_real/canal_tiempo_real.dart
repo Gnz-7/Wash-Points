@@ -1,51 +1,52 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'evento_tiempo_real.dart';
 
-import '../config/entorno.dart';
-import '../sesion/sesion_provider.dart';
-import 'canal_signalr.dart';
-import 'estado_conexion.dart';
-
-/// Puerto del canal en tiempo real (D-09.6, RB-2).
+/// Estado de la conexión de tiempo real.
 ///
-/// El feature de disponibilidad habla con esta interfaz, nunca con
-/// `signalr_netcore`: cambiar de transporte no debe tocar el notifier ni la
-/// pantalla. Los eventos llegan ya decodificados como mapas JSON.
+/// `sinSesion` es terminal: no se reintenta porque un 401 no se arregla
+/// esperando (D-12.5).
+enum EstadoCanal {
+  desconectado,
+  conectando,
+  conectado,
+  reconectando,
+  sinSesion,
+}
+
+/// Puerto del canal de tiempo real (D-12.1).
+///
+/// Es la única abstracción que conoce la app: `signalr_netcore` vive detrás de
+/// una implementación y los tests usan un doble en memoria.
 abstract interface class CanalTiempoReal {
-  /// Cambios de estado del canal (`conectado`, `reconectando`, `desconectado`).
-  Stream<EstadoConexion> get estados;
+  /// Estado actual de la conexión.
+  EstadoCanal get estadoActual;
 
-  /// Eventos `disponibilidadActualizada` del grupo del lavadero.
-  Stream<Map<String, dynamic>> get eventos;
+  /// Cambios de estado de la conexión.
+  Stream<EstadoCanal> get estados;
 
-  /// Abre la conexión con el token vigente.
+  /// Eventos publicados por el hub.
+  Stream<EventoTiempoReal> get eventos;
+
+  /// Abre la conexión.
   Future<void> conectar();
 
-  /// Suscribe la conexión al grupo del lavadero.
+  /// Se suscribe a los cambios de disponibilidad del lavadero (RB-2).
   Future<void> unirseALavadero(String lavaderoId);
 
-  /// Ocupación vigente del lavadero en hora local. Es el snapshot que
-  /// reemplaza el estado local (D-09.7): se pide al conectar y en cada
-  /// reconexión, nunca se asume que los eventos alcanzaron.
+  /// Se suscribe a los cambios de la agenda del lavadero.
+  Future<void> unirseAAgenda(String lavaderoId);
+
+  /// Deja de escuchar un lavadero.
+  Future<void> salirDe(String lavaderoId);
+
+  /// Cierra la conexión y libera el socket.
+  Future<void> cerrar();
+
+  /// Pide al hub la foto de ocupación de una ventana (T-94).
+  ///
+  /// Devuelve los intervalos que ocupan puesto, ya filtrados por el servidor.
   Future<List<Map<String, dynamic>>> solicitarSnapshot({
     required String lavaderoId,
     required DateTime desde,
     required DateTime hasta,
   });
-
-  /// Cierra la conexión.
-  Future<void> desconectar();
 }
-
-/// Canal real: SignalR contra `/hubs/disponibilidad`.
-///
-/// El token se lee del almacén de sesión en cada intento (lo pide
-/// `accessTokenFactory`), así una reconexión después de un re-login usa el
-/// token nuevo.
-final canalTiempoRealProvider = Provider<CanalTiempoReal>((ref) {
-  final entorno = ref.watch(entornoProvider);
-
-  return CanalSignalR(
-    url: entorno.hubDisponibilidad,
-    tokenActual: () async => ref.read(sesionProvider)?.token ?? '',
-  );
-});
