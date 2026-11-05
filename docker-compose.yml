@@ -27,6 +27,7 @@ services:
     restart: unless-stopped
     environment:
       ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=washpoints;Username=postgres;Password=postgres
     ports:
       - "8080:8080"
