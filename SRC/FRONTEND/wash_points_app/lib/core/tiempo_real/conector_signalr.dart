@@ -183,7 +183,12 @@ class ConectorSignalR implements CanalTiempoReal {
     return EventoTiempoReal.desdeJson(json, tipo: tipo);
   }
 
-  /// URL del hub con el esquema que corresponde al de la API.
+  /// URL del hub, con esquema **http/https**.
+  ///
+  /// `signalr_netcore` hace primero el `negotiate` con `dart:io`, que no
+  /// entiende `ws://`, y recién después sube el transporte a WebSocket. Pasar
+  /// la URL en `ws` rompe la conexión con «Unsupported scheme 'ws'»
+  /// (verificado contra el hub real).
   ///
   /// El handshake WebSocket no puede llevar el header `Authorization`, así que
   /// el token viaja por query y el backend lo acepta sólo en esta ruta
@@ -193,7 +198,6 @@ class ConectorSignalR implements CanalTiempoReal {
     final token = _token();
 
     return base.replace(
-      scheme: base.scheme == 'https' ? 'wss' : 'ws',
       path: rutaHub,
       queryParameters: token == null || token.isEmpty
           ? null

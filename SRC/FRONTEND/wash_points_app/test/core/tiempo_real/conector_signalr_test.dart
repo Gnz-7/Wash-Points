@@ -85,7 +85,7 @@ void main() {
   });
 
   group('URL de conexión', () {
-    test('usa wss sobre https y agrega el token en access_token', () {
+    test('conserva https y agrega el token en access_token', () {
       final conector = ConectorSignalR(
         urlBase: 'https://api.test',
         token: () => 'secreto-123',
@@ -93,19 +93,19 @@ void main() {
 
       final uri = conector.uriConexion;
 
-      expect(uri.scheme, 'wss');
+      expect(uri.scheme, 'https');
       expect(uri.host, 'api.test');
       expect(uri.path, '/hubs/disponibilidad');
       expect(uri.queryParameters['access_token'], 'secreto-123');
     });
 
-    test('usa ws sobre http', () {
+    test('conserva http sobre una base sin TLS', () {
       final conector = ConectorSignalR(
         urlBase: 'http://10.0.2.2:5099',
         token: () => 'abc',
       );
 
-      expect(conector.uriConexion.scheme, 'ws');
+      expect(conector.uriConexion.scheme, 'http');
       expect(conector.uriConexion.port, 5099);
     });
 
@@ -129,7 +129,7 @@ void main() {
   group('registro sin credenciales', () {
     test('redactar oculta el token de una URL', () {
       final redactado = ConectorSignalR.redactar(
-        'conectando a wss://api.test/hubs/disponibilidad?access_token=secreto-123',
+        'conectando a https://api.test/hubs/disponibilidad?access_token=secreto-123',
       );
 
       expect(redactado, isNot(contains('secreto-123')));
