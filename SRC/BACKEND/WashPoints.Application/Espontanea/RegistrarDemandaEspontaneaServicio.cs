@@ -68,7 +68,8 @@ public sealed class RegistrarDemandaEspontaneaServicio
             cliente.Id,
             solicitud.TipoLavadoId,
             solicitud.InicioUtc,
-            finUtc);
+            finUtc,
+            tipo.PrecioTotal);
 
         return await _unidadDeTrabajo.EjecutarEnTransaccionAsync(async ctTransaccion =>
         {

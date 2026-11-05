@@ -88,7 +88,7 @@ public sealed class AgendaSignalRTest : IClassFixture<ContenedorPostgres>, IDisp
         var inicioUtc = ConversorHorario.AUtc(DateTime.Parse("2026-10-10T10:00:00"));
         var turno = Turno.Crear(
             lavaderoId, puestoId, Guid.NewGuid(), tipoId,
-            inicioUtc, inicioUtc.AddMinutes(30), precioSena: 3000m);
+            inicioUtc, inicioUtc.AddMinutes(30), precioSena: 3000m, precioTotal: 15000m);
         turno.TransicionarA(EstadoTurno.Confirmado);
         turno.TransicionarA(EstadoTurno.EnCurso);
 

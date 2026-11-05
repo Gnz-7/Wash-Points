@@ -77,7 +77,7 @@ public sealed class GestionPuestosTest : IClassFixture<ContenedorPostgres>, IDis
         var inicioUtc = ConversorHorario.AUtc(DateTime.Parse("2027-06-15T10:00:00"));
         var turno = Turno.Crear(
             lavaderoId, puestoId, Guid.NewGuid(), tipo.Id,
-            inicioUtc, inicioUtc.AddMinutes(30), precioSena: 3000m);
+            inicioUtc, inicioUtc.AddMinutes(30), precioSena: 3000m, precioTotal: 15000m);
         turno.TransicionarA(EstadoTurno.Confirmado);
 
         contexto.Turnos.Add(turno);

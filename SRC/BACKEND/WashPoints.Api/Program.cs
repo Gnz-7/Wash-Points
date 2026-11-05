@@ -55,8 +55,10 @@ builder.Services.AddScoped<IConsultaCatalogo, ConsultaCatalogo>();
 
 // Gestión de puestos y agenda (CU-05/CU-06, slice-04).
 builder.Services.AddScoped<IPuestoRepositorio, PuestoRepositorio>();
+builder.Services.AddScoped<ITipoLavadoRepositorio, TipoLavadoRepositorio>();
 builder.Services.AddScoped<IConsultaAgenda, ConsultaAgenda>();
 builder.Services.AddScoped<GestionPuestosServicio>();
+builder.Services.AddScoped<GestionTiposLavadoServicio>();
 builder.Services.AddScoped<AgendaServicio>();
 builder.Services.AddScoped<CierreAgendaServicio>();
 builder.Services.AddScoped<IMetricasConsulta, ConsultaMetricas>();
@@ -136,6 +138,21 @@ builder.Services.AddScoped<AutenticacionServicio>();
 // el servicio compone la transacción y emite la sesión.
 builder.Services.AddScoped<IClienteRepositorio, ClienteRepositorio>();
 builder.Services.AddScoped<ILavaderoRepositorio, LavaderoRepositorio>();
+// Catálogo por defecto del onboarding (SPECS/slice-13 §5.5, D-13.7/D-13.8).
+// Si la sección no está configurada se usan los precios por defecto del código
+// y se emite un warning: el alta de un lavadero nunca falla por configuración
+// ausente.
+var seccionCatalogo = builder.Configuration.GetSection(OpcionesCatalogo.Seccion);
+var opcionesCatalogo = seccionCatalogo.Get<OpcionesCatalogo>() ?? new OpcionesCatalogo();
+if (!seccionCatalogo.Exists())
+{
+    using var loggerFactory = LoggerFactory.Create(logging => logging.AddConsole());
+    loggerFactory.CreateLogger("WashPoints.Catalogo").LogWarning(
+        "No existe la sección de configuración {Seccion}; se usan los precios por defecto del catálogo.",
+        OpcionesCatalogo.Seccion);
+}
+
+builder.Services.AddSingleton(opcionesCatalogo);
 builder.Services.AddScoped<Registro.RegistroServicio>();
 
 // Identidad server-side (slice-05, CU-10): el bearer se valida en el pipeline y
@@ -736,6 +753,137 @@ app.MapPost("/api/lavaderos/{id:guid}/puestos/{puestoId:guid}/activar", async (
 .RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
 .WithOpenApi();
 
+// Catálogo de tipos de lavado (CU-05, SPECS/slice-13 T-132). El admin crea,
+// lista, edita, desactiva y reactiva. Desactivar un tipo con turnos vigentes da
+// 409 tipo_con_turnos_activos (D-13.4); un nombre repetido da 409 tipo_ya_existe
+// (D-13.10); un tipo de otro lavadero es indistinguible de inexistente (404,
+// D-13.9). Todas las decisiones viven en GestionTiposLavadoServicio.
+app.MapGet("/api/lavaderos/{id:guid}/tipos-lavado", async (
+    Guid id,
+    GestionTiposLavadoServicio servicio,
+    CancellationToken ct) =>
+{
+    var tipos = await servicio.ListarAsync(id, ct);
+    return Results.Ok(tipos.Select(TipoLavadoAJson));
+})
+.WithName("ListarTiposLavado")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
+.WithOpenApi();
+
+app.MapPost("/api/lavaderos/{id:guid}/tipos-lavado", async (
+    Guid id,
+    SolicitudTipoLavadoHttp cuerpo,
+    GestionTiposLavadoServicio servicio,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var tipo = await servicio.CrearAsync(
+            id,
+            cuerpo.Nombre ?? string.Empty,
+            cuerpo.DuracionMinutos ?? 0,
+            cuerpo.PrecioTotal ?? 0m,
+            cuerpo.PrecioSena ?? 0m,
+            ct);
+
+        return Results.Created(
+            $"/api/lavaderos/{id}/tipos-lavado/{tipo.Id}", TipoLavadoAJson(tipo));
+    }
+    catch (TipoLavadoDuplicadoException)
+    {
+        return Results.Conflict(new { error = "tipo_ya_existe" });
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+})
+.WithName("CrearTipoLavado")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
+.WithOpenApi();
+
+app.MapPut("/api/lavaderos/{id:guid}/tipos-lavado/{tipoId:guid}", async (
+    Guid id,
+    Guid tipoId,
+    SolicitudTipoLavadoHttp cuerpo,
+    GestionTiposLavadoServicio servicio,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var tipo = await servicio.EditarAsync(
+            id,
+            tipoId,
+            cuerpo.Nombre ?? string.Empty,
+            cuerpo.DuracionMinutos ?? 0,
+            cuerpo.PrecioTotal ?? 0m,
+            cuerpo.PrecioSena ?? 0m,
+            ct);
+
+        return Results.Ok(TipoLavadoAJson(tipo));
+    }
+    catch (TipoLavadoNoEncontradoException)
+    {
+        return Results.NotFound(new { error = "tipo_no_encontrado" });
+    }
+    catch (TipoLavadoDuplicadoException)
+    {
+        return Results.Conflict(new { error = "tipo_ya_existe" });
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+})
+.WithName("EditarTipoLavado")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
+.WithOpenApi();
+
+app.MapPost("/api/lavaderos/{id:guid}/tipos-lavado/{tipoId:guid}/desactivar", async (
+    Guid id,
+    Guid tipoId,
+    GestionTiposLavadoServicio servicio,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var tipo = await servicio.DesactivarAsync(id, tipoId, ct);
+        return Results.Ok(TipoLavadoAJson(tipo));
+    }
+    catch (TipoLavadoNoEncontradoException)
+    {
+        return Results.NotFound(new { error = "tipo_no_encontrado" });
+    }
+    catch (TipoLavadoConTurnosActivosException ex)
+    {
+        return Results.Conflict(
+            new { error = "tipo_con_turnos_activos", detalle = ex.Message });
+    }
+})
+.WithName("DesactivarTipoLavado")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
+.WithOpenApi();
+
+app.MapPost("/api/lavaderos/{id:guid}/tipos-lavado/{tipoId:guid}/activar", async (
+    Guid id,
+    Guid tipoId,
+    GestionTiposLavadoServicio servicio,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var tipo = await servicio.ActivarAsync(id, tipoId, ct);
+        return Results.Ok(TipoLavadoAJson(tipo));
+    }
+    catch (TipoLavadoNoEncontradoException)
+    {
+        return Results.NotFound(new { error = "tipo_no_encontrado" });
+    }
+})
+.WithName("ActivarTipoLavado")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
+.WithOpenApi();
+
 // Agenda del lavadero (CU-06, SPECS/slice-04 T-46). Lista los turnos del día en
 // la hora LOCAL del lavadero (mismo contrato que disponibilidad, §10.6): `fecha`
 // es un día local; `puestoId` y `estado` son filtros opcionales. Sin `fecha` se
@@ -1321,6 +1469,17 @@ static object PuestoAJson(Puesto puesto) => new
     activo = puesto.Activo,
 };
 
+/// <summary>Proyección JSON de un tipo de lavado (slice-13, §5.3).</summary>
+static object TipoLavadoAJson(TipoLavado tipo) => new
+{
+    id = tipo.Id,
+    nombre = tipo.Nombre,
+    duracionMinutos = tipo.DuracionMinutos,
+    precioTotal = tipo.PrecioTotal,
+    precioSena = tipo.PrecioSena,
+    activo = tipo.Activo,
+};
+
 /// <summary>Proyección JSON de un turno de agenda (CU-06, §5.1): hora local.</summary>
 static object TurnoAgendaAJson(TurnoAgenda turno) => new
 {
@@ -1475,6 +1634,13 @@ public sealed record SolicitudReservaHttp(
 
 /// <summary>Cuerpo de la creación de puesto (CU-05).</summary>
 public sealed record SolicitudPuestoHttp(string? Nombre);
+
+/// <summary>Cuerpo del alta y la edición de tipo de lavado (CU-05, slice-13).</summary>
+public sealed record SolicitudTipoLavadoHttp(
+    string? Nombre,
+    int? DuracionMinutos,
+    decimal? PrecioTotal,
+    decimal? PrecioSena);
 
 /// <summary>Cuerpo del login (CU-10); credenciales en claro solo en tránsito.</summary>
 public sealed record SolicitudLoginHttp(string? NombreUsuario, string? Contrasena);

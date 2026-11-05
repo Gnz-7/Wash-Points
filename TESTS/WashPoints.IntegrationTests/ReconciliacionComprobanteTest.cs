@@ -86,7 +86,7 @@ public sealed class ReconciliacionComprobanteTest : IClassFixture<ContenedorPost
         var inicio = new DateTime(2026, 10, 10, 14, 0, 0, DateTimeKind.Utc);
         var turno = Turno.CrearParaReserva(
             lavadero.Id, puesto.Id, cliente.Id, tipo.Id,
-            inicio, inicio.AddMinutes(30), 3000m,
+            inicio, inicio.AddMinutes(30), 3000m, 15000m,
             DateTime.UtcNow.AddMinutes(5), $"clave-{Guid.NewGuid():N}");
         turno.TransicionarA(EstadoTurno.Confirmado);
 

@@ -1,3 +1,4 @@
+using WashPoints.Application.Catalogo;
 using WashPoints.Application.Registro;
 using WashPoints.Domain.Catalogo;
 using WashPoints.Domain.Ocupacion;
@@ -167,9 +168,149 @@ public sealed class RegistroServicioTest
         var unidad = new UnidadDeTrabajoFake();
 
         var servicio = new RegistroServicio(
-            clientes, lavaderos, usuarios, hasheador, emisor, unidad);
+            clientes, lavaderos, usuarios, hasheador, emisor, unidad,
+            new PuestoRepositorioFake(), new TipoLavadoRepositorioFake(),
+            new OpcionesCatalogo());
 
         return (servicio, clientes, lavaderos, usuarios, hasheador, emisor, unidad);
+    }
+
+    /// <summary>
+    /// Variante que expone el catálogo sembrado por el onboarding (T-134) y
+    /// permite inyectar otras opciones de precios.
+    /// </summary>
+    private static (
+        RegistroServicio Servicio,
+        PuestoRepositorioFake Puestos,
+        TipoLavadoRepositorioFake Tipos,
+        UnidadDeTrabajoFake Unidad) CrearConCatalogo(OpcionesCatalogo? opciones = null)
+    {
+        var puestos = new PuestoRepositorioFake();
+        var tipos = new TipoLavadoRepositorioFake();
+        var unidad = new UnidadDeTrabajoFake();
+
+        var servicio = new RegistroServicio(
+            new ClienteRepositorioFake(),
+            new LavaderoRepositorioFake(),
+            new UsuarioRepositorioFake(),
+            new HasheadorFake(),
+            new EmisorTokenFake(),
+            unidad,
+            puestos,
+            tipos,
+            opciones ?? new OpcionesCatalogo());
+
+        return (servicio, puestos, tipos, unidad);
+    }
+
+    [Fact]
+    public async Task ElAltaDelAdministradorSiembraUnPuestoYLosDosTipos()
+    {
+        var (servicio, puestos, tipos, _) = CrearConCatalogo();
+
+        var registro = await servicio.RegistrarAdministradorAsync(Admin());
+
+        var puesto = Assert.Single(puestos.Agregados);
+        Assert.Equal("Puesto 1", puesto.Nombre);
+        Assert.True(puesto.Activo);
+        Assert.Equal(registro.LavaderoId, puesto.LavaderoId);
+
+        Assert.Collection(
+            tipos.Agregados,
+            basico =>
+            {
+                Assert.Equal("Lavado básico", basico.Nombre);
+                Assert.Equal(30, basico.DuracionMinutos);
+                Assert.Equal(8000m, basico.PrecioTotal);
+                Assert.Equal(1500m, basico.PrecioSena);
+                Assert.True(basico.Activo);
+                Assert.Equal(registro.LavaderoId, basico.LavaderoId);
+            },
+            completo =>
+            {
+                Assert.Equal("Lavado completo", completo.Nombre);
+                Assert.Equal(60, completo.DuracionMinutos);
+                Assert.Equal(15000m, completo.PrecioTotal);
+                Assert.Equal(2500m, completo.PrecioSena);
+                Assert.True(completo.Activo);
+                Assert.Equal(registro.LavaderoId, completo.LavaderoId);
+            });
+
+        Assert.Equal(1, tipos.Guardadas);
+    }
+
+    [Fact]
+    public async Task ElOnboardingUsaLosPreciosConfigurados()
+    {
+        var opciones = new OpcionesCatalogo
+        {
+            LavadoBasico = new PrecioTipoLavado { PrecioTotal = 9000m, PrecioSena = 2000m },
+            LavadoCompleto = new PrecioTipoLavado { PrecioTotal = 20000m, PrecioSena = 4000m },
+        };
+        var (servicio, _, tipos, _) = CrearConCatalogo(opciones);
+
+        await servicio.RegistrarAdministradorAsync(Admin());
+
+        Assert.Equal(9000m, tipos.Agregados[0].PrecioTotal);
+        Assert.Equal(2000m, tipos.Agregados[0].PrecioSena);
+        Assert.Equal(20000m, tipos.Agregados[1].PrecioTotal);
+        Assert.Equal(4000m, tipos.Agregados[1].PrecioSena);
+    }
+
+    [Fact]
+    public async Task ElAltaDeUnClienteNoSiembraCatalogo()
+    {
+        var (servicio, puestos, tipos, _) = CrearConCatalogo();
+
+        await servicio.RegistrarClienteAsync(new ClienteNuevo(Nombre, Usuario, Contrasena));
+
+        Assert.Empty(puestos.Agregados);
+        Assert.Empty(tipos.Agregados);
+    }
+
+    private sealed class PuestoRepositorioFake : IPuestoRepositorio
+    {
+        public List<Puesto> Agregados { get; } = new();
+
+        public Task AgregarAsync(Puesto puesto, CancellationToken ct = default)
+        {
+            Agregados.Add(puesto);
+            return Task.CompletedTask;
+        }
+
+        public Task<Puesto?> ObtenerAsync(Guid lavaderoId, Guid puestoId, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<Puesto>> ListarAsync(Guid lavaderoId, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public Task GuardarAsync(CancellationToken ct = default) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class TipoLavadoRepositorioFake : ITipoLavadoRepositorio
+    {
+        public List<TipoLavado> Agregados { get; } = new();
+
+        public int Guardadas { get; private set; }
+
+        public Task AgregarAsync(TipoLavado tipo, CancellationToken ct = default)
+        {
+            Agregados.Add(tipo);
+            return Task.CompletedTask;
+        }
+
+        public Task<TipoLavado?> ObtenerAsync(Guid lavaderoId, Guid tipoId, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<TipoLavado>> ListarAsync(Guid lavaderoId, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public Task GuardarAsync(CancellationToken ct = default)
+        {
+            Guardadas++;
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class ClienteRepositorioFake : IClienteRepositorio

@@ -69,6 +69,7 @@ public sealed class ReservaServicio
             solicitud.InicioUtc,
             finUtc,
             tipo.PrecioSena,
+            tipo.PrecioTotal,
             expiraEn,
             idempotencyKey);
 

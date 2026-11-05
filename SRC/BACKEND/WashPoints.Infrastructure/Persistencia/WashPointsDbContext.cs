@@ -101,6 +101,14 @@ public sealed class WashPointsDbContext : DbContext
             .HasColumnName("precio_sena")
             .HasColumnType("numeric(10,2)");
 
+        // Snapshot del precio total al crear el turno (SPECS/slice-13 D-13.5).
+        // No se lee del catálogo al calcular métricas: si el tipo de lavado
+        // cambia de precio, los turnos ya devengados conservan el suyo.
+        turno.Property(t => t.PrecioTotal)
+            .HasColumnName("precio_total")
+            .HasColumnType("numeric(10,2)")
+            .IsRequired();
+
         turno.Property(t => t.MpPreferenceId)
             .HasColumnName("mp_preference_id")
             .HasMaxLength(128);

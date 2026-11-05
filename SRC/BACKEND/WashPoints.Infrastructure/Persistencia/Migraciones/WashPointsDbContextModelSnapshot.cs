@@ -321,6 +321,10 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
                         .HasColumnType("numeric(10,2)")
                         .HasColumnName("precio_sena");
 
+                    b.Property<decimal>("PrecioTotal")
+                        .HasColumnType("numeric(10,2)")
+                        .HasColumnName("precio_total");
+
                     b.Property<Guid>("PuestoId")
                         .HasColumnType("uuid")
                         .HasColumnName("puesto_id");

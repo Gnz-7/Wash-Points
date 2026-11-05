@@ -70,7 +70,7 @@ public sealed class OcupacionServicioTest : IClassFixture<ContenedorPostgres>, I
             tipoLavadoId: s.TipoLavadoId,
             inicioUtc: inicioUtc,
             finUtc: finUtc,
-            precioSena: 3000m);
+            precioSena: 3000m, precioTotal: 15000m);
 
     [Fact]
     public async Task ReservarBloqueaElIntervalo()

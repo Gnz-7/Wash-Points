@@ -202,7 +202,7 @@ public sealed class MigracionTest : IClassFixture<ContenedorPostgres>, IAsyncLif
             tipoLavadoId: tipo.Id,
             inicioUtc: inicioUtc,
             finUtc: finUtc,
-            precioSena: tipo.PrecioSena);
+            precioSena: tipo.PrecioSena, precioTotal: tipo.PrecioTotal);
 
         contexto.Turnos.Add(turno);
         await contexto.SaveChangesAsync();

@@ -88,7 +88,7 @@ public sealed class CierreAgendaWorkerTest : IClassFixture<ContenedorPostgres>, 
 
         var turno = Turno.Crear(
             lavaderoId, puestoId, Guid.NewGuid(), tipoId,
-            inicioUtc, inicioUtc.AddMinutes(30), precioSena: 3000m);
+            inicioUtc, inicioUtc.AddMinutes(30), precioSena: 3000m, precioTotal: 15000m);
         turno.TransicionarA(EstadoTurno.Confirmado);
 
         if (estado == EstadoTurno.EnCurso)

@@ -88,7 +88,7 @@ public sealed class ComprobanteVigentesRb1Test : IClassFixture<ContenedorPostgre
             var inicioUtc = ConversorHorario.AUtc(inicioLocal);
             var turno = Turno.CrearParaReserva(
                 lavadero.Id, puesto.Id, cliente.Id, tipo.Id,
-                inicioUtc, inicioUtc.AddMinutes(30), 3000m,
+                inicioUtc, inicioUtc.AddMinutes(30), 3000m, 15000m,
                 DateTime.UtcNow.AddMinutes(5), $"clave-{Guid.NewGuid():N}");
 
             if (pasarPorConfirmado)

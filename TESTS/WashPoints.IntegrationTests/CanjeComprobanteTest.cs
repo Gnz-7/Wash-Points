@@ -72,7 +72,7 @@ public sealed class CanjeComprobanteTest : IClassFixture<ContenedorPostgres>, ID
         var inicio = new DateTime(2026, 10, 10, 10, 0, 0, DateTimeKind.Utc);
         var turno = Turno.CrearParaReserva(
             lavadero.Id, puesto.Id, cliente.Id, tipo.Id,
-            inicio, inicio.AddMinutes(30), tipo.PrecioSena,
+            inicio, inicio.AddMinutes(30), tipo.PrecioSena, tipo.PrecioTotal,
             DateTime.UtcNow.AddMinutes(5), $"clave-{Guid.NewGuid():N}");
 
         if (estado != EstadoTurno.PendientePago)

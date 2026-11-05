@@ -89,7 +89,7 @@ public sealed class ComprobanteVigentesTest : IClassFixture<ContenedorPostgres>,
             var inicioUtc = ConversorHorario.AUtc(inicioLocal);
             var turno = Turno.CrearParaReserva(
                 lavaderoId, puestoId, cliente.Id, tipoId,
-                inicioUtc, inicioUtc.AddMinutes(30), 3000m,
+                inicioUtc, inicioUtc.AddMinutes(30), 3000m, 15000m,
                 DateTime.UtcNow.AddMinutes(5), $"clave-{Guid.NewGuid():N}");
             turno.TransicionarA(EstadoTurno.Confirmado);
 

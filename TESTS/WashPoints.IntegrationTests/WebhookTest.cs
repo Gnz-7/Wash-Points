@@ -64,7 +64,7 @@ public sealed class WebhookTest : IClassFixture<ContenedorPostgres>, IDisposable
         var inicio = new DateTime(2026, 10, 10, 10, 0, 0, DateTimeKind.Utc);
         var turno = Turno.CrearParaReserva(
             lavadero.Id, puesto.Id, cliente.Id, tipo.Id,
-            inicio, inicio.AddMinutes(30), tipo.PrecioSena,
+            inicio, inicio.AddMinutes(30), tipo.PrecioSena, tipo.PrecioTotal,
             DateTime.UtcNow.AddMinutes(5), "clave-de-prueba");
 
         contexto.AddRange(lavadero, puesto, tipo, cliente, turno);

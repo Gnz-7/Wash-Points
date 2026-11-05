@@ -65,7 +65,7 @@ public sealed class DemandaEspontaneaTest : IClassFixture<ContenedorPostgres>, I
         var inicioUtc = ConversorHorario.AUtc(DateTime.Parse(inicioLocal));
         var turno = Turno.Crear(
             lavaderoId, puestoId, Guid.NewGuid(), tipoId,
-            inicioUtc, inicioUtc.AddMinutes(30), precioSena: 3000m);
+            inicioUtc, inicioUtc.AddMinutes(30), precioSena: 3000m, precioTotal: 15000m);
         turno.TransicionarA(EstadoTurno.Confirmado);
 
         contexto.Turnos.Add(turno);

@@ -25,6 +25,15 @@ abstract interface class ClienteApi {
     Map<String, dynamic>? cuerpo,
   });
 
+  /// `PUT` con cuerpo JSON que devuelve el objeto JSON de la respuesta.
+  ///
+  /// Lo usa el catálogo para editar un servicio: el recurso completo se
+  /// reemplaza, no se parchea (slice-13, T-135).
+  Future<Map<String, dynamic>> reemplazar(
+    String ruta, {
+    Map<String, dynamic>? cuerpo,
+  });
+
   /// `GET` que devuelve el array JSON de la respuesta.
   ///
   /// Los listados del backend (`puestos`, `agenda`) responden un array desnudo;
@@ -107,6 +116,19 @@ class ClienteHttp implements ClienteApi {
     }
   }
 
+  @override
+  Future<Map<String, dynamic>> reemplazar(
+    String ruta, {
+    Map<String, dynamic>? cuerpo,
+  }) async {
+    try {
+      final respuesta = await _dio.put<dynamic>(ruta, data: cuerpo);
+      return _comoMapa(respuesta.data);
+    } on DioException catch (error) {
+      throw _traducir(error);
+    }
+  }
+
   static Map<String, dynamic> _comoMapa(dynamic datos) {
     if (datos is Map<String, dynamic>) {
       return datos;
@@ -131,20 +153,14 @@ class ClienteHttp implements ClienteApi {
         return const ApiException(CodigoError.sinConexion);
       case DioExceptionType.badResponse:
         final cuerpo = error.response?.data;
-        final codigo = cuerpo is Map<String, dynamic> ? cuerpo['error'] : null;
-        final estado = error.response?.statusCode;
 
-        if (codigo is String) {
-          return ApiException(CodigoError.desdeCodigo(codigo), estado: estado);
-        }
-
-        // Un 403 de autorización no trae cuerpo: el backend lo emite desde la
-        // política, no desde el handler (CA-S9.11).
-        if (estado == 403) {
-          return ApiException(CodigoError.noAutorizado, estado: estado);
-        }
-
-        return ApiException(CodigoError.desconocido, estado: estado);
+        // El cuerpo de error lo interpreta `ApiException.desdeCuerpo`: mapea
+        // códigos estables, conserva el `detalle` de los conflictos y el texto
+        // de validación de un 400 (CA-13.8).
+        return ApiException.desdeCuerpo(
+          cuerpo is Map<String, dynamic> ? cuerpo : const <String, dynamic>{},
+          estado: error.response?.statusCode,
+        );
       case DioExceptionType.cancel:
       case DioExceptionType.badCertificate:
       case DioExceptionType.unknown:

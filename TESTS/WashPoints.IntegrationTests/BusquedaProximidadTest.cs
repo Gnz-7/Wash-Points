@@ -145,7 +145,7 @@ public sealed class BusquedaProximidadTest : IClassFixture<ContenedorPostgres>, 
         var ahora = DateTime.UtcNow;
         var turno = Turno.Crear(
             sembrado.LavaderoId, puestoId, Guid.NewGuid(), sembrado.TipoId,
-            ahora.AddMinutes(-10), ahora.AddMinutes(20), precioSena: 3000m);
+            ahora.AddMinutes(-10), ahora.AddMinutes(20), precioSena: 3000m, precioTotal: 15000m);
 
         turno.TransicionarA(EstadoTurno.Confirmado);
 

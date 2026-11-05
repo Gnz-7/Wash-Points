@@ -61,6 +61,7 @@ public sealed class Turno
         Guid tipoLavadoId,
         RangoTurno rango,
         decimal precioSena,
+        decimal precioTotal,
         OrigenTurno origen)
     {
         Id = id;
@@ -70,6 +71,7 @@ public sealed class Turno
         TipoLavadoId = tipoLavadoId;
         Rango = rango;
         PrecioSena = precioSena;
+        PrecioTotal = precioTotal;
         Origen = origen;
         Estado = EstadoTurno.PendientePago;
         CreadoEn = DateTime.UtcNow;
@@ -96,6 +98,14 @@ public sealed class Turno
     public EstadoTurno Estado { get; private set; }
     public OrigenTurno Origen { get; private set; }
     public decimal PrecioSena { get; private set; }
+
+    /// <summary>
+    /// Precio total del servicio, congelado al momento de crear el turno
+    /// (SPECS/slice-13 D-13.5). Es un snapshot, no una referencia viva al
+    /// catálogo: editar el precio del tipo de lavado no reescribe la historia
+    /// ni las métricas de ingresos ya devengados.
+    /// </summary>
+    public decimal PrecioTotal { get; private set; }
 
     public string? MpPreferenceId { get; private set; }
     public DateTime CreadoEn { get; private set; }
@@ -133,6 +143,7 @@ public sealed class Turno
         DateTime inicioUtc,
         DateTime finUtc,
         decimal precioSena,
+        decimal precioTotal,
         OrigenTurno origen = OrigenTurno.App)
     {
         if (precioSena < 0)
@@ -142,10 +153,17 @@ public sealed class Turno
                 nameof(precioSena));
         }
 
+        if (precioTotal < 0)
+        {
+            throw new ArgumentException(
+                "El precio total no puede ser negativo.",
+                nameof(precioTotal));
+        }
+
         // RangoTurno valida UTC y orden de los extremos, con un mensaje propio.
         return new Turno(
             Guid.NewGuid(), lavaderoId, puestoId, clienteId, tipoLavadoId,
-            new RangoTurno(inicioUtc, finUtc), precioSena, origen);
+            new RangoTurno(inicioUtc, finUtc), precioSena, precioTotal, origen);
     }
 
     /// <summary>
@@ -162,13 +180,15 @@ public sealed class Turno
         DateTime inicioUtc,
         DateTime finUtc,
         decimal precioSena,
+        decimal precioTotal,
         DateTime expiraEnUtc,
         string idempotencyKey)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(idempotencyKey);
 
         var turno = Crear(
-            lavaderoId, puestoId, clienteId, tipoLavadoId, inicioUtc, finUtc, precioSena);
+            lavaderoId, puestoId, clienteId, tipoLavadoId, inicioUtc, finUtc,
+            precioSena, precioTotal);
         turno.ExpiraEn = expiraEnUtc;
         turno.IdempotencyKey = idempotencyKey;
         return turno;
@@ -186,11 +206,12 @@ public sealed class Turno
         Guid clienteId,
         Guid tipoLavadoId,
         DateTime inicioUtc,
-        DateTime finUtc)
+        DateTime finUtc,
+        decimal precioTotal)
     {
         var turno = Crear(
             lavaderoId, puestoId, clienteId, tipoLavadoId, inicioUtc, finUtc,
-            precioSena: 0m, origen: OrigenTurno.Espontanea);
+            precioSena: 0m, precioTotal: precioTotal, origen: OrigenTurno.Espontanea);
 
         // El estado inicial lo fija la fábrica (no TransicionarA, que es la vía
         // de los cambios posteriores). Sin ConfirmadoEn: nunca hubo pago.

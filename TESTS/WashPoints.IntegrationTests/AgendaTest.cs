@@ -96,7 +96,7 @@ public sealed class AgendaTest : IClassFixture<ContenedorPostgres>, IDisposable
         var inicioUtc = ConversorHorario.AUtc(DateTime.Parse(inicioLocal));
         var turno = Turno.Crear(
             lavaderoId, puestoId, Guid.NewGuid(), tipoId,
-            inicioUtc, inicioUtc.AddMinutes(30), precioSena: 3000m);
+            inicioUtc, inicioUtc.AddMinutes(30), precioSena: 3000m, precioTotal: 15000m);
 
         if (estado is EstadoTurno.Confirmado or EstadoTurno.EnCurso)
         {

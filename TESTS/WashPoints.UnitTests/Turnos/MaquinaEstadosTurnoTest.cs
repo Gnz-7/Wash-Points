@@ -67,7 +67,7 @@ public sealed class MaquinaEstadosTurnoTest
             tipoLavadoId: Guid.NewGuid(),
             inicioUtc: new DateTime(2026, 10, 10, 13, 0, 0, DateTimeKind.Utc),
             finUtc: new DateTime(2026, 10, 10, 14, 0, 0, DateTimeKind.Utc),
-            precioSena: 1000m);
+            precioSena: 1000m, precioTotal: 15000m);
 
         Assert.Equal(EstadoTurno.PendientePago, turno.Estado);
     }
@@ -167,7 +167,7 @@ public sealed class MaquinaEstadosTurnoTest
         var ahora = new DateTime(2026, 10, 10, 13, 0, 0, DateTimeKind.Utc);
         var turno = Turno.Crear(
             Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(),
-            ahora, ahora.AddHours(1), precioSena: 1000m);
+            ahora, ahora.AddHours(1), precioSena: 1000m, precioTotal: 15000m);
         turno.FijarVencimiento(ahora.AddMinutes(5));
 
         Assert.True(turno.BloqueaPuestoAhora(ahora));
@@ -184,7 +184,7 @@ public sealed class MaquinaEstadosTurnoTest
             tipoLavadoId: Guid.NewGuid(),
             inicioUtc: new DateTime(2026, 10, 10, 13, 0, 0, DateTimeKind.Utc),
             finUtc: new DateTime(2026, 10, 10, 14, 0, 0, DateTimeKind.Utc),
-            precioSena: 1000m);
+            precioSena: 1000m, precioTotal: 15000m);
 
         foreach (var paso in CaminoHasta(destino))
         {

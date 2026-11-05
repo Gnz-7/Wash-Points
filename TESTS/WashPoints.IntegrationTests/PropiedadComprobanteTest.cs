@@ -68,6 +68,7 @@ public sealed class PropiedadComprobanteTest : IClassFixture<ContenedorPostgres>
             inicio,
             inicio.AddMinutes(30),
             tipo.PrecioSena,
+            tipo.PrecioTotal,
             DateTime.UtcNow.AddMinutes(5),
             $"clave-{Guid.NewGuid():N}");
 

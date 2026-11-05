@@ -106,6 +106,7 @@ public sealed class EntregaComprobantePropiedadTest
             inicio,
             inicio.AddMinutes(30),
             3000m,
+            15000m,
             DateTime.UtcNow.AddMinutes(5),
             "clave-de-prueba");
 
@@ -135,6 +136,7 @@ public sealed class EntregaComprobantePropiedadTest
         public Task<Turno?> ObtenerPorIdempotencyKeyAsync(string idempotencyKey, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<Turno>> ListarDelDiaAsync(Guid lavaderoId, DateTime desdeUtc, DateTime hastaUtc, CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> TieneTurnosVigentesAsync(Guid lavaderoId, Guid puestoId, DateTime ahoraUtc, CancellationToken ct) => throw new NotSupportedException();
+        public Task<bool> TieneTurnosVigentesDelTipoAsync(Guid lavaderoId, Guid tipoLavadoId, DateTime ahoraUtc, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<Turno>> ListarConfirmadosVencidosAsync(DateTime limiteUtc, CancellationToken ct) => throw new NotSupportedException();
         public Task GuardarAsync(CancellationToken ct) => throw new NotSupportedException();
     }

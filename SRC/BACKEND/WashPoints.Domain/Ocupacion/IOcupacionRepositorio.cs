@@ -45,6 +45,19 @@ public interface IOcupacionRepositorio
         CancellationToken ct);
 
     /// <summary>
+    /// ¿Hay algún turno vigente del tipo de lavado a partir de <paramref name="ahoraUtc"/>?
+    /// Aplica el predicado formal de D-13.4: estado no terminal
+    /// (<c>pendiente_pago</c>, <c>confirmado</c> o <c>en_curso</c>) y
+    /// <c>upper(rango) &gt;= ahoraLocal</c>. Es el insumo para no desactivar un
+    /// tipo de lavado con turnos vigentes (SPECS/slice-13 T-131).
+    /// </summary>
+    Task<bool> TieneTurnosVigentesDelTipoAsync(
+        Guid lavaderoId,
+        Guid tipoLavadoId,
+        DateTime ahoraUtc,
+        CancellationToken ct);
+
+    /// <summary>
     /// Turnos <c>confirmado</c> cuyo inicio ya cayó dentro de la ventana vencida
     /// (<c>lower(rango) &lt;= limiteLocal</c>). El llamador pasa
     /// <c>limiteUtc = ahora - ventana</c>. Insumo del worker de no_presentado.

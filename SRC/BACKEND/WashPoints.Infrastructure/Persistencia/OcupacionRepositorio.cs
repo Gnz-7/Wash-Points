@@ -29,7 +29,7 @@ public sealed class OcupacionRepositorio : IOcupacionRepositorio
 
     private const string SqlTurnosDelDia = """
         SELECT id, lavadero_id, puesto_id, cliente_id, tipo_lavado_id,
-               rango, estado, origen, precio_sena, mp_preference_id,
+               rango, estado, origen, precio_sena, precio_total, mp_preference_id,
                expira_en, idempotency_key, creado_en, confirmado_en, cerrado_en
         FROM turnos
         WHERE lavadero_id = {0}
@@ -40,7 +40,7 @@ public sealed class OcupacionRepositorio : IOcupacionRepositorio
 
     private const string SqlTieneTurnosVigentes = """
         SELECT id, lavadero_id, puesto_id, cliente_id, tipo_lavado_id,
-               rango, estado, origen, precio_sena, mp_preference_id,
+               rango, estado, origen, precio_sena, precio_total, mp_preference_id,
                expira_en, idempotency_key, creado_en, confirmado_en, cerrado_en
         FROM turnos
         WHERE lavadero_id = {0}
@@ -52,9 +52,24 @@ public sealed class OcupacionRepositorio : IOcupacionRepositorio
           AND upper(rango) > @ahoraLocal
         """;
 
+    /// <summary>
+    /// Predicado formal de D-13.4: no terminal (pendiente_pago, confirmado,
+    /// en_curso) y todavía no terminado (upper(rango) &gt;= ahora).
+    /// </summary>
+    private const string SqlTieneTurnosVigentesDelTipo = """
+        SELECT id, lavadero_id, puesto_id, cliente_id, tipo_lavado_id,
+               rango, estado, origen, precio_sena, precio_total, mp_preference_id,
+               expira_en, idempotency_key, creado_en, confirmado_en, cerrado_en
+        FROM turnos
+        WHERE lavadero_id = {0}
+          AND tipo_lavado_id = {1}
+          AND estado IN ('pendiente_pago', 'confirmado', 'en_curso')
+          AND upper(rango) >= @ahoraLocal
+        """;
+
     private const string SqlConfirmadosVencidos = """
         SELECT id, lavadero_id, puesto_id, cliente_id, tipo_lavado_id,
-               rango, estado, origen, precio_sena, mp_preference_id,
+               rango, estado, origen, precio_sena, precio_total, mp_preference_id,
                expira_en, idempotency_key, creado_en, confirmado_en, cerrado_en
         FROM turnos
         WHERE estado = 'confirmado'
@@ -121,6 +136,25 @@ public sealed class OcupacionRepositorio : IOcupacionRepositorio
 
         return await _contexto.Turnos
             .FromSqlRaw(SqlTieneTurnosVigentes, lavaderoId, puestoId, ahoraLocal, ahoraUtcParam)
+            .AsNoTracking()
+            .AnyAsync(ct);
+    }
+
+    public async Task<bool> TieneTurnosVigentesDelTipoAsync(
+        Guid lavaderoId,
+        Guid tipoLavadoId,
+        DateTime ahoraUtc,
+        CancellationToken ct)
+    {
+        // `rango` es tsrange en hora local (ARCHITECTURE §10.6): del `ahoraUtc`
+        // se deriva el parámetro local que compara `upper(rango)`.
+        var ahoraLocal = new NpgsqlParameter("ahoraLocal", NpgsqlDbType.Timestamp)
+        {
+            Value = ConversorHorario.ALocal(ahoraUtc),
+        };
+
+        return await _contexto.Turnos
+            .FromSqlRaw(SqlTieneTurnosVigentesDelTipo, lavaderoId, tipoLavadoId, ahoraLocal)
             .AsNoTracking()
             .AnyAsync(ct);
     }

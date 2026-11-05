@@ -22,7 +22,7 @@ public sealed class ConsultaAgenda : IConsultaAgenda
 {
     private const string SqlBase = """
         SELECT id, lavadero_id, puesto_id, cliente_id, tipo_lavado_id,
-               rango, estado, origen, precio_sena, mp_preference_id,
+               rango, estado, origen, precio_sena, precio_total, mp_preference_id,
                expira_en, idempotency_key, creado_en, confirmado_en, cerrado_en
         FROM turnos
         WHERE lavadero_id = {0}

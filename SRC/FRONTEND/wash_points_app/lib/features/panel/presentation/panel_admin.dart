@@ -4,20 +4,28 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/sesion/sesion_provider.dart';
 
-/// Shell del panel de administración (slice-10, D-10.1).
+/// Shell del panel de administración (slice-10, D-10.1; ampliado en slice-13
+/// con la rama de catálogo).
 ///
-/// Las cuatro ramas viven en un `StatefulShellRoute.indexedStack`: al alternar
+/// Las cinco ramas viven en un `StatefulShellRoute.indexedStack`: al alternar
 /// de pestaña se conserva el estado de cada una (fecha y filtros de la agenda,
-/// formulario de puestos, último comprobante validado). El `Scaffold` es único:
-/// barra de título con la sección actual y acción de cerrar sesión, cuerpo con
-/// la rama activa y `NavigationBar` con los cuatro destinos.
+/// formulario de puestos, borrador del catálogo, último comprobante validado).
+/// El `Scaffold` es único: barra de título con la sección actual y acción de
+/// cerrar sesión, cuerpo con la rama activa y `NavigationBar` con los cinco
+/// destinos.
 class PanelAdmin extends ConsumerWidget {
   const PanelAdmin({required this.navegacion, super.key});
 
   /// Rama activa del shell; la provee `go_router`.
   final StatefulNavigationShell navegacion;
 
-  static const _titulos = <String>['Agenda', 'Puestos', 'Validar', 'Métricas'];
+  static const _titulos = <String>[
+    'Agenda',
+    'Puestos',
+    'Catálogo',
+    'Validar',
+    'Métricas',
+  ];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -59,6 +67,12 @@ class PanelAdmin extends ConsumerWidget {
               icon: Icon(Icons.local_car_wash_outlined),
               selectedIcon: Icon(Icons.local_car_wash),
               label: 'Puestos',
+            ),
+            NavigationDestination(
+              key: ValueKey('pestana_catalogo'),
+              icon: Icon(Icons.room_service_outlined),
+              selectedIcon: Icon(Icons.room_service),
+              label: 'Catálogo',
             ),
             NavigationDestination(
               key: ValueKey('pestana_validar'),

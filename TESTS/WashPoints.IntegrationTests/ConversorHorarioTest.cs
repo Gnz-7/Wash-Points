@@ -68,7 +68,7 @@ public sealed class ConversorHorarioTest : IClassFixture<ContenedorPostgres>, ID
             tipoLavadoId: s.TipoLavadoId,
             inicioUtc: new DateTime(2026, 10, 10, 13, 0, 0, DateTimeKind.Utc),
             finUtc: new DateTime(2026, 10, 10, 14, 0, 0, DateTimeKind.Utc),
-            precioSena: 3000m);
+            precioSena: 3000m, precioTotal: 15000m);
 
         await using (var contexto = CrearContexto())
         {
@@ -101,7 +101,7 @@ public sealed class ConversorHorarioTest : IClassFixture<ContenedorPostgres>, ID
             tipoLavadoId: s.TipoLavadoId,
             inicioUtc: new DateTime(2026, 10, 10, 13, 0, 0, DateTimeKind.Utc),
             finUtc: new DateTime(2026, 10, 10, 14, 0, 0, DateTimeKind.Utc),
-            precioSena: 3000m);
+            precioSena: 3000m, precioTotal: 15000m);
         turno.TransicionarA(EstadoTurno.Confirmado);
 
         await using (var contexto = CrearContexto())

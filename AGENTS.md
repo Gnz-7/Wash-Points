@@ -276,10 +276,10 @@ opencode run --standalone --print-logs "ok" 2>&1 | Select-String -Pattern 'loadi
 
 ### 5.5 Comandos de verificación (T-08)
 
-| Comando | Propósito | Salida verificada (última corrida, 2026-11-03) |
+| Comando | Propósito | Salida verificada (última corrida, 2026-11-05) |
 |---------|-----------|------------------------------|
 | `dotnet build SRC\BACKEND\WashPoints.sln` | Compilación de la solución | 0 errores, 0 warnings (SDK 8.0.425) |
-| `dotnet test SRC\BACKEND\WashPoints.sln` | Suite completa (unit + integración) | 125 unit + 163 integración = **288/288 superados** |
+| `dotnet test SRC\BACKEND\WashPoints.sln` | Suite completa (unit + integración) | 158 unit + 174 integración = **332/332 superados** |
 
 Notas:
 - Ejecutar `dotnet test` siempre desde la raíz del repo contra `SRC\BACKEND\WashPoints.sln` (➜ evita MSB1003). Pasar el `.csproj` del proyecto de integración es válido para acotar.
@@ -287,6 +287,7 @@ Notas:
 - No existe aún un analizador de código estático (rol `qa`/`devops`, condiciona lint/typecheck). El build con warnings `StrictMode`/`TreatWarningsAsErrors` no está activado; la verificación de calidad actual es la suite de tests.
 - La clave AES de comprobantes **no está en el repositorio** (T-124). `Comprobantes:ClaveCifrado` se carga por User Secrets con `dotnet user-secrets set "Comprobantes:ClaveCifrado" "<base64>" --project SRC\BACKEND\WashPoints.Api`, o por la variable de entorno `Comprobantes__ClaveCifrado` en despliegue. Sin clave la emisión de comprobantes falla de forma explícita, nunca degradada (RB-1), y la suite lo cubre.
 - **Docker y configuración horneada.** Los `appsettings*.json` se copian a la imagen durante `dotnet publish`, así que `docker compose up -d api` **no** los actualiza. Cualquier cambio en `appsettings.json` o `appsettings.Development.json` exige `docker compose build api` antes de levantar el contenedor; si no, la API sigue corriendo con la configuración anterior. Le pasó a `Pagos:IntervaloWorkerSegundos`: quedó en el default de 30 s hasta reconstruir la imagen, y el smoke test del hub lo midió (24 884 ms de latencia contra 279 ms después del rebuild).
+- **Onboarding del lavadero (slice-13).** El alta siembra «Puesto 1» y dos tipos de lavado (`Lavado básico` 30 min, `Lavado completo` 60 min) en la misma transacción del registro, leyendo `Catalogo:PreciosPorDefecto`. Si la sección falta, se usan los valores por defecto y se emite un warning al arrancar; los importes sembrados son de ejemplo y el panel muestra un aviso hasta que se editen. El precio y la duración del turno se congelan al reservar (`turnos.precio_total`), así que editar el catálogo no reescribe los ingresos históricos.
 
 ### 5.6 Comandos de verificación del frontend (slice-09)
 
@@ -296,7 +297,7 @@ Proyecto Flutter único en `SRC/FRONTEND/wash_points_app` (Flutter 3.41.9 / Dart
 |---------|-----------|---------------------------|
 | `flutter pub get` | Resolución de dependencias | `Got dependencies!` (116 paquetes en `pubspec.lock`) |
 | `flutter analyze` | Lint + typecheck (`strict-casts`, `strict-inference`, `strict-raw-types` en `analysis_options.yaml`) | `No issues found!` |
-| `flutter test` | Suite de tests (318) | `02:37 +318: All tests passed!` |
+| `flutter test` | Suite de tests (352) | `02:41 +352: All tests passed!` |
 | `maestro test e2e/smoke_test.yaml` | Flujo de humo E2E (T-91b) | Requiere Maestro instalado y un build de debug |
 | `maestro test e2e/panel_admin_offline.yaml` | Canje offline y reconciliación (T-114) | Redactado y diferido (T-114b): requiere dispositivo, credenciales reales y alternar el modo avión a mano |
 
@@ -305,6 +306,8 @@ Notas:
 - Los comandos de backend (§5.5) y los de frontend son independientes: la suite .NET no compila el proyecto Flutter ni al revés.
 - `riverpod_lint`/`custom_lint` están como `dev_dependencies`; sus reglas no corren en `flutter analyze` (se ejecutan con `dart run custom_lint` cuando se habilite el plugin del analyzer).
 - Slice-12 (tiempo real): los tests usan `CanalTiempoRealFalso` (`test/soporte/canal_tiempo_real_falso.dart`) y nunca abren un socket. Toda pantalla que monte `TiempoRealNotifier` debe overridear `canalTiempoRealProvider` con la fábrica del doble y `esperaReconexionProvider` con `Duration.zero`; sin eso el reintento real deja un `Timer` pendiente y el test falla. La reconexión con espera cero necesita `tester.runAsync` porque `StreamSubscription.cancel()` no se resuelve con el reloj falso.
+- Slice-13 (catálogo de tipos de lavado): `lib/app/tema.dart` define `filledButtonTheme` con `minimumSize: Size.fromHeight(48)`, o sea `minWidth` **infinito**. Un `FilledButton` dentro de un `Row` recibe ancho infinito y revienta con `BoxConstraints forces an infinite width` en cada frame; el error se repite 6000+ veces y cuelga `pumpAndSettle` (le pasó a `pantalla_catalogo.dart` y rompía `panel_admin_test.dart`). Regla: los `FilledButton` van como hijo directo de un `Column(stretch)` o dentro de un `Align`, nunca sueltos en un `Row`.
+- Slice-13 (viewport de tests): los widgets se montan en un viewport de 800×600. Si el header de una pantalla (título + banners + formulario) ocupa casi todo el alto, el `ListView` no construye la primera tarjeta o su botón queda con el centro fuera del root y `tester.tap` falla con «off-screen». Mantener el header compacto o no agregar banners permanentes sin recortar espacio.
 
 #### 5.6.1 Dependencias de runtime del slice-11
 

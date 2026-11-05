@@ -11,6 +11,7 @@ import '../features/busqueda/presentation/pantalla_busqueda.dart';
 import '../features/comprobante/presentation/pantalla_comprobante.dart';
 import '../features/disponibilidad/presentation/pantalla_disponibilidad.dart';
 import '../features/panel/presentation/agenda/pantalla_agenda.dart';
+import '../features/panel/presentation/catalogo/pantalla_catalogo.dart';
 import '../features/panel/presentation/metricas/pantalla_metricas.dart';
 import '../features/panel/presentation/panel_admin.dart';
 import '../features/panel/presentation/puestos/pantalla_puestos.dart';
@@ -104,6 +105,15 @@ final routerProvider = Provider<GoRouter>((ref) {
                 path: '/admin/puestos',
                 name: 'adminPuestos',
                 builder: (context, state) => const PantallaPuestos(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: <RouteBase>[
+              GoRoute(
+                path: '/admin/catalogo',
+                name: 'adminCatalogo',
+                builder: (context, state) => const PantallaCatalogo(),
               ),
             ],
           ),

@@ -67,7 +67,7 @@ public sealed class CatalogoYTurnoTest : IClassFixture<ContenedorPostgres>, IDis
             tipo.Id,
             new DateTime(2026, 10, 10, 13, 0, 0, DateTimeKind.Utc),
             new DateTime(2026, 10, 10, 14, 0, 0, DateTimeKind.Utc),
-            precioSena: 3000m);
+            precioSena: 3000m, precioTotal: 15000m);
 
         contexto.AddRange(lavadero, puesto, tipo, cliente, turno);
         await contexto.SaveChangesAsync();

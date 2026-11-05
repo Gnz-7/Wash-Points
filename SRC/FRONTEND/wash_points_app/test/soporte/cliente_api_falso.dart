@@ -14,6 +14,8 @@ class ClienteApiFalso implements ClienteApi {
     this.errorGet,
     this.respuestaListaGet = const <dynamic>[],
     this.errorListaGet,
+    this.respuestaPut = const <String, dynamic>{},
+    this.errorPut,
   });
 
   final Map<String, dynamic> respuesta;
@@ -22,8 +24,13 @@ class ClienteApiFalso implements ClienteApi {
   final Object? errorGet;
   final List<dynamic> respuestaListaGet;
   final Object? errorListaGet;
+  final Map<String, dynamic> respuestaPut;
+  final Object? errorPut;
 
   final List<({String ruta, Map<String, dynamic>? cuerpo})> llamadas =
+      <({String ruta, Map<String, dynamic>? cuerpo})>[];
+
+  final List<({String ruta, Map<String, dynamic>? cuerpo})> llamadasPut =
       <({String ruta, Map<String, dynamic>? cuerpo})>[];
 
   final List<({String ruta, Map<String, dynamic>? parametros})> llamadasGet =
@@ -73,5 +80,19 @@ class ClienteApiFalso implements ClienteApi {
     }
 
     return respuesta;
+  }
+
+  @override
+  Future<Map<String, dynamic>> reemplazar(
+    String ruta, {
+    Map<String, dynamic>? cuerpo,
+  }) async {
+    llamadasPut.add((ruta: ruta, cuerpo: cuerpo));
+
+    if (errorPut != null) {
+      throw errorPut!;
+    }
+
+    return respuestaPut;
   }
 }

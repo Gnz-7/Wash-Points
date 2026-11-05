@@ -89,7 +89,7 @@ public sealed class OutboxTransaccionalTest : IClassFixture<ContenedorPostgres>,
         var cliente = Cliente.Crear("Cliente Outbox");
         var turno = Turno.CrearParaReserva(
             lavaderoId, puestoId, cliente.Id, tipoId,
-            inicio, inicio.AddMinutes(30), precioSena: 3000m,
+            inicio, inicio.AddMinutes(30), precioSena: 3000m, precioTotal: 15000m,
             expiraEnUtc: expiraEnUtc, idempotencyKey: Guid.NewGuid().ToString("N"));
 
         contexto.AddRange(cliente, turno);
@@ -108,7 +108,7 @@ public sealed class OutboxTransaccionalTest : IClassFixture<ContenedorPostgres>,
         var cliente = Cliente.Crear("Cliente Outbox");
         var turno = Turno.CrearParaReserva(
             lavaderoId, puestoId, cliente.Id, tipoId,
-            inicio, inicio.AddMinutes(30), precioSena: 3000m,
+            inicio, inicio.AddMinutes(30), precioSena: 3000m, precioTotal: 15000m,
             expiraEnUtc: DateTime.UtcNow.AddMinutes(5),
             idempotencyKey: Guid.NewGuid().ToString("N"));
         turno.TransicionarA(EstadoTurno.Confirmado);

@@ -6,6 +6,7 @@ import 'package:wash_points_app/app/router.dart';
 import 'package:wash_points_app/core/sesion/sesion.dart';
 import 'package:wash_points_app/core/sesion/sesion_provider.dart';
 import 'package:wash_points_app/features/panel/presentation/agenda/agenda_notifier.dart';
+import 'package:wash_points_app/features/panel/presentation/catalogo/catalogo_notifier.dart';
 import 'package:wash_points_app/features/panel/presentation/metricas/metricas_notifier.dart';
 import 'package:wash_points_app/features/panel/presentation/puestos/puestos_notifier.dart';
 
@@ -13,6 +14,7 @@ import '../../soporte/almacen_sesion_falso.dart';
 import '../../soporte/repositorio_agenda_falso.dart';
 import 'package:wash_points_app/features/panel/presentation/validar/validar_notifier.dart';
 import '../../soporte/almacen_offline_memoria.dart';
+import '../../soporte/repositorio_catalogo_falso.dart';
 import '../../soporte/repositorio_metricas_falso.dart';
 import '../../soporte/repositorio_validacion_falso.dart';
 import '../../soporte/repositorio_puestos_falso.dart';
@@ -64,6 +66,9 @@ void main() {
           (ref) async => AlmacenOfflineMemoria(),
         ),
         repositorioPuestosProvider.overrideWithValue(RepositorioPuestosFalso()),
+        repositorioCatalogoProvider.overrideWithValue(
+          RepositorioCatalogoFalso(),
+        ),
         // El canal de tiempo real también sale a la red: sin este doble el
         // notifier reintenta con timers reales y el test queda con un Timer
         // pendiente (T-122).
@@ -94,11 +99,12 @@ void main() {
     expect(find.byKey(const ValueKey('pantalla_agenda')), findsOneWidget);
   });
 
-  testWidgets('el panel muestra las cuatro pestañas', (tester) async {
+  testWidgets('el panel muestra las cinco pestañas', (tester) async {
     await arrancar(tester, sesionAdministrador());
 
     expect(find.byKey(const ValueKey('pestana_agenda')), findsOneWidget);
     expect(find.byKey(const ValueKey('pestana_puestos')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pestana_catalogo')), findsOneWidget);
     expect(find.byKey(const ValueKey('pestana_validar')), findsOneWidget);
     expect(find.byKey(const ValueKey('pestana_metricas')), findsOneWidget);
   });
@@ -109,6 +115,10 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('pestana_puestos')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('pantalla_puestos')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('pestana_catalogo')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('pantalla_catalogo')), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('pestana_validar')));
     await tester.pumpAndSettle();

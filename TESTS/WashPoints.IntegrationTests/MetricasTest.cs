@@ -124,10 +124,10 @@ public sealed class MetricasTest : IClassFixture<ContenedorPostgres>, IDisposabl
 
         var turno = espontaneo
             ? Turno.CrearEspontaneo(
-                catalogo.LavaderoId, puestoId, Guid.NewGuid(), catalogo.TipoId, inicioUtc, finUtc)
+                catalogo.LavaderoId, puestoId, Guid.NewGuid(), catalogo.TipoId, inicioUtc, finUtc, 15000m)
             : Turno.Crear(
                 catalogo.LavaderoId, puestoId, Guid.NewGuid(), catalogo.TipoId,
-                inicioUtc, finUtc, precioSena);
+                inicioUtc, finUtc, precioSena, 15000m);
 
         LlevarAEstado(turno, estado);
 
@@ -147,7 +147,7 @@ public sealed class MetricasTest : IClassFixture<ContenedorPostgres>, IDisposabl
         var ahora = DateTime.UtcNow;
         var turno = Turno.Crear(
             catalogo.LavaderoId, puestoId, Guid.NewGuid(), catalogo.TipoId,
-            ahora.AddMinutes(-10), ahora.AddMinutes(20), precioSena: 3000m);
+            ahora.AddMinutes(-10), ahora.AddMinutes(20), precioSena: 3000m, precioTotal: 15000m);
 
         turno.TransicionarA(EstadoTurno.Confirmado);
 
@@ -415,7 +415,7 @@ public sealed class MetricasTest : IClassFixture<ContenedorPostgres>, IDisposabl
         {
             var turno = Turno.Crear(
                 catalogo.LavaderoId, catalogo.Puestos[0], Guid.NewGuid(), catalogo.TipoId,
-                inicioUtc, inicioUtc.AddMinutes(30), precioSena: 3000m);
+                inicioUtc, inicioUtc.AddMinutes(30), precioSena: 3000m, precioTotal: 15000m);
             turno.TransicionarA(EstadoTurno.Confirmado);
             contexto.Turnos.Add(turno);
             await contexto.SaveChangesAsync();

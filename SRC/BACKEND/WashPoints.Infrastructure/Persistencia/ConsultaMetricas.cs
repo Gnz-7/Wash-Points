@@ -36,17 +36,15 @@ public sealed class ConsultaMetricas : IMetricasConsulta
                     AND pg.procesado_en >= @desdeUtc
                     AND pg.procesado_en < @hastaUtc), 0)::numeric AS senas_cobradas,
             COALESCE(
-                (SELECT sum(tl.precio_total)
+                (SELECT sum(t.precio_total)
                    FROM turnos t
-                   JOIN tipos_lavado tl ON tl.id = t.tipo_lavado_id
                   WHERE t.lavadero_id = @lavaderoId
                     AND t.estado IN ('finalizado', 'en_curso')
                     AND lower(t.rango) >= @desdeLocal
                     AND lower(t.rango) < @hastaLocal), 0)::numeric AS facturado_total,
             COALESCE(
-                (SELECT sum(tl.precio_total)
+                (SELECT sum(t.precio_total)
                    FROM turnos t
-                   JOIN tipos_lavado tl ON tl.id = t.tipo_lavado_id
                   WHERE t.lavadero_id = @lavaderoId
                     AND t.estado IN ('finalizado', 'en_curso')
                     AND t.origen = 'espontanea'

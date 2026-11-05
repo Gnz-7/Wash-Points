@@ -76,7 +76,7 @@ public sealed class EndpointDisponibilidadTest : IClassFixture<ContenedorPostgre
             lavadero.Id, puesto.Id, cliente.Id, tipo.Id,
             new DateTime(2026, 10, 10, 15, 0, 0, DateTimeKind.Utc),
             new DateTime(2026, 10, 10, 16, 0, 0, DateTimeKind.Utc),
-            precioSena: 3000m);
+            precioSena: 3000m, precioTotal: 15000m);
         pendienteVigente.FijarVencimiento(DateTime.UtcNow.AddMinutes(5));
 
         // Pendiente VENCIDO: ya no bloquea => no debe aparecer (el worker lo
@@ -85,7 +85,7 @@ public sealed class EndpointDisponibilidadTest : IClassFixture<ContenedorPostgre
             lavadero.Id, puesto.Id, cliente.Id, tipo.Id,
             new DateTime(2026, 10, 10, 16, 0, 0, DateTimeKind.Utc),
             new DateTime(2026, 10, 10, 17, 0, 0, DateTimeKind.Utc),
-            precioSena: 3000m);
+            precioSena: 3000m, precioTotal: 15000m);
         pendienteVencido.FijarVencimiento(DateTime.UtcNow.AddMinutes(-1));
 
         contexto.Turnos.AddRange(confirmado, enCurso, pendienteVigente, pendienteVencido);
@@ -96,7 +96,7 @@ public sealed class EndpointDisponibilidadTest : IClassFixture<ContenedorPostgre
 
     private static Turno Confirmado(Guid lavaderoId, Guid puestoId, Guid tipoLavadoId, Guid clienteId, DateTime inicioUtc, DateTime finUtc)
     {
-        var turno = Turno.Crear(lavaderoId, puestoId, clienteId, tipoLavadoId, inicioUtc, finUtc, precioSena: 3000m);
+        var turno = Turno.Crear(lavaderoId, puestoId, clienteId, tipoLavadoId, inicioUtc, finUtc, precioSena: 3000m, precioTotal: 15000m);
         turno.TransicionarA(EstadoTurno.Confirmado);
         return turno;
     }

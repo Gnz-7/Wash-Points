@@ -61,6 +61,7 @@ public sealed class TurnoEspontaneoTest
             clienteId: Guid.NewGuid(),
             tipoLavadoId: Guid.NewGuid(),
             inicioUtc: inicioUtc,
-            finUtc: inicioUtc.AddMinutes(30));
+            finUtc: inicioUtc.AddMinutes(30),
+            precioTotal: 15000m);
     }
 }

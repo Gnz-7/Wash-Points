@@ -59,7 +59,7 @@ public sealed class DisponibilidadConsultaTest : IClassFixture<ContenedorPostgre
 
     private static Turno CrearTurno(Semilla s, DateTime inicioUtc, DateTime finUtc, OrigenTurno origen = OrigenTurno.App) =>
             Turno.Crear(s.LavaderoId, s.PuestoId, s.ClienteId, s.TipoLavadoId,
-                inicioUtc, finUtc, 3000m, origen);
+                inicioUtc, finUtc, 3000m, 15000m, origen);
 
     [Fact]
     public async Task LaVentanaDeberiaMostrarSoloLosQueOcupanPuesto()
