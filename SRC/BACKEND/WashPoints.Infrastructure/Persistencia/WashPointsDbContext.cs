@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using NpgsqlTypes;
 using WashPoints.Domain.Catalogo;
 using WashPoints.Domain.Comprobantes;
+using WashPoints.Domain.Reembolsos;
 using WashPoints.Domain.Seguridad;
 using WashPoints.Domain.Turnos;
 using WashPoints.Infrastructure.Pagos;
@@ -33,17 +34,65 @@ public sealed class WashPointsDbContext : DbContext
     public DbSet<Comprobante> Comprobantes => Set<Comprobante>();
     public DbSet<Outbox> Outbox => Set<Outbox>();
     public DbSet<Usuario> Usuarios => Set<Usuario>();
+    public DbSet<Reembolso> Reembolsos => Set<Reembolso>();
 
     protected override void OnModelCreating(ModelBuilder modelo)
     {
         base.OnModelCreating(modelo);
 
         ConfigurarTurno(modelo.Entity<Turno>());
+        ConfigurarReembolso(modelo.Entity<Reembolso>());
         modelo.ApplyConfiguration(new Configuraciones.PagoConfig());
         modelo.ApplyConfiguration(new Configuraciones.ComprobanteConfig());
         modelo.ApplyConfiguration(new Configuraciones.OutboxConfig());
         modelo.ApplyConfiguration(new Configuraciones.UsuarioConfig());
         ConfigurarCatalogo(modelo);
+    }
+
+    /// <summary>
+    /// Reembolso asociado a un turno cancelado por el cliente
+    /// (SPECS/slice-14 D-14.7). El monto queda congelado: la seña del turno ya
+    /// está fijada y lo que se le debe al cliente no se recalcula después.
+    /// Un turno tiene a lo sumo un reembolso, así que <c>turno_id</c> es único.
+    /// </summary>
+    private static void ConfigurarReembolso(EntityTypeBuilder<Reembolso> reembolso)
+    {
+        reembolso.ToTable("reembolsos");
+        reembolso.HasKey(r => r.Id);
+
+        reembolso.Property(r => r.Id).HasColumnName("id");
+        reembolso.Property(r => r.TurnoId).HasColumnName("turno_id").IsRequired();
+
+        reembolso.Property(r => r.Estado)
+            .HasColumnName("estado")
+            .HasConversion(new ConvertidorEnumSnakeCase<EstadoReembolso>())
+            .HasMaxLength(16)
+            .IsRequired();
+
+        reembolso.Property(r => r.Motivo)
+            .HasColumnName("motivo")
+            .HasConversion(new ConvertidorEnumSnakeCase<MotivoReembolso>())
+            .HasMaxLength(32)
+            .IsRequired();
+
+        reembolso.Property(r => r.Monto)
+            .HasColumnName("monto")
+            .HasColumnType("numeric(10,2)")
+            .IsRequired();
+
+        reembolso.Property(r => r.CreadoEn)
+            .HasColumnName("creado_en")
+            .HasColumnType("timestamptz")
+            .IsRequired();
+
+        reembolso.Property(r => r.ProcesadoEn)
+            .HasColumnName("procesado_en")
+            .HasColumnType("timestamptz");
+
+        reembolso.HasIndex(r => r.TurnoId).IsUnique();
+
+        // Cola de trabajo del slice de pagos: barre los pendientes por antigüedad.
+        reembolso.HasIndex(r => new { r.Estado, r.CreadoEn });
     }
 
     private static void ConfigurarTurno(EntityTypeBuilder<Turno> turno)
@@ -96,6 +145,14 @@ public sealed class WashPointsDbContext : DbContext
             .HasConversion(new ConvertidorEnumSnakeCase<OrigenTurno>())
             .HasMaxLength(16)
             .IsRequired();
+
+        // Autoría de la cancelación (SPECS/slice-14 D-14.5). Nullable: sólo un
+        // turno cancelado tiene autor. La columna distingue la baja pedida por
+        // el cliente de la que ejecutó la agenda (D-14.9).
+        turno.Property(t => t.CanceladoPor)
+            .HasColumnName("cancelado_por")
+            .HasConversion(new ConvertidorEnumSnakeCase<AutorCancelacion>())
+            .HasMaxLength(16);
 
         turno.Property(t => t.PrecioSena)
             .HasColumnName("precio_sena")

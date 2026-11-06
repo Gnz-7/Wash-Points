@@ -206,6 +206,51 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
                     b.ToTable("comprobantes", (string)null);
                 });
 
+            modelBuilder.Entity("WashPoints.Domain.Reembolsos.Reembolso", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreadoEn")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("creado_en");
+
+                    b.Property<string>("Estado")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("estado");
+
+                    b.Property<decimal>("Monto")
+                        .HasColumnType("numeric(10,2)")
+                        .HasColumnName("monto");
+
+                    b.Property<string>("Motivo")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("motivo");
+
+                    b.Property<DateTime?>("ProcesadoEn")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("procesado_en");
+
+                    b.Property<Guid>("TurnoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("turno_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TurnoId")
+                        .IsUnique();
+
+                    b.HasIndex("Estado", "CreadoEn");
+
+                    b.ToTable("reembolsos", (string)null);
+                });
+
             modelBuilder.Entity("WashPoints.Domain.Seguridad.Usuario", b =>
                 {
                     b.Property<Guid>("Id")
@@ -270,6 +315,11 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<string>("CanceladoPor")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("cancelado_por");
 
                     b.Property<DateTime?>("CerradoEn")
                         .HasColumnType("timestamptz")

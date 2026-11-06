@@ -30,7 +30,8 @@ public sealed class OcupacionRepositorio : IOcupacionRepositorio
     private const string SqlTurnosDelDia = """
         SELECT id, lavadero_id, puesto_id, cliente_id, tipo_lavado_id,
                rango, estado, origen, precio_sena, precio_total, mp_preference_id,
-               expira_en, idempotency_key, creado_en, confirmado_en, cerrado_en
+               expira_en, idempotency_key, creado_en, confirmado_en, cerrado_en,
+               cancelado_por
         FROM turnos
         WHERE lavadero_id = {0}
           AND lower(rango) >= @desdeLocal
@@ -41,7 +42,8 @@ public sealed class OcupacionRepositorio : IOcupacionRepositorio
     private const string SqlTieneTurnosVigentes = """
         SELECT id, lavadero_id, puesto_id, cliente_id, tipo_lavado_id,
                rango, estado, origen, precio_sena, precio_total, mp_preference_id,
-               expira_en, idempotency_key, creado_en, confirmado_en, cerrado_en
+               expira_en, idempotency_key, creado_en, confirmado_en, cerrado_en,
+               cancelado_por
         FROM turnos
         WHERE lavadero_id = {0}
           AND puesto_id = {1}
@@ -59,7 +61,8 @@ public sealed class OcupacionRepositorio : IOcupacionRepositorio
     private const string SqlTieneTurnosVigentesDelTipo = """
         SELECT id, lavadero_id, puesto_id, cliente_id, tipo_lavado_id,
                rango, estado, origen, precio_sena, precio_total, mp_preference_id,
-               expira_en, idempotency_key, creado_en, confirmado_en, cerrado_en
+               expira_en, idempotency_key, creado_en, confirmado_en, cerrado_en,
+               cancelado_por
         FROM turnos
         WHERE lavadero_id = {0}
           AND tipo_lavado_id = {1}
@@ -70,11 +73,25 @@ public sealed class OcupacionRepositorio : IOcupacionRepositorio
     private const string SqlConfirmadosVencidos = """
         SELECT id, lavadero_id, puesto_id, cliente_id, tipo_lavado_id,
                rango, estado, origen, precio_sena, precio_total, mp_preference_id,
-               expira_en, idempotency_key, creado_en, confirmado_en, cerrado_en
+               expira_en, idempotency_key, creado_en, confirmado_en, cerrado_en,
+               cancelado_por
         FROM turnos
         WHERE estado = 'confirmado'
           AND lower(rango) <= @limiteLocal
         ORDER BY lower(rango)
+        """;
+
+    /// <summary>
+    /// Historial del cliente para «Mis turnos» (SPECS/slice-14 T-143).
+    /// </summary>
+    private const string SqlTurnosDelCliente = """
+        SELECT id, lavadero_id, puesto_id, cliente_id, tipo_lavado_id,
+               rango, estado, origen, precio_sena, precio_total, mp_preference_id,
+               expira_en, idempotency_key, creado_en, confirmado_en, cerrado_en,
+               cancelado_por
+        FROM turnos
+        WHERE cliente_id = {0}
+        ORDER BY lower(rango) DESC
         """;
 
     private readonly WashPointsDbContext _contexto;
@@ -91,6 +108,12 @@ public sealed class OcupacionRepositorio : IOcupacionRepositorio
         await _contexto.Turnos
             .AsNoTracking()
             .SingleOrDefaultAsync(t => t.IdempotencyKey == idempotencyKey, ct);
+
+    public async Task<IReadOnlyList<Turno>> ListarPorClienteAsync(Guid clienteId, CancellationToken ct) =>
+        await _contexto.Turnos
+            .FromSqlRaw(SqlTurnosDelCliente, clienteId)
+            .AsNoTracking()
+            .ToArrayAsync(ct);
 
     public async Task<IReadOnlyList<Turno>> ListarDelDiaAsync(
         Guid lavaderoId,

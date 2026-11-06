@@ -28,6 +28,12 @@ class PantallaBusqueda extends ConsumerWidget {
           title: const Text('Lavaderos cercanos'),
           actions: <Widget>[
             IconButton(
+              key: const ValueKey('boton_mis_turnos'),
+              tooltip: 'Mis turnos',
+              onPressed: () => context.push('/mis-turnos'),
+              icon: const Icon(Icons.event_note_outlined),
+            ),
+            IconButton(
               key: const ValueKey('boton_cerrar_sesion'),
               tooltip: 'Cerrar sesión',
               onPressed: () => ref.read(sesionProvider.notifier).cerrar(),

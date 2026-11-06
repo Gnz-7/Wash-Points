@@ -32,6 +32,13 @@ public interface IOcupacionRepositorio
         CancellationToken ct);
 
     /// <summary>
+    /// Turnos de un cliente, del más reciente al más viejo (SPECS/slice-14
+    /// T-143). El panel del cliente los agrupa por vigencia, así que el orden
+    /// descendente por inicio es el que la pantalla espera.
+    /// </summary>
+    Task<IReadOnlyList<Turno>> ListarPorClienteAsync(Guid clienteId, CancellationToken ct);
+
+    /// <summary>
     /// ¿Hay algún turno vigente que bloquee el puesto a partir de <paramref name="ahoraUtc"/>?
     /// Vigente = los estados del EXCLUDE que ocupan (<c>confirmado</c>/<c>en_curso</c>)
     /// más el <c>pendiente_pago</c> cuya seña no venció (<c>expira_en &gt; ahoraUtc</c>),

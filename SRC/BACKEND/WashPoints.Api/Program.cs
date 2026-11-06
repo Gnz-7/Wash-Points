@@ -9,11 +9,13 @@ using WashPoints.Api;
 using WashPoints.Api.Hubs;
 using WashPoints.Api.Seguridad;
 using WashPoints.Application.Agenda;
+using WashPoints.Application.Cancelacion;
 using WashPoints.Application.Catalogo;
 using WashPoints.Application.Comprobantes;
 using WashPoints.Application.Espontanea;
 using WashPoints.Application.Geo;
 using WashPoints.Application.Metricas;
+using WashPoints.Application.MisTurnos;
 using WashPoints.Application.Pagos;
 using WashPoints.Application.ReservarTurno;
 // El alta de cuentas (slice-08) trae una `UbicacionInvalidaException` propia que
@@ -24,8 +26,10 @@ using WashPoints.Domain.Catalogo;
 using WashPoints.Domain.Comprobantes;
 using WashPoints.Domain.Geo;
 using WashPoints.Domain.Metricas;
+using WashPoints.Domain.MisTurnos;
 using WashPoints.Domain.Ocupacion;
 using WashPoints.Domain.Puertos;
+using WashPoints.Domain.Reembolsos;
 using WashPoints.Domain.Seguridad;
 using WashPoints.Domain.Turnos;
 using WashPoints.Infrastructure.Comprobantes;
@@ -49,6 +53,18 @@ builder.Services.AddDbContext<WashPointsDbContext>(options =>
     options.UseNpgsql(connectionString));
 
 builder.Services.AddScoped<IDisponibilidadConsulta, DisponibilidadConsulta>();
+// Política de reembolso (SPECS/slice-14 D-14.6): 120 minutos de anticipación y
+// 100 % de la seña por defecto. El constructor valida y falla al arrancar si la
+// configuración trae un rango imposible, nunca con un cliente cancelando.
+var opcionesReembolso = builder.Configuration
+    .GetSection(OpcionesReembolso.Seccion)
+    .Get<OpcionesReembolso>() ?? new OpcionesReembolso();
+builder.Services.AddSingleton(new PoliticaReembolso(opcionesReembolso));
+builder.Services.AddScoped<IReembolsoRepositorio, ReembolsoRepositorio>();
+builder.Services.AddScoped<CancelacionClienteServicio>();
+builder.Services.AddScoped<IConsultaMisTurnos, ConsultaMisTurnos>();
+builder.Services.AddScoped<MisTurnosServicio>();
+
 builder.Services.AddScoped<IOcupacionRepositorio, OcupacionRepositorio>();
 builder.Services.AddScoped<IUnidadDeTrabajo, UnidadDeTrabajo>();
 builder.Services.AddScoped<IConsultaCatalogo, ConsultaCatalogo>();
@@ -1151,6 +1167,97 @@ app.MapPost("/api/lavaderos/{id:guid}/turnos/{turnoId:guid}/finalizar", async (
 })
 .WithName("FinalizarTurno")
 .RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
+.WithOpenApi();
+
+// «Mis turnos» (SPECS/slice-14 D-14.1, T-144). La identidad sale del token: un
+// cliente nunca puede pedir el historial de otro. Los instantes van en UTC y el
+// cliente los formatea en su zona.
+app.MapGet("/api/turnos/mios", async (
+    ClaimsPrincipal usuario,
+    MisTurnosServicio servicio,
+    CancellationToken ct) =>
+{
+    var identidad = IdentidadDelToken.De(usuario);
+    if (identidad?.ClienteId is not { } clienteId)
+    {
+        return Results.NotFound(new { error = "turno_no_encontrado" });
+    }
+
+    var turnos = await servicio.ListarAsync(clienteId, DateTime.UtcNow, ct);
+
+    return Results.Ok(turnos.Select(turno => new
+    {
+        turnoId = turno.Turno.TurnoId,
+        lavaderoId = turno.Turno.LavaderoId,
+        lavaderoNombre = turno.Turno.LavaderoNombre,
+        direccion = turno.Turno.Direccion,
+        tipoLavado = turno.Turno.TipoLavado,
+        duracionMinutos = turno.Turno.DuracionMinutos,
+        inicio = turno.Turno.InicioUtc,
+        fin = turno.Turno.FinUtc,
+        estado = EstadoAJson(turno.Turno.Estado),
+        precioTotal = turno.Turno.PrecioTotal,
+        precioSena = turno.Turno.PrecioSena,
+        comprobanteDisponible = turno.ComprobanteDisponible,
+        cancelable = turno.Cancelable,
+        reembolsoEstimado = turno.ReembolsoEstimado,
+        reembolsoMotivo = turno.ReembolsoMotivo is { } motivo
+            ? ReembolsosAJson.Motivo(motivo)
+            : null,
+        reembolso = turno.Turno.ReembolsoEstado is { } estadoReembolso
+            ? new
+            {
+                estado = ReembolsosAJson.Estado(estadoReembolso),
+                monto = turno.Turno.ReembolsoMonto ?? 0m,
+                motivo = turno.Turno.ReembolsoMotivo is { } motivoRegistrado
+                    ? ReembolsosAJson.Motivo(motivoRegistrado)
+                    : null,
+            }
+            : null,
+    }));
+})
+.WithName("ListarMisTurnos")
+.RequireAuthorization(Politicas.Cliente)
+.WithOpenApi();
+
+// Cancelación por el cliente (SPECS/slice-14 D-14.3, T-144). Endpoint separado
+// del administrativo a propósito: `RequireAuthorization` combina con OR y la
+// política Administrador no valida pertenencia.
+app.MapPost("/api/turnos/{turnoId:guid}/cancelar", async (
+    Guid turnoId,
+    ClaimsPrincipal usuario,
+    CancelacionClienteServicio servicio,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var resultado = await servicio.CancelarAsync(
+            turnoId,
+            IdentidadDelToken.De(usuario),
+            DateTime.UtcNow,
+            ct);
+
+        return resultado is null
+            ? Results.NotFound(new { error = "turno_no_encontrado" })
+            : Results.Ok(new
+            {
+                turnoId = resultado.Turno.Id,
+                estado = EstadoAJson(resultado.Turno.Estado),
+                reembolso = new
+                {
+                    estado = ReembolsosAJson.Estado(resultado.Reembolso.Estado),
+                    monto = resultado.Reembolso.Monto,
+                    motivo = ReembolsosAJson.Motivo(resultado.Reembolso.Motivo),
+                },
+            });
+    }
+    catch (TurnoTransicionInvalida ex)
+    {
+        return Results.Conflict(new { error = "turno_transicion_invalida", detalle = ex.Message });
+    }
+})
+.WithName("CancelarTurnoCliente")
+.RequireAuthorization(Politicas.Cliente)
 .WithOpenApi();
 
 app.MapPost("/api/lavaderos/{id:guid}/turnos/{turnoId:guid}/cancelar", async (

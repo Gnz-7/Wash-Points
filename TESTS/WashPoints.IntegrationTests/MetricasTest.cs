@@ -326,6 +326,42 @@ public sealed class MetricasTest : IClassFixture<ContenedorPostgres>, IDisposabl
         Assert.Equal(0m, resumen.Ingresos.FacturadoTotal);
     }
 
+    /// <summary>
+    /// Regresión de RB-1 y D-14.10 (SPECS/slice-14 T-145): un turno que llegó a
+    /// <c>confirmado</c> —es decir, con la seña ya cobrada— deja de facturar si
+    /// después se cancela. La baja no reescribe el ingreso del día: la seña
+    /// deja de contar como cobrada y el turno no suma a lo facturado; sólo
+    /// engrosa el contador de cancelaciones.
+    /// </summary>
+    [Fact]
+    public async Task UnTurnoCanceladoConSenaCobradaNoSumaAlIngresoDiario()
+    {
+        var catalogo = await SembrarCatalogoAsync("Lavadero Cancelado", puestos: 1);
+        var turnoId = await SembrarTurnoAsync(
+            catalogo, catalogo.Puestos[0], Local(11), EstadoTurno.Confirmado);
+
+        // Cancelar después de confirmar es el caso que importa: la seña ya
+        // estaba cobrada y aun así el turno no debe figurar en los ingresos.
+        await using (var contexto = CrearContexto())
+        {
+            var turno = await contexto.Turnos.SingleAsync(t => t.Id == turnoId);
+            turno.CancelarPorCliente();
+            await contexto.SaveChangesAsync();
+        }
+
+        using var api = CrearApi();
+        using var cliente = api.CreateClient();
+
+        var resumen = await cliente.GetFromJsonAsync<RespuestaResumen>(
+            $"/api/lavaderos/{catalogo.LavaderoId}/metricas/resumen?fecha={Dia:yyyy-MM-dd}");
+
+        Assert.NotNull(resumen);
+        Assert.Equal(0m, resumen!.Ingresos.SenasCobradas);
+        Assert.Equal(0m, resumen.Ingresos.FacturadoTotal);
+        Assert.Equal(0m, resumen.Ingresos.FacturadoMostrador);
+        Assert.Equal(1, resumen.Turnos.Cancelaciones);
+    }
+
     [Fact]
     public async Task UnDiaSinActividadDevuelveCeros()
     {

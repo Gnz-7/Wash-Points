@@ -10,6 +10,7 @@ import '../features/autenticacion/presentation/pantalla_registro.dart';
 import '../features/busqueda/presentation/pantalla_busqueda.dart';
 import '../features/comprobante/presentation/pantalla_comprobante.dart';
 import '../features/disponibilidad/presentation/pantalla_disponibilidad.dart';
+import '../features/misturnos/presentation/pantalla_mis_turnos.dart';
 import '../features/panel/presentation/agenda/pantalla_agenda.dart';
 import '../features/panel/presentation/catalogo/pantalla_catalogo.dart';
 import '../features/panel/presentation/metricas/pantalla_metricas.dart';
@@ -85,6 +86,15 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/registro',
         name: 'registro',
         builder: (context, state) => const PantallaRegistro(),
+      ),
+      // «Mis turnos» (slice-14, T-148). Cuelga de una ruta simple: el cliente
+      // entra desde la búsqueda y vuelve con el botón de la barra. El shell de
+      // pestañas del cliente queda para cuando exista una segunda sección
+      // propia que lo justifique (spec §7.4, riesgo 1).
+      GoRoute(
+        path: '/mis-turnos',
+        name: 'misTurnos',
+        builder: (context, state) => const PantallaMisTurnos(),
       ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navegacion) =>

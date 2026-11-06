@@ -23,7 +23,8 @@ public sealed class ConsultaAgenda : IConsultaAgenda
     private const string SqlBase = """
         SELECT id, lavadero_id, puesto_id, cliente_id, tipo_lavado_id,
                rango, estado, origen, precio_sena, precio_total, mp_preference_id,
-               expira_en, idempotency_key, creado_en, confirmado_en, cerrado_en
+               expira_en, idempotency_key, creado_en, confirmado_en, cerrado_en,
+               cancelado_por
         FROM turnos
         WHERE lavadero_id = {0}
           AND lower(rango) >= @desdeLocal

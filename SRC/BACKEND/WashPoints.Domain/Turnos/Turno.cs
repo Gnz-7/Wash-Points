@@ -113,6 +113,13 @@ public sealed class Turno
     public DateTime? CerradoEn { get; private set; }
 
     /// <summary>
+    /// Quién canceló el turno (SPECS/slice-14 D-14.5). Sólo tiene valor en
+    /// <see cref="EstadoTurno.Cancelado"/>: la baja administrativa no genera
+    /// reembolso (D-14.9), la del cliente sí puede generarlo (D-14.6).
+    /// </summary>
+    public AutorCancelacion? CanceladoPor { get; private set; }
+
+    /// <summary>
     /// Vence el bloqueo del <see cref="EstadoTurno.PendientePago"/> (TTL de la
     /// seña, SPECS/slice-01 §3). La liberación la ejecuta el worker al
     /// transicionar a <see cref="EstadoTurno.Expirado"/>; nunca viene del
@@ -241,6 +248,34 @@ public sealed class Turno
         {
             CerradoEn = DateTime.UtcNow;
         }
+    }
+
+    /// <summary>
+    /// Cancela el turno a pedido del cliente (SPECS/slice-14 D-14.3 y D-14.4).
+    ///
+    /// La autoría se registra sólo si la máquina de estados aceptó la
+    /// transición: desde <see cref="EstadoTurno.EnCurso"/> o desde un estado
+    /// terminal sigue lanzando <see cref="TurnoTransicionInvalida"/> y el turno
+    /// queda intacto.
+    /// </summary>
+    /// <exception cref="TurnoTransicionInvalida">El estado actual no admite cancelación.</exception>
+    public void CancelarPorCliente()
+    {
+        TransicionarA(EstadoTurno.Cancelado);
+        CanceladoPor = AutorCancelacion.Cliente;
+    }
+
+    /// <summary>
+    /// Cancela el turno desde la agenda del lavadero (D-04.3, D-14.9).
+    ///
+    /// No dispara reembolso: sólo deja constancia de que la baja no la pidió el
+    /// cliente.
+    /// </summary>
+    /// <exception cref="TurnoTransicionInvalida">El estado actual no admite cancelación.</exception>
+    public void CancelarPorAdministrador()
+    {
+        TransicionarA(EstadoTurno.Cancelado);
+        CanceladoPor = AutorCancelacion.Administrador;
     }
 
     /// <summary>Registra la referencia de la preferencia de Mercado Pago.</summary>

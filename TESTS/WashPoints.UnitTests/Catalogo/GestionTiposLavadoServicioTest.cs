@@ -278,6 +278,10 @@ public sealed class GestionTiposLavadoServicioTest
             Guid lavaderoId, DateTime desdeUtc, DateTime hastaUtc, CancellationToken ct) =>
             throw new NotSupportedException();
 
+        public Task<IReadOnlyList<Turno>> ListarPorClienteAsync(
+            Guid clienteId, CancellationToken ct) =>
+            throw new NotSupportedException();
+
         public Task<bool> TieneTurnosVigentesAsync(
             Guid lavaderoId, Guid puestoId, DateTime ahoraUtc, CancellationToken ct) =>
             throw new NotSupportedException();

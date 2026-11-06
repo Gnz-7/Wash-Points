@@ -135,6 +135,7 @@ public sealed class EntregaComprobantePropiedadTest
         public Task AgregarAsync(Turno turno, CancellationToken ct) => throw new NotSupportedException();
         public Task<Turno?> ObtenerPorIdempotencyKeyAsync(string idempotencyKey, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<Turno>> ListarDelDiaAsync(Guid lavaderoId, DateTime desdeUtc, DateTime hastaUtc, CancellationToken ct) => throw new NotSupportedException();
+        public Task<IReadOnlyList<Turno>> ListarPorClienteAsync(Guid clienteId, CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> TieneTurnosVigentesAsync(Guid lavaderoId, Guid puestoId, DateTime ahoraUtc, CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> TieneTurnosVigentesDelTipoAsync(Guid lavaderoId, Guid tipoLavadoId, DateTime ahoraUtc, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<Turno>> ListarConfirmadosVencidosAsync(DateTime limiteUtc, CancellationToken ct) => throw new NotSupportedException();
