@@ -57,6 +57,21 @@ public sealed class Reembolso
     /// <summary>Cuándo lo ejecutó la pasarela. <c>null</c> mientras siga pendiente.</summary>
     public DateTime? ProcesadoEn { get; private set; }
 
+    /// <summary>Intentos de ejecución ya iniciados por el worker (slice-15 D-15.4).</summary>
+    public int Intentos { get; private set; }
+
+    /// <summary>Cuándo vuelve a estar disponible para el worker. <c>null</c> = ya.</summary>
+    public DateTime? ProximoIntentoEn { get; private set; }
+
+    /// <summary>Lease del reclamo atómico: mientras esté vigente, otro worker no lo toma.</summary>
+    public DateTime? ReclamadoEn { get; private set; }
+
+    /// <summary>Último error registrado por el worker, para diagnóstico. Sin PII.</summary>
+    public string? UltimoError { get; private set; }
+
+    /// <summary>Identificador del reintegro en la pasarela, para reconciliación idempotente.</summary>
+    public string? MpRefundId { get; private set; }
+
     /// <summary>
     /// Registra el resultado de la política de reembolso para un turno que se
     /// acaba de cancelar. No llama a la pasarela: sólo deja la decisión
@@ -92,5 +107,81 @@ public sealed class Reembolso
         }
 
         return new Reembolso(Guid.NewGuid(), turnoId, estado, motivo, monto, creadoEn);
+    }
+
+    /// <summary>
+    /// Marca el reembolso como tomado por un worker: suma un intento y fija el
+    /// lease. Lo hace el repositorio en la misma sentencia atómica que elige la
+    /// fila, así que dos workers no procesan el mismo reembolso (D-15.4).
+    /// </summary>
+    public void Reclamar(DateTime ahoraUtc)
+    {
+        Intentos++;
+        ReclamadoEn = ahoraUtc;
+    }
+
+    /// <summary>
+    /// Deja el reembolso pendiente para un próximo intento. No incrementa
+    /// <see cref="Intentos"/>: el intento ya se contó al reclamarlo.
+    /// </summary>
+    public void ProgramarReintento(DateTime proximoIntentoUtc, string? error)
+    {
+        ProximoIntentoEn = proximoIntentoUtc;
+        UltimoError = error;
+        ReclamadoEn = null;
+    }
+
+    /// <summary>
+    /// La pasarela confirmó el reintegro: el reembolso queda cerrado.
+    /// </summary>
+    /// <exception cref="ArgumentException">El id del reintegro está vacío.</exception>
+    public void MarcarProcesado(string mpRefundId, DateTime procesadoEnUtc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(mpRefundId);
+
+        MpRefundId = mpRefundId.Trim();
+        Estado = EstadoReembolso.Procesado;
+        ProcesadoEn = procesadoEnUtc;
+        ProximoIntentoEn = null;
+        ReclamadoEn = null;
+        UltimoError = null;
+    }
+
+    /// <summary>
+    /// La pasarela aceptó el reintegro pero todavía no lo confirmó. Se guarda su
+    /// id para reconciliar en el próximo tick en vez de pedirlo de nuevo
+    /// (D-15.5).
+    /// </summary>
+    public void RegistrarReintegroEnCurso(string mpRefundId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(mpRefundId);
+        MpRefundId = mpRefundId.Trim();
+    }
+
+    /// <summary>Rechazo definitivo o intentos agotados: no se vuelve a intentar.</summary>
+    public void MarcarFallido(string? error)
+    {
+        Estado = EstadoReembolso.Fallido;
+        UltimoError = error;
+        ProximoIntentoEn = null;
+        ReclamadoEn = null;
+        ProcesadoEn = null;
+    }
+
+    /// <summary>
+    /// El webhook avisó de un movimiento del reintegro: adelanta el próximo
+    /// intento y libera el lease para que el worker lo reconcilie ya
+    /// (D-15.6). No toca <see cref="Monto"/> ni <see cref="Estado"/>: la
+    /// verdad la fija la consulta a la pasarela, nunca el payload.
+    /// </summary>
+    public void SenalarVencimiento(DateTime ahoraUtc)
+    {
+        if (Estado != EstadoReembolso.Pendiente)
+        {
+            return;
+        }
+
+        ProximoIntentoEn = ahoraUtc;
+        ReclamadoEn = null;
     }
 }

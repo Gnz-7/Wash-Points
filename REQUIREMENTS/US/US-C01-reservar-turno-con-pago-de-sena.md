@@ -13,14 +13,14 @@
 
 ## Criterios de aceptación
 
-**CA-1.1 — El turno se crea sin ocupar el puesto**
+**CA-1.1 — El turno se crea `pendiente_pago` y bloquea el puesto mientras está vigente**
 
 - *Given* un puesto libre en un lavadero, un tipo de lavado y un intervalo
 - *When* el cliente completa la solicitud de reserva
 - *Then* el turno se crea en estado `pendiente_pago`
-- *And* ese puesto **sigue disponible** para otros clientes en ese mismo intervalo
+- *And* el intervalo queda **bloqueado** para otros clientes mientras el turno no expire
 
-> Este criterio es el corazón de RB-1. El motivo concreto: `pendiente_pago` está fuera del predicado del `EXCLUDE` de `turnos` (ARCHITECTURE §4.1), así que la garantía no depende de que la aplicación se acuerde de no bloquear.
+> Este criterio es el corazón de RB-1. El `pendiente_pago` **vigente** está dentro del predicado del `EXCLUDE` de `turnos` (ARCHITECTURE §4.1 y §10.8): el bloqueo lo impone la base de datos y dura el TTL de la seña (`Pagos:TtlReservaMinutos`, 5 min). Al vencer, el worker lo pasa a `expirado` y libera el puesto.
 
 **CA-1.2 — Se genera una preferencia de pago por el importe de la seña**
 
@@ -46,7 +46,7 @@
 
 | Criterio | Suite | Test |
 |----------|-------|------|
-| CA-1.1 | Integración | Un turno `pendiente_pago` no bloquea el slot. Es el test que debe fallar si alguien mueve `pendiente_pago` dentro del predicado del `EXCLUDE`. |
+| CA-1.1 | Integración | Un turno `pendiente_pago` vigente bloquea el slot; al expirar lo libera. Es el test que debe fallar si alguien saca `pendiente_pago` del predicado del `EXCLUDE`. |
 | CA-1.2 | Integración | La preferencia se crea con `UnitPrice` igual a `precio_sena`. |
 | CA-1.3 | Unitaria | El retorno del navegador no dispara ninguna transición de estado. |
 | CA-1.4 | Integración | Dos intentos de pago con la misma clave producen una sola preferencia. |

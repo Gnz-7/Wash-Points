@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -9,8 +10,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using WashPoints.Domain.Catalogo;
 using WashPoints.Domain.Puertos;
+using WashPoints.Domain.Reembolsos;
 using WashPoints.Domain.Turnos;
 using WashPoints.Infrastructure.Persistencia;
+using WashPoints.Infrastructure.Pagos;
 using WashPoints.IntegrationTests.Infra;
 using WashPoints.UnitTests.Fakes;
 using Xunit;
@@ -44,7 +47,7 @@ public sealed class WebhookTest : IClassFixture<ContenedorPostgres>, IDisposable
 
     private async Task LimpiarTablas() =>
         await _baseDeDatos.EjecutarSqlAsync("""
-            TRUNCATE TABLE comprobantes, pagos, turnos, clientes, puestos, tipos_lavado, lavaderos CASCADE;
+            TRUNCATE TABLE reembolsos, comprobantes, pagos, turnos, clientes, puestos, tipos_lavado, lavaderos CASCADE;
             """);
 
     private WashPointsDbContext CrearContexto() =>
@@ -310,5 +313,146 @@ public sealed class WebhookTest : IClassFixture<ContenedorPostgres>, IDisposable
 
         var pago = await contexto.Pagos.SingleAsync();
         Assert.Equal(Infrastructure.Pagos.ResultadoPago.Pending, pago.Resultado);
+    }
+
+    // --- T-158: el webhook de reembolso es una señal, no una fuente de verdad ---
+
+    private static object CuerpoReembolso(
+        string dataId,
+        string tipo = "refund",
+        string accion = "refund.created") => new
+    {
+        type = tipo,
+        action = accion,
+        data = new { id = dataId },
+    };
+
+    private static async Task<HttpResponseMessage> EnviarEventoAsync(
+        HttpClient cliente,
+        object cuerpo,
+        string dataId)
+    {
+        var peticion = new HttpRequestMessage(HttpMethod.Post, "/api/webhooks/mercadopago")
+        {
+            Content = JsonContent.Create(cuerpo),
+        };
+        Firmar(peticion, dataId);
+        return await cliente.SendAsync(peticion);
+    }
+
+    private static async Task<string?> ResultadoDeAsync(HttpResponseMessage respuesta)
+    {
+        var cuerpo = await respuesta.Content.ReadFromJsonAsync<JsonElement>();
+        return cuerpo.TryGetProperty("resultado", out var resultado)
+            ? resultado.GetString()
+            : null;
+    }
+
+    [Fact]
+    public async Task WebhookDeReembolsoAdelantaElPendienteSinTocarElMonto()
+    {
+        var turnoId = await SembrarTurnoPendienteAsync();
+        var ahora = DateTime.UtcNow;
+        await using (var contexto = CrearContexto())
+        {
+            var reembolso = Reembolso.Registrar(
+                turnoId, EstadoReembolso.Pendiente, MotivoReembolso.ClienteEnPlazo, 3000m, ahora);
+            reembolso.RegistrarReintegroEnCurso("refund-1");
+            reembolso.ProgramarReintento(ahora.AddHours(1), "espera programada");
+            contexto.Reembolsos.Add(reembolso);
+            await contexto.SaveChangesAsync();
+        }
+
+        using var api = CrearApi(new PasarelaPagosFakeSimulada());
+        using var cliente = api.CreateClient();
+
+        var respuesta = await EnviarEventoAsync(cliente, CuerpoReembolso("refund-1"), "refund-1");
+
+        Assert.Equal(HttpStatusCode.OK, respuesta.StatusCode);
+        Assert.Equal("Procesado", await ResultadoDeAsync(respuesta));
+
+        await using var verificacion = CrearContexto();
+        var guardado = await verificacion.Reembolsos.SingleAsync();
+        Assert.Equal(EstadoReembolso.Pendiente, guardado.Estado);
+        Assert.Equal(3000m, guardado.Monto);
+        Assert.Equal("refund-1", guardado.MpRefundId);
+        Assert.Null(guardado.ReclamadoEn);
+        Assert.NotNull(guardado.ProximoIntentoEn);
+        Assert.True(guardado.ProximoIntentoEn <= DateTime.UtcNow.AddSeconds(5));
+    }
+
+    [Fact]
+    public async Task WebhookDeReembolsoDuplicadoNoDuplicaNiCambiaElMonto()
+    {
+        var turnoId = await SembrarTurnoPendienteAsync();
+        var ahora = DateTime.UtcNow;
+        await using (var contexto = CrearContexto())
+        {
+            var reembolso = Reembolso.Registrar(
+                turnoId, EstadoReembolso.Pendiente, MotivoReembolso.ClienteEnPlazo, 3000m, ahora);
+            reembolso.RegistrarReintegroEnCurso("refund-2");
+            contexto.Reembolsos.Add(reembolso);
+            await contexto.SaveChangesAsync();
+        }
+
+        using var api = CrearApi(new PasarelaPagosFakeSimulada());
+        using var cliente = api.CreateClient();
+
+        var primera = await EnviarEventoAsync(cliente, CuerpoReembolso("refund-2"), "refund-2");
+        var segunda = await EnviarEventoAsync(cliente, CuerpoReembolso("refund-2"), "refund-2");
+
+        Assert.Equal(HttpStatusCode.OK, primera.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, segunda.StatusCode);
+
+        await using var verificacion = CrearContexto();
+        var guardado = await verificacion.Reembolsos.SingleAsync();
+        Assert.Equal(3000m, guardado.Monto);
+        Assert.Equal(EstadoReembolso.Pendiente, guardado.Estado);
+    }
+
+    [Fact]
+    public async Task WebhookDeReembolsoDesconocidoRespondeIgnorado()
+    {
+        using var api = CrearApi(new PasarelaPagosFakeSimulada());
+        using var cliente = api.CreateClient();
+
+        var respuesta = await EnviarEventoAsync(cliente, CuerpoReembolso("refund-inexistente"), "refund-inexistente");
+
+        Assert.Equal(HttpStatusCode.OK, respuesta.StatusCode);
+        Assert.Equal("Ignorado", await ResultadoDeAsync(respuesta));
+    }
+
+    [Fact]
+    public async Task WebhookDePagoConAccionDeReembolsoSenalaPorPagoAprobado()
+    {
+        var turnoId = await SembrarTurnoPendienteAsync();
+        var ahora = DateTime.UtcNow;
+        await using (var contexto = CrearContexto())
+        {
+            contexto.Pagos.Add(Pago.Registrar(
+                turnoId, "77", TipoEventoPago.Payment, ResultadoPago.Approved));
+            var reembolso = Reembolso.Registrar(
+                turnoId, EstadoReembolso.Pendiente, MotivoReembolso.ClienteEnPlazo, 3000m, ahora);
+            reembolso.ProgramarReintento(ahora.AddHours(1), "espera programada");
+            contexto.Reembolsos.Add(reembolso);
+            await contexto.SaveChangesAsync();
+        }
+
+        using var api = CrearApi(new PasarelaPagosFakeSimulada());
+        using var cliente = api.CreateClient();
+
+        var respuesta = await EnviarEventoAsync(
+            cliente,
+            CuerpoReembolso("77", tipo: "payment", accion: "payment.refunded"),
+            "77");
+
+        Assert.Equal(HttpStatusCode.OK, respuesta.StatusCode);
+        Assert.Equal("Procesado", await ResultadoDeAsync(respuesta));
+
+        await using var verificacion = CrearContexto();
+        var guardado = await verificacion.Reembolsos.SingleAsync();
+        Assert.Null(guardado.MpRefundId);
+        Assert.NotNull(guardado.ProximoIntentoEn);
+        Assert.True(guardado.ProximoIntentoEn <= DateTime.UtcNow.AddSeconds(5));
     }
 }

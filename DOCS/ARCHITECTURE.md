@@ -176,7 +176,10 @@ CREATE TABLE turnos (
   rango tsrange NOT NULL,
   estado turno_estado NOT NULL DEFAULT 'pendiente_pago',
   origen turno_origen NOT NULL,
+  precio_total numeric(10,2) NOT NULL,  -- congelado al reservar (slice-13)
   precio_sena numeric(10,2) NOT NULL,
+  cancelado_por text NULL               -- 'cliente' | 'administrador' (slice-14)
+    CHECK (cancelado_por IN ('cliente', 'administrador')),
   mp_preference_id text,
   idempotency_key text,            -- SHA-256 del intento de reserva (slice-01, ver §4.1)
   expira_en timestamptz,           -- vence el bloqueo del pendiente_pago (slice-01)
@@ -228,6 +231,21 @@ CREATE TABLE pagos (
   CONSTRAINT pagos_un_pago_por_turno UNIQUE (turno_id)
 );
 
+-- Registro del reintegro prometido al cliente (slice-14). La cancelación lo
+-- crea en 'pendiente' (o 'no_aplica' si no había seña); el worker del slice-15
+-- lo lleva a 'procesado' o 'fallido'. Nunca es la fuente de verdad del cobro:
+-- el dinero lo mueve la pasarela y este registro refleja el resultado.
+CREATE TABLE reembolsos (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  turno_id uuid NOT NULL REFERENCES turnos(id),
+  estado text NOT NULL,      -- 'pendiente' | 'procesado' | 'fallido' | 'no_aplica'
+  motivo text NOT NULL,      -- 'cliente_en_plazo' | 'cliente_fuera_de_plazo' | 'sin_pago'
+  monto numeric(10,2) NOT NULL,
+  creado_en timestamptz NOT NULL DEFAULT now(),
+  procesado_en timestamptz,
+  CONSTRAINT reembolsos_un_reembolso_por_turno UNIQUE (turno_id)
+);
+
 CREATE TABLE outbox (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tipo text NOT NULL,
@@ -251,6 +269,8 @@ CREATE TABLE outbox (
 - **`btree_gist`** es imprescindible: la exclusión mezcla igualdad (`puesto_id WITH =`) con solapamiento de rango, y GiST solo no indexa `uuid`.
 - **`pagos.mp_payment_id UNIQUE`** es la idempotencia del webhook a nivel de base de datos: una notificación duplicada responde `200` sin re-transicionar (SPECS/slice-01 T-18).
 - **`pagos` con `UNIQUE (turno_id)`**: un turno no puede tener dos pagos asociados; la confirmación ocurre en el mismo `SaveChangesAsync` que el INSERT del pago.
+- **`reembolsos` con `UNIQUE (turno_id)`**: un turno tiene a lo sumo un reintegro registrado (slice-14, D-14.7). La cancelación del cliente escribe la fila en la misma transacción que la transición a `cancelado`, así que no existe turno cancelado con reintegro pendiente de registrar. `monto` es el importe que la pasarela debe devolver; `estado` refleja el resultado (`pendiente`, `procesado`, `fallido`, `no_aplica`), no la intención.
+- **`turnos.cancelado_por`** (`cliente` | `administrador`, nullable): distingue la cancelación que genera reintegro (cliente, según política) de la administrativa, que nunca lo genera (D-14.9). Es nullable porque los turnos previos al slice-14 se backfillearon a `administrador` y los turnos vigentes todavía no están cancelados.
 - **`comprobantes` con `UNIQUE (turno_id)`**: un turno confirmado tiene exactamente un comprobante (slice-02, US-C08 CA-8.1); la emisión ocurre en el mismo `SaveChangesAsync` que `pendiente_pago → confirmado`. `hash` y `token_cifrado` son columnas distintas: el canje y la unicidad usan el hash; el hash único impide además emitir dos veces el mismo token. El canje es único por `usado_at IS NULL` evaluado en la misma transacción que `confirmado → en_curso`, la única transición que dispara RB-3 (slice-02 §3).
 - **`outbox` escrita en la misma transacción** que el cambio de estado: garantiza que si el estado cambió, el evento existe.
 
@@ -277,6 +297,8 @@ CREATE TABLE outbox (
 ```
 
 > **Demanda espontánea.** `RegistrarDemandaEspontanea` **no** crea un `pendiente_pago`: inserta el turno directamente en `en_curso` (ocupa el puesto de inmediato, sin seña ni comprobante). Es la única vía que nace fuera de `pendiente_pago`.
+>
+> **Cancelación de un turno confirmado (slice-14).** El diagrama no dibuja la flecha `confirmado → cancelado`, pero existe: la dispara la cancelación del cliente (con evaluación de reintegro, D-14.6) o la del administrador (sin reintegro, D-14.9). El turno libera el puesto en la misma transición.
 
 Transiciones permitidas y su único disparador:
 
@@ -286,6 +308,7 @@ Transiciones permitidas y su único disparador:
 | — | `en_curso` | `RegistrarDemandaEspontanea` (demanda espontánea; sin seña ni comprobante) | Application |
 | `pendiente_pago` | `confirmado` | Webhook MP con firma válida + `approved`, o respaldo del worker | `Pagos` |
 | `pendiente_pago` | `cancelado` | Pago rechazado o cancelación del cliente | `Pagos` |
+| `confirmado` | `cancelado` | Cancelación del cliente (evalúa reintegro) o del administrador (sin reintegro) | `Turnos` |
 | `pendiente_pago` | `expirado` | Vencimiento del TTL (`expira_en <= now()`) por el worker | worker |
 | `confirmado` | `en_curso` | Canje del comprobante (RB-3) | `Comprobantes` |
 | `confirmado` | `no_presentado` | Vencimiento de la ventana de llegada | `Turnos` |
@@ -340,10 +363,14 @@ El único cliente Flutter cubre cliente y administrador, differentiated por rol 
 
 ### 7.2 Mercado Pago
 
-- **Preferencia de pago** creada por `IPasarelaPagos.CrearPreferenciaAsync` con `PreferenceClient`. El SDK inyecta `X-Idempotency-Key` automáticamente; además se envía una clave explícita derivada del `turnoId` para que un reintento del cliente no cree una preferencia nueva.
-- **Verificación de firma**: `WebhookSignatureValidator.Validate(xSignature, xRequestId, dataId, secret)`. El manifiesto es `data.id:x-request-id:ts`, la comparación es en tiempo constante y se rechaza si el timestamp excede la tolerancia configurada. Documentación verificada vía Context7 contra `/mercadopago/sdk-nodejs` y `/websites/mercadopago_br_developers_pt`.
+- **SDK**: paquete NuGet oficial **`mercadopago-sdk` 3.7.1** (owner `MercadoPago`, net8.0). El paquete `MercadoPago` homónimo es legacy de terceros y no se usa. Todo el SDK queda aislado detrás de `IPasarelaPagos` (slice-15, D-15.1).
+- **Preferencia de pago** creada por `IPasarelaPagos.CrearPreferenciaAsync` con `PreferenceClient`: item en ARS, `external_reference = turnoId`, `notification_url`, `back_urls` (success/failure/pending), `auto_return=approved` y `X-Idempotency-Key: turno-{turnoId}`, de modo que un reintento no cree una preferencia nueva.
+- **Verificación de firma**: `WebhookSignatureValidator.EsValida(xSignature, xRequestId, dataId)`. El manifiesto exacto es `id:{data.id};request-id:{x-request-id};ts:{ts};` (con el punto y coma final), la comparación es HMAC-SHA256 en hexadecimal y en tiempo constante, y se rechaza si el timestamp excede la tolerancia configurada. Documentación verificada vía Context7 contra `/websites/mercadopago_mx_developers_es` (el manifiesto anterior, `data.id:x-request-id:ts`, estaba mal transcrito). Sin `Pagos:WebhookSecret` no hay secreto de respaldo: toda firma se rechaza con **401**.
 - **Estados**: `approved` → `confirmado`. Cualquier otro estado (`pending`, `rejected`, `in_process`, `charged_back`) deja el turno en `pendiente_pago` o lo lleva a `cancelado` según corresponda.
-- **Respaldo y expiración**: si el webhook no llega, el worker pasa la ventana de respaldo (`Pagos:VentanaRespaldoMinutos`, 3 min) consultando a la pasarela (red de seguridad, no diseño alternativo). Si tampoco resuelve, a los `Pagos:TtlReservaMinutos` (5 min) el turno `pendiente_pago` vence a `expirado`. El ciclo de expiración local es aislado de la llamada de red: un timeout de la pasarela no retrasa la liberación de los boxes vencidos (SPECS/slice-01 T-21).
+- **Respaldo y expiración**: si el webhook no llega, el worker pasa la ventana de respaldo (`Pagos:VentanaRespaldoMinutos`, 3 min) consultando a la pasarela por `external_reference` (`BuscarPagoPorTurnoAsync`), no por el id de preferencia (corregido en slice-15, T-153). Si tampoco resuelve, a los `Pagos:TtlReservaMinutos` (5 min) el turno `pendiente_pago` vence a `expirado`. El ciclo de expiración local es aislado de la llamada de red: un timeout de la pasarela no retrasa la liberación de los boxes vencidos (SPECS/slice-01 T-21).
+- **Reembolsos (slice-15)**: `ReembolsarAsync` ejecuta el reintegro total (sin body) o parcial (`amount`), con `X-Idempotency-Key: reembolso-{reembolsoId}`; valida el monto contra el pago y la ventana de 180 días. `WorkerReembolsos` reclama pendientes con `FOR UPDATE SKIP LOCKED` y lease de 5 min, aplica backoff `1,5,15,60,240` min con jitter y cierra en `procesado` o `fallido` tras 5 intentos. Un reintegro aceptado pero no confirmado se reconcilia con `ConsultarReembolsoAsync` usando `mp_refund_id` (D-15.4, D-15.5).
+- **Webhook de reembolsos**: los eventos de reintegro son una **señal**, no una fuente de verdad. Sólo adelantan el próximo intento del reembolso pendiente (`SenalarVencimiento`); el monto y el estado salen siempre de la consulta a la pasarela (D-15.6). Duplicados y eventos fuera de orden responden `200` sin efectos.
+- **Configuración**: `Pagos:AccessToken`, `Pagos:WebhookSecret`, `Pagos:UrlNotificacion` y `Pagos:UrlRetorno` por entorno. En **Production** faltar cualquiera impide arrancar (fail-fast, D-15.8); en Development la API arranca con `PasarelaPagosNoConfigurada` (503 `pasarela_no_configurada`).
 
 ### 7.3 Tiempo real (SignalR)
 
@@ -381,7 +408,7 @@ Criterio de cierre del rol `qa`: si alguien elimina la seña obligatoria, la sin
 
 Las ambigüedades 1 a 5 están en `OVERVIEW.md` y **no se resuelven por decisión técnica**: requieren al responsable del producto. La 4 quedó **decidida** por el slice-11 y la 6 también, y se documentan aquí porque condicionan el modelado de datos de §4. La 7 es de modelado de datos puro, sin componente de producto, y le corresponde a `architect`.
 
-1. **Cancelación y reembolso.** `OVERVIEW.md` no define qué ocurre si el cliente cancela después de pagar la seña. El modelo ya contempla `cancelado` y el flujo de devolución por la pasarela está preparado, pero la política (plazo, porcentaje devuelto, quién asume el costo del horario perdido) no está definida.
+1. **Cancelación y reembolso (decidida por slice-14; ejecutada en slice-15).** `OVERVIEW.md` no define qué ocurre si el cliente cancela después de pagar la seña. La política quedó fijada en `SPECS/slice-14-ciclo-cliente-cancelacion.md` (D-14.6): se reintegra el **100 %** de la seña si el cliente cancela con **120 minutos o más** de anticipación al inicio del turno (borde inclusivo); fuera de plazo no hay reintegro. Ambos parámetros son configurables (`Reembolsos:AnticipacionMinimaMinutos`, `Reembolsos:PorcentajeReintegrable`). El slice-14 **registra** el reintegro (`reembolsos` en `pendiente`/`no_aplica`); el slice-15 lo **ejecuta** contra Mercado Pago.
 2. **Proveedor de mapas.** Sin definir. El puerto `IGeocodificador` está listo; falta la decisión.
 3. **Moneda y política de redondeo.** El modelo guarda `numeric` sin fijar moneda. `OVERVIEW.md` no la especifica.
 

@@ -223,6 +223,12 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
                         .HasColumnType("character varying(16)")
                         .HasColumnName("estado");
 
+                    b.Property<int>("Intentos")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("intentos");
+
                     b.Property<decimal>("Monto")
                         .HasColumnType("numeric(10,2)")
                         .HasColumnName("monto");
@@ -233,15 +239,39 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
                         .HasColumnType("character varying(32)")
                         .HasColumnName("motivo");
 
+                    b.Property<string>("MpRefundId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("mp_refund_id");
+
                     b.Property<DateTime?>("ProcesadoEn")
                         .HasColumnType("timestamptz")
                         .HasColumnName("procesado_en");
+
+                    b.Property<DateTime?>("ProximoIntentoEn")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("proximo_intento_en");
+
+                    b.Property<DateTime?>("ReclamadoEn")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("reclamado_en");
 
                     b.Property<Guid>("TurnoId")
                         .HasColumnType("uuid")
                         .HasColumnName("turno_id");
 
+                    b.Property<string>("UltimoError")
+                        .HasColumnType("text")
+                        .HasColumnName("ultimo_error");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("MpRefundId")
+                        .IsUnique()
+                        .HasFilter("mp_refund_id IS NOT NULL");
+
+                    b.HasIndex("ProximoIntentoEn")
+                        .HasFilter("estado = 'pendiente'");
 
                     b.HasIndex("TurnoId")
                         .IsUnique();

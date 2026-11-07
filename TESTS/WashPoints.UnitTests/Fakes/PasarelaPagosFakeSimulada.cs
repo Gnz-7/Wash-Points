@@ -19,7 +19,9 @@ namespace WashPoints.UnitTests.Fakes;
 public sealed class PasarelaPagosFakeSimulada : IPasarelaPagos
 {
     private readonly ConcurrentDictionary<string, ResultadoVerificacionPago> _libreto = new();
+    private readonly ConcurrentDictionary<Guid, ResultadoVerificacionPago> _busquedas = new();
     private readonly List<PreferenciaPago> _preferencias = new();
+    private readonly List<(string PagoId, decimal Monto, string? Clave)> _reembolsos = new();
     private readonly object _candado = new();
     private int _secuencia;
 
@@ -76,6 +78,57 @@ public sealed class PasarelaPagosFakeSimulada : IPasarelaPagos
             : ResultadoVerificacionPago.Pendiente();
 
         return Task.FromResult(resultado);
+    }
+
+    /// <summary>Reintegros solicitados, en orden de llegada (T-154).</summary>
+    public IReadOnlyList<(string PagoId, decimal Monto, string? Clave)> ReembolsosSolicitados => _reembolsos;
+
+    /// <summary>
+    /// Respuesta que devolverá <see cref="ReembolsarAsync"/>. Por defecto
+    /// aprueba, para que el worker tenga un camino feliz sin scriptear.
+    /// </summary>
+    public ResultadoReembolso? RespuestaReembolso { get; set; }
+
+    /// <summary>Fija la respuesta de la búsqueda por turno.</summary>
+    public void ScriptearBusqueda(Guid turnoId, ResultadoVerificacionPago resultado) =>
+        _busquedas[turnoId] = resultado;
+
+    public Task<ResultadoVerificacionPago> BuscarPagoPorTurnoAsync(Guid turnoId, CancellationToken ct)
+    {
+        LanzarSiCayo();
+
+        var resultado = _busquedas.TryGetValue(turnoId, out var scripteado)
+            ? scripteado
+            : ResultadoVerificacionPago.Pendiente(turnoId);
+
+        return Task.FromResult(resultado);
+    }
+
+    public Task<ResultadoReembolso> ReembolsarAsync(
+        string pagoId,
+        decimal monto,
+        string? claveIdempotencia,
+        CancellationToken ct)
+    {
+        LanzarSiCayo();
+
+        lock (_candado)
+        {
+            _reembolsos.Add((pagoId, monto, claveIdempotencia));
+            var respuesta = RespuestaReembolso
+                ?? ResultadoReembolso.Aprobado($"refund-{_reembolsos.Count}");
+            return Task.FromResult(respuesta);
+        }
+    }
+
+    public Task<ResultadoReembolso> ConsultarReembolsoAsync(
+        string pagoId,
+        string reembolsoId,
+        CancellationToken ct)
+    {
+        LanzarSiCayo();
+        return Task.FromResult(
+            RespuestaReembolso ?? ResultadoReembolso.Pendiente(reembolsoId));
     }
 
     private void LanzarSiCayo()

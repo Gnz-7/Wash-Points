@@ -18,15 +18,44 @@ public interface IPasarelaPagos
     Task<PreferenciaCreada> CrearPreferenciaAsync(PreferenciaPago preferencia, CancellationToken ct);
 
     /// <summary>
-    /// Consulta el estado del pago asociado a un identificador externo.
-    ///
-    /// Trazado <c>preferencia → payment_id</c> (SPECS/slice-01 T-12): el turno
-    /// persiste el <c>mp_preference_id</c> que devuelve
-    /// <see cref="CrearPreferenciaAsync"/>; la implementación real de Mercado
-    /// Pago resuelve el <c>payment_id</c> a partir de esa preferencia, porque
-    /// el pago lo genera la pasarela recién cuando el cliente paga. El respaldo
-    /// del worker (T-21) usa este método para resolver un turno que quedó sin
-    /// notificación de webhook.
+    /// Consulta el estado del pago a partir del <c>payment_id</c> que entrega
+    /// el webhook (SPECS/slice-15 D-15.2). Un identificador que no sea un
+    /// payment id de Mercado Pago devuelve <c>Pendiente</c>, nunca un pago
+    /// inventado.
     /// </summary>
     Task<ResultadoVerificacionPago> VerificarPagoAsync(string pagoIdExterno, CancellationToken ct);
+
+    /// <summary>
+    /// Busca el pago de un turno por su <c>external_reference</c> (el
+    /// <c>turnoId</c>). Es la vía del respaldo del worker cuando el turno
+    /// quedó sin notificación: la preferencia no es un payment id y no puede
+    /// consultarse como si lo fuera (SPECS/slice-15 D-15.2).
+    /// Devuelve <c>Pendiente</c> sin <c>MpPaymentId</c> si todavía no hay pago.
+    /// </summary>
+    Task<ResultadoVerificacionPago> BuscarPagoPorTurnoAsync(Guid turnoId, CancellationToken ct);
+
+    /// <summary>
+    /// Solicita el reintegro de un pago. <paramref name="monto"/> es el importe
+    /// de la seña a devolver; si coincide con el total del pago, la pasarela
+    /// recibe un reintegro total (SPECS/slice-15 D-15.3).
+    ///
+    /// <paramref name="claveIdempotencia"/> permite que un reintento del worker
+    /// no genere dos reintegros (D-15.5). Se envía como
+    /// <c>X-Idempotency-Key</c>.
+    /// </summary>
+    Task<ResultadoReembolso> ReembolsarAsync(
+        string pagoId,
+        decimal monto,
+        string? claveIdempotencia,
+        CancellationToken ct);
+
+    /// <summary>
+    /// Consulta un reintegro ya solicitado. Se usa para reconciliar cuando el
+    /// proceso cayó después de que la pasarela aceptó pero antes de persistir
+    /// el resultado (D-15.5).
+    /// </summary>
+    Task<ResultadoReembolso> ConsultarReembolsoAsync(
+        string pagoId,
+        string reembolsoId,
+        CancellationToken ct);
 }

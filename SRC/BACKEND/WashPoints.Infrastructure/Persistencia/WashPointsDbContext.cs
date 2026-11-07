@@ -89,10 +89,40 @@ public sealed class WashPointsDbContext : DbContext
             .HasColumnName("procesado_en")
             .HasColumnType("timestamptz");
 
+        reembolso.Property(r => r.Intentos)
+            .HasColumnName("intentos")
+            .HasDefaultValue(0)
+            .IsRequired();
+
+        reembolso.Property(r => r.ProximoIntentoEn)
+            .HasColumnName("proximo_intento_en")
+            .HasColumnType("timestamptz");
+
+        reembolso.Property(r => r.ReclamadoEn)
+            .HasColumnName("reclamado_en")
+            .HasColumnType("timestamptz");
+
+        reembolso.Property(r => r.UltimoError)
+            .HasColumnName("ultimo_error");
+
+        reembolso.Property(r => r.MpRefundId)
+            .HasColumnName("mp_refund_id")
+            .HasMaxLength(64);
+
         reembolso.HasIndex(r => r.TurnoId).IsUnique();
 
         // Cola de trabajo del slice de pagos: barre los pendientes por antigüedad.
         reembolso.HasIndex(r => new { r.Estado, r.CreadoEn });
+
+        // Reconciliación: un reintegro de la pasarela no puede quedar asociado a
+        // dos filas. Parcial para no colisionar con los pendientes sin id.
+        reembolso.HasIndex(r => r.MpRefundId)
+            .IsUnique()
+            .HasFilter("mp_refund_id IS NOT NULL");
+
+        // El worker busca sólo pendientes con el próximo intento vencido.
+        reembolso.HasIndex(r => r.ProximoIntentoEn)
+            .HasFilter("estado = 'pendiente'");
     }
 
     private static void ConfigurarTurno(EntityTypeBuilder<Turno> turno)

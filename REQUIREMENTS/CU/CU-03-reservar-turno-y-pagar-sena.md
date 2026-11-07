@@ -23,9 +23,9 @@
 
 | # | Situación | Comportamiento |
 |---|-----------|----------------|
-| A1 | Otro cliente tomó el mismo puesto en el mismo intervalo mientras este pagaba | El sistema responde `409 slot_ya_ocupado`. El turno queda `cancelado` y se ofrece otro horario. La garantía la impone la base de datos, no una comprobación previa. |
+| A1 | Otro cliente tomó el mismo puesto en el mismo intervalo mientras este pagaba | El sistema responde `409 slot_ya_ocupado` y **no crea el turno**: la reserva se rechaza antes de pedir la preferencia de pago. Se ofrece otro horario. La garantía la impone la base de datos, no una comprobación previa. |
 | A2 | El pago no se aprueba | El turno no se confirma. Si el puesto se había tomado por otra vía, el horario se libera. Se informa el motivo. |
-| A3 | El webhook no llega | A los 5 minutos el sistema consulta a la pasarela para resolver el turno. El webhook sigue siendo la vía primaria. |
+| A3 | El webhook no llega | A los `Pagos:VentanaRespaldoMinutos` (3 min) el worker consulta a la pasarela para resolver el turno. Si tampoco hay respuesta, a los `Pagos:TtlReservaMinutos` (5 min) el turno pasa a `expirado` —no a `cancelado`— y libera el puesto. El webhook sigue siendo la vía primaria. |
 | A4 | El cliente cancela antes de completar el pago | El turno se cancela y el puesto nunca estuvo ocupado. |
 | A5 | El cliente ya tiene un turno confirmado que solapa con el nuevo | El sistema rechaza la reserva duplicada. |
 

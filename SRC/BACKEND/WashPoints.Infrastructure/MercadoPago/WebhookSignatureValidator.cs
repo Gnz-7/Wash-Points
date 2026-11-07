@@ -21,19 +21,23 @@ public sealed class WebhookSignatureValidator
 {
     private static readonly TimeSpan ToleranciaPorDefecto = TimeSpan.FromMinutes(5);
 
-    private readonly string _secreto;
+    private readonly string? _secreto;
     private readonly TimeSpan _tolerancia;
     private readonly TimeProvider _reloj;
 
-    public WebhookSignatureValidator(string secreto, TimeProvider reloj)
+    public WebhookSignatureValidator(string? secreto, TimeProvider reloj)
         : this(secreto, ToleranciaPorDefecto, reloj)
     {
     }
 
-    public WebhookSignatureValidator(string secreto, TimeSpan tolerancia, TimeProvider reloj)
+    /// <summary>
+    /// Crea el validador. Un secreto nulo o en blanco es válido como estado de
+    /// arranque (Development sin credenciales) pero hace que toda firma se
+    /// rechace: es el default seguro de D-15.8.
+    /// </summary>
+    public WebhookSignatureValidator(string? secreto, TimeSpan tolerancia, TimeProvider reloj)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(secreto);
-        _secreto = secreto;
+        _secreto = string.IsNullOrWhiteSpace(secreto) ? null : secreto;
         _tolerancia = tolerancia;
         _reloj = reloj;
     }
@@ -44,7 +48,8 @@ public sealed class WebhookSignatureValidator
     /// </summary>
     public bool EsValida(string? xSignature, string? xRequestId, string? dataId)
     {
-        if (string.IsNullOrWhiteSpace(xSignature) ||
+        if (_secreto is null ||
+            string.IsNullOrWhiteSpace(xSignature) ||
             string.IsNullOrWhiteSpace(xRequestId) ||
             string.IsNullOrWhiteSpace(dataId))
         {
@@ -70,7 +75,7 @@ public sealed class WebhookSignatureValidator
 
     private string CalcularHmac(string manifiesto)
     {
-        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(_secreto));
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(_secreto!));
         return Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes(manifiesto)))
             .ToLowerInvariant();
     }

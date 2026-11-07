@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using WashPoints.Domain.Comprobantes;
 using WashPoints.Domain.Ocupacion;
 using WashPoints.Domain.Puertos;
+using WashPoints.Domain.Reembolsos;
 using WashPoints.Domain.Turnos;
 using WashPoints.Infrastructure.Persistencia;
 
@@ -48,24 +49,46 @@ public sealed class WebhookPagoServicio
     private readonly WashPointsDbContext _contexto;
     private readonly IEmisorComprobante _emisorComprobante;
     private readonly IOutbox _outbox;
+    private readonly TimeProvider _reloj;
 
     public WebhookPagoServicio(
         IPasarelaPagos pasarela,
         IOcupacionRepositorio turnos,
         WashPointsDbContext contexto,
         IEmisorComprobante emisorComprobante,
-        IOutbox outbox)
+        IOutbox outbox,
+        TimeProvider? reloj = null)
     {
         _pasarela = pasarela;
         _turnos = turnos;
         _contexto = contexto;
         _emisorComprobante = emisorComprobante;
         _outbox = outbox;
+        _reloj = reloj ?? TimeProvider.System;
     }
 
-    public async Task<ResultadoWebhook> ProcesarAsync(string? tipo, string dataId, CancellationToken ct)
+    /// <summary>
+    /// Procesa una notificación ya autenticada.
+    /// </summary>
+    /// <param name="tipo">Campo <c>type</c> del IPN (<c>payment</c>, <c>refund</c>…).</param>
+    /// <param name="accion">Campo <c>action</c> del IPN (<c>payment.refunded</c>…), si vino.</param>
+    /// <param name="dataId">Identificador del recurso notificado.</param>
+    /// <param name="ct">Cancelación.</param>
+    public async Task<ResultadoWebhook> ProcesarAsync(
+        string? tipo,
+        string? accion,
+        string dataId,
+        CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(dataId);
+
+        // Un evento de reintegro es una señal, no una fuente de verdad: sólo
+        // adelanta el trabajo del worker, que consulta el estado real a la
+        // pasarela (D-15.6). Nunca se toma el monto del payload.
+        if (EsEventoDeReembolso(tipo, accion))
+        {
+            return await SenalarReembolsoAsync(dataId, ct);
+        }
 
         if (!string.Equals(tipo, "payment", StringComparison.OrdinalIgnoreCase))
         {
@@ -204,4 +227,51 @@ public sealed class WebhookPagoServicio
         EstadoVerificacionPago.Rechazado => ResultadoPago.Rejected,
         _ => ResultadoPago.Pending,
     };
+
+    private static bool EsEventoDeReembolso(string? tipo, string? accion) =>
+        (tipo?.Contains("refund", StringComparison.OrdinalIgnoreCase) ?? false) ||
+        (accion?.Contains("refund", StringComparison.OrdinalIgnoreCase) ?? false);
+
+    /// <summary>
+    /// Marca como vencido el reembolso pendiente que corresponde al evento.
+    /// Se busca por <c>mp_refund_id</c> y, si el evento trae un payment id, por
+    /// el pago aprobado del turno. Si no hay reembolso pendiente no hay nada
+    /// que hacer: el evento es idempotente y responde 200.
+    /// </summary>
+    private async Task<ResultadoWebhook> SenalarReembolsoAsync(string dataId, CancellationToken ct)
+    {
+        var ahora = _reloj.GetUtcNow().UtcDateTime;
+
+        var pendientes = await _contexto.Reembolsos
+            .Where(r => r.Estado == EstadoReembolso.Pendiente && r.MpRefundId == dataId)
+            .ToListAsync(ct);
+
+        if (pendientes.Count == 0)
+        {
+            var turnoId = await _contexto.Pagos
+                .Where(p => p.MpPaymentId == dataId)
+                .Select(p => (Guid?)p.TurnoId)
+                .FirstOrDefaultAsync(ct);
+
+            if (turnoId is not null)
+            {
+                pendientes = await _contexto.Reembolsos
+                    .Where(r => r.Estado == EstadoReembolso.Pendiente && r.TurnoId == turnoId.Value)
+                    .ToListAsync(ct);
+            }
+        }
+
+        if (pendientes.Count == 0)
+        {
+            return ResultadoWebhook.Ignorado;
+        }
+
+        foreach (var reembolso in pendientes)
+        {
+            reembolso.SenalarVencimiento(ahora);
+        }
+
+        await _contexto.SaveChangesAsync(ct);
+        return ResultadoWebhook.Procesado;
+    }
 }

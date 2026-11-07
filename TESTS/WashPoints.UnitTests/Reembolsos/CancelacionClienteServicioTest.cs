@@ -279,6 +279,15 @@ public sealed class CancelacionClienteServicioTest
 
         public Task<Reembolso?> ObtenerPorTurnoAsync(Guid turnoId, CancellationToken ct) =>
             Task.FromResult(Guardados.Find(reembolso => reembolso.TurnoId == turnoId));
+
+        public Task<IReadOnlyList<Reembolso>> ReclamarPendientesAsync(
+            int lote, DateTime ahoraUtc, TimeSpan lease, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<Reembolso>>([]);
+
+        public Task<string?> ObtenerPagoAprobadoAsync(Guid turnoId, CancellationToken ct) =>
+            Task.FromResult<string?>(null);
+
+        public Task GuardarCambiosAsync(CancellationToken ct) => Task.CompletedTask;
     }
 
     private sealed class OutboxFalso : IOutbox

@@ -7,7 +7,7 @@
 | Campo | Valor |
 |-------|-------|
 | **Rol ejecutor** | `backend` (AGENTS.md §2.2) |
-| **Estado** | Propuesto, pendiente de aprobación |
+| **Estado** | Implementado — verificado en verde en el commit `8a3dbb5` (2026-11-06) |
 | **Objetivo** | Hacer verificables RB-1 y RB-2 en el servidor, sin depender de integraciones externas |
 | **Criterio de cierre** | Los tests de RB-1 y RB-2 de la tabla de trazabilidad pasan; si alguien relaja la garantía, la suite falla |
 

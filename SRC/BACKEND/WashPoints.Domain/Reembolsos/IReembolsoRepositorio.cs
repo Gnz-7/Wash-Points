@@ -15,4 +15,25 @@ public interface IReembolsoRepositorio
     Task AgregarAsync(Reembolso reembolso, CancellationToken ct);
 
     Task<Reembolso?> ObtenerPorTurnoAsync(Guid turnoId, CancellationToken ct);
+
+    /// <summary>
+    /// Reclama hasta <paramref name="lote"/> reembolsos pendientes listos para
+    /// procesar, de forma atómica y sin bloquear a otro worker
+    /// (<c>FOR UPDATE SKIP LOCKED</c>). Suma un intento y fija el lease en la
+    /// misma sentencia (D-15.4).
+    /// </summary>
+    Task<IReadOnlyList<Reembolso>> ReclamarPendientesAsync(
+        int lote,
+        DateTime ahoraUtc,
+        TimeSpan lease,
+        CancellationToken ct);
+
+    /// <summary>
+    /// Identificador del pago aprobado del turno, que es el que hay que
+    /// reembolsar. <c>null</c> si el turno nunca se cobró.
+    /// </summary>
+    Task<string?> ObtenerPagoAprobadoAsync(Guid turnoId, CancellationToken ct);
+
+    /// <summary>Confirma los cambios del tick del worker.</summary>
+    Task GuardarCambiosAsync(CancellationToken ct);
 }

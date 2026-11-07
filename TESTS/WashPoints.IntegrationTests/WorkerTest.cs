@@ -116,7 +116,7 @@ public sealed class WorkerTest : IClassFixture<ContenedorPostgres>, IDisposable
             creadoEn: Ahora.AddMinutes(-4),
             expiraEn: Ahora.AddMinutes(1));
         var pasarela = new PasarelaPagosFakeSimulada();
-        pasarela.ScriptearVerificacion("pref-1", ResultadoVerificacionPago.Aprobado(turnoId, "pago-1"));
+        pasarela.ScriptearBusqueda(turnoId, ResultadoVerificacionPago.Aprobado(turnoId, "pago-1"));
         await using var contexto = CrearContexto();
         var worker = CrearWorker(contexto, pasarela);
 
@@ -137,7 +137,7 @@ public sealed class WorkerTest : IClassFixture<ContenedorPostgres>, IDisposable
             creadoEn: Ahora.AddMinutes(-4),
             expiraEn: Ahora.AddMinutes(1));
         var pasarela = new PasarelaPagosFakeSimulada();
-        pasarela.ScriptearVerificacion("pref-1", ResultadoVerificacionPago.Rechazado(turnoId, "pago-r"));
+        pasarela.ScriptearBusqueda(turnoId, ResultadoVerificacionPago.Rechazado(turnoId, "pago-r"));
         await using var contexto = CrearContexto();
         var worker = CrearWorker(contexto, pasarela);
 
@@ -225,7 +225,7 @@ public sealed class WorkerTest : IClassFixture<ContenedorPostgres>, IDisposable
             creadoEn: Ahora.AddMinutes(-4),
             expiraEn: Ahora.AddMinutes(1));
         var pasarela = new PasarelaPagosFakeSimulada();
-        pasarela.ScriptearVerificacion("pref-1", ResultadoVerificacionPago.Aprobado(turnoId, "pago-1"));
+        pasarela.ScriptearBusqueda(turnoId, ResultadoVerificacionPago.Aprobado(turnoId, "pago-1"));
 
         // El webhook procesa primero: confirma y registra el pago.
         await using (var contextoWebhook = CrearContexto())
@@ -233,7 +233,7 @@ public sealed class WorkerTest : IClassFixture<ContenedorPostgres>, IDisposable
             var webhook = new WebhookPagoServicio(
                 pasarela, new OcupacionRepositorio(contextoWebhook), contextoWebhook,
                 CrearEmisor(contextoWebhook), CrearOutbox(contextoWebhook));
-            await webhook.ProcesarAsync("payment", "pref-1", CancellationToken.None);
+            await webhook.ProcesarAsync("payment", null, "pref-1", CancellationToken.None);
         }
 
         // El worker reejecuta el respaldo: no debe duplicar el pago ni fallar.

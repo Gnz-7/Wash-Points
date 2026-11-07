@@ -1,7 +1,8 @@
 # Catálogo de pruebas — Wash Points
 
-Referencia funcional de la suite del backend: **280 tests** (125 unitarios y 155 de integración),
-verificados en verde el 25/10/2026 sobre el commit `981b6ad`.
+Referencia funcional de la suite del backend: **431 tests** (228 unitarios y 203 de integración),
+verificados en verde el 07/11/2026 sobre el árbol del slice-15. La suite Flutter suma **380 tests**
+(`flutter test`), verificados en la misma fecha.
 
 - **Propósito.** Que cualquier persona del equipo —sin leer código— entienda qué comportamiento
   del sistema está protegido por cada prueba y qué se rompe si esa prueba falla.
@@ -14,11 +15,19 @@ verificados en verde el 25/10/2026 sobre el commit `981b6ad`.
 - **Slices.** 00 = núcleo de turnos y ocupación; 01 = reserva con seña y webhook de pagos;
   02 = comprobante digital y canje; 03 = demanda espontánea y eventos en tiempo real;
   04 = agenda, puestos y ciclo de vida del turno; 05 = cuentas, sesión y permisos;
-  06 = métricas y BI; 07 = búsqueda por proximidad; 08 = alta de cuentas.
+  06 = métricas y BI; 07 = búsqueda por proximidad; 08 = alta de cuentas;
+  09 = frontend; 10 = panel de administración; 11 = validación offline; 12 = sincronización en
+  tiempo real; 13 = catálogo y onboarding; 14 = ciclo del cliente, cancelación y reembolsos;
+  15 = pagos reales y ejecución de reembolsos.
+
+> **Cobertura del catálogo.** Las entradas detalladas cubren los slices 00–08. Los tests de los
+> slices 09–15 están documentados en su spec (`SPECS/slice-09`…`slice-15`, §12 «Estado de
+> implementación») y todavía no se desglosan aquí caso por caso. El conteo de cabecera (431) sí
+> los incluye.
 
 ---
 
-## 1. Pruebas Unitarias (125)
+## 1. Pruebas Unitarias (228 en total; 125 detalladas abajo)
 
 Prueban una pieza aislada del sistema, sin base de datos ni red. Son las más rápidas y las que
 primero señalan que una regla del dominio cambió.
@@ -318,7 +327,7 @@ primero señalan que una regla del dominio cambió.
 
 ---
 
-## 2. Pruebas de Integración (155)
+## 2. Pruebas de Integración (203 en total; 155 detalladas abajo)
 
 Levantan la API completa contra una base PostgreSQL real y ejercitan el sistema de punta a punta:
 petición, reglas de negocio, persistencia y respuesta.

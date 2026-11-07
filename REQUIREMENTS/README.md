@@ -76,9 +76,14 @@ Las tres reglas tienen al menos una US con criterio de aceptación y punto de ve
 
 Estas ambigüedades vienen del SDD y **no se resuelven en requisitos**. Se referencian desde los CU afectados.
 
+> **Resuelta (slice-14).** La pregunta 1 quedó definida en `SPECS/slice-14-ciclo-cliente-cancelacion.md`
+> (D-14.6): se reintegra el **100 %** de la seña si el cliente cancela con **120 minutos o más** de
+> anticipación al inicio del turno; fuera de plazo no hay reintegro. Ambos parámetros son
+> configurables por appsettings. La ejecución efectiva del reintegro contra la pasarela queda para
+> el slice-15.
+
 | # | Pregunta | CU afectados | Referencia |
 |---|----------|--------------|------------|
-| 1 | Política de cancelación y reembolso tras el pago de la seña | CU-03 | ARCHITECTURE §10.1 |
 | 2 | Proveedor de mapas sin definir | CU-01 | ARCHITECTURE §7.2, §10.2 |
 | 3 | Moneda y política de redondeo | CU-03, CU-09 | ARCHITECTURE §10.3 |
 | 4 | Ventana de canje offline: cuánto puede validar el admin sin red | CU-08 | ARCHITECTURE §10.4 |

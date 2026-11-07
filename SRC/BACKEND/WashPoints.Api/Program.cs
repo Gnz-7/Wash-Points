@@ -17,6 +17,7 @@ using WashPoints.Application.Geo;
 using WashPoints.Application.Metricas;
 using WashPoints.Application.MisTurnos;
 using WashPoints.Application.Pagos;
+using WashPoints.Application.Reembolsos;
 using WashPoints.Application.ReservarTurno;
 // El alta de cuentas (slice-08) trae una `UbicacionInvalidaException` propia que
 // choca de nombre con la de Geo; se califica el namespace en vez de importarlo.
@@ -60,7 +61,9 @@ var opcionesReembolso = builder.Configuration
     .GetSection(OpcionesReembolso.Seccion)
     .Get<OpcionesReembolso>() ?? new OpcionesReembolso();
 builder.Services.AddSingleton(new PoliticaReembolso(opcionesReembolso));
+builder.Services.AddSingleton(opcionesReembolso);
 builder.Services.AddScoped<IReembolsoRepositorio, ReembolsoRepositorio>();
+builder.Services.AddScoped<ProcesarReembolsosServicio>();
 builder.Services.AddScoped<CancelacionClienteServicio>();
 builder.Services.AddScoped<IConsultaMisTurnos, ConsultaMisTurnos>();
 builder.Services.AddScoped<MisTurnosServicio>();
@@ -95,8 +98,24 @@ builder.Services.AddScoped<IRegistroClientes, RegistroClientes>();
 builder.Services.AddScoped<IOutbox, OutboxRepositorio>();
 builder.Services.AddScoped<RegistrarDemandaEspontaneaServicio>();
 
-// El worker de respaldo/expiración y la pasarela real se registran en T-17/T-21.
-builder.Services.AddScoped<IPasarelaPagos, PasarelaPagosMercadoPago>();
+// Pasarela de pagos (slice-15): en Production sin credenciales no se arranca
+// (D-15.8); en Development se sustituye por una pasarela que responde 503.
+var opcionesMercadoPago = builder.Configuration
+    .GetSection(OpcionesMercadoPago.Seccion)
+    .Get<OpcionesMercadoPago>() ?? new OpcionesMercadoPago();
+ValidadorConfiguracionPagos.Validar(opcionesMercadoPago, builder.Environment.IsProduction());
+builder.Services.AddSingleton(opcionesMercadoPago);
+
+if (opcionesMercadoPago.ClavesFaltantes().Count == 0)
+{
+    builder.Services.AddSingleton<MercadoPago.Http.IHttpClient>(
+        _ => new MercadoPago.Http.DefaultHttpClient());
+    builder.Services.AddScoped<IPasarelaPagos, PasarelaPagosMercadoPago>();
+}
+else
+{
+    builder.Services.AddScoped<IPasarelaPagos, PasarelaPagosNoConfigurada>();
+}
 
 // Configuración del ciclo de vida de la seña (sección "Pagos").
 var opcionesPago = builder.Configuration.GetSection("Pagos").Get<OpcionesPago>()
@@ -245,6 +264,14 @@ builder.Services.AddHostedService<WashPoints.Api.WorkerReservas>();
 // Worker de cierre de agenda (T-47): confirmado vencido -> no_presentado.
 builder.Services.AddHostedService<WashPoints.Api.WorkerAgenda>();
 
+// Worker de ejecución de reembolsos (slice-15 T-157): pendiente -> procesado/fallido.
+// Sólo se registra con pasarela real: sin credenciales no hay reintegro que
+// ejecutar y un tick marcaría fallidos los reembolsos de desarrollo.
+if (opcionesMercadoPago.ClavesFaltantes().Count == 0)
+{
+    builder.Services.AddHostedService<WashPoints.Api.WorkerReembolsos>();
+}
+
 // Sincronización en tiempo real (RB-2, slice-03 T-38): SignalR más el
 // publicador de la outbox. El publicador es scoped (usa el DbContext) y su
 // worker lo bombea en cada tick, en su propio scope.
@@ -253,16 +280,13 @@ builder.Services.AddScoped<PublicadorOutbox>();
 builder.Services.AddHostedService<WashPoints.Api.PublicadorOutboxWorker>();
 
 // Validador de firma del webhook IPN. El secreto va por variable de entorno
-// (Pagos:WebhookSecret, nunca en el repo, AGENTS §3.4). Si falta, se usa un
-// secreto aleatorio de arranque: toda firma entrante se rechaza (401), que es
-// el default seguro; se avisa por log. Tolerancia configurable (default 5 min).
-var webhookSecret = builder.Configuration["Pagos:WebhookSecret"];
-var webhookSecretEfectivo = string.IsNullOrWhiteSpace(webhookSecret)
-    ? Guid.NewGuid().ToString("N")
-    : webhookSecret;
+// (Pagos:WebhookSecret, nunca en el repo, AGENTS §3.4). En Production el
+// arranque ya falló si falta (D-15.8). Sin secreto —Development— el validador
+// rechaza toda firma (401): no existe secreto de respaldo (T-159).
+// Tolerancia configurable (default 5 min).
 var webhookToleranciaSegundos = builder.Configuration.GetValue<int?>("Pagos:WebhookToleranciaSegundos") ?? 300;
 builder.Services.AddSingleton(new WebhookSignatureValidator(
-    webhookSecretEfectivo,
+    opcionesMercadoPago.WebhookSecret,
     TimeSpan.FromSeconds(webhookToleranciaSegundos),
     TimeProvider.System));
 
@@ -1493,6 +1517,9 @@ app.MapPost("/api/webhooks/mercadopago", async (
         var tipo = raiz.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String
             ? t.GetString()
             : null;
+        var accion = raiz.TryGetProperty("action", out var a) && a.ValueKind == JsonValueKind.String
+            ? a.GetString()
+            : null;
         var dataId = ExtraerDataId(raiz);
 
         if (string.IsNullOrWhiteSpace(dataId))
@@ -1510,7 +1537,7 @@ app.MapPost("/api/webhooks/mercadopago", async (
 
         try
         {
-            var resultado = await servicio.ProcesarAsync(tipo, dataId, ct);
+            var resultado = await servicio.ProcesarAsync(tipo, accion, dataId, ct);
             return Results.Ok(new { resultado = resultado.ToString() });
         }
         catch (ComprobanteNoEmitidoException ex)

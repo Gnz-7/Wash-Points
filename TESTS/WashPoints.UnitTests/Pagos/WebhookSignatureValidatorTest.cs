@@ -103,6 +103,26 @@ public sealed class WebhookSignatureValidatorTest
         Assert.True(Validador().EsValida(Header(ts, v1), "req-abc", "123456"));
     }
 
+    [Fact]
+    public void SinSecretoTodaFirmaEsRechazada()
+    {
+        var ts = Ahora.ToUnixTimeSeconds();
+        var v1 = Firmar("123456", "req-abc", ts);
+        var validador = new WebhookSignatureValidator(null, new RelojFijo(Ahora));
+
+        Assert.False(validador.EsValida(Header(ts, v1), "req-abc", "123456"));
+    }
+
+    [Fact]
+    public void SecretoEnBlancoTambienRechazaTodaFirma()
+    {
+        var ts = Ahora.ToUnixTimeSeconds();
+        var v1 = Firmar("123456", "req-abc", ts);
+        var validador = new WebhookSignatureValidator("   ", new RelojFijo(Ahora));
+
+        Assert.False(validador.EsValida(Header(ts, v1), "req-abc", "123456"));
+    }
+
     private sealed class RelojFijo : TimeProvider
     {
         private readonly DateTimeOffset _ahora;

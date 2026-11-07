@@ -171,8 +171,10 @@ public sealed class RespaldoYExpiracionServicio
 
             try
             {
-                var verificacion = await _pasarela.VerificarPagoAsync(
-                    turno.MpPreferenceId!, timeout.Token);
+                // La preferencia no es un payment id: se busca el pago por la
+                // referencia externa del turno (slice-15 D-15.2/T-153).
+                var verificacion = await _pasarela.BuscarPagoPorTurnoAsync(
+                    turno.Id, timeout.Token);
 
                 var debeAplicar =
                     (verificacion.Estado == EstadoVerificacionPago.Aprobado ||
