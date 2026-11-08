@@ -15,11 +15,21 @@ class MapaPlaceholder implements ProveedorMapas {
   const MapaPlaceholder();
 
   @override
+  bool get disponible => false;
+
+  @override
+  String? get motivoNoDisponible =>
+      'El mapa no está disponible en este entorno; usá la lista.';
+
+  @override
   Widget construir(
     BuildContext contexto, {
     required List<PuntoMapa> puntos,
     required double radioMetros,
+    required double centroLatitud,
+    required double centroLongitud,
     String? seleccionadoId,
+    ValueChanged<String>? alSeleccionar,
   }) {
     final tema = Theme.of(contexto);
 

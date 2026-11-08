@@ -58,7 +58,9 @@ public sealed class BusquedaLavaderosServicioTest
         geocodificador.Resultado = new Coordenadas(LatitudCentro, LongitudCentro);
         busqueda.Resultado = new[]
         {
-            new LavaderoCercano(Guid.NewGuid(), "Lavadero Uno", "Av. Siempreviva 742", 850.5, 4, 3, 2),
+            new LavaderoCercano(
+                Guid.NewGuid(), "Lavadero Uno", "Av. Siempreviva 742", 850.5,
+                -34.6040, -58.3820, 4, 3, 2),
         };
 
         var resultado = await servicio.BuscarPorDireccionAsync("Av. Siempreviva 742", 5000);

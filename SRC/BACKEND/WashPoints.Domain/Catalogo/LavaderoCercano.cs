@@ -10,6 +10,8 @@ public sealed record LavaderoCercano(
     string Nombre,
     string? Direccion,
     double DistanciaMetros,
+    double Latitud,
+    double Longitud,
     int PuestosTotales,
     int PuestosActivos,
     int OcupadosAhora);

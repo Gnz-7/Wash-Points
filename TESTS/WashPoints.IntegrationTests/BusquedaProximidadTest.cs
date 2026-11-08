@@ -3,7 +3,9 @@ using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using WashPoints.Domain.Catalogo;
+using WashPoints.Domain.Geo;
 using WashPoints.Domain.Turnos;
 using WashPoints.Infrastructure.Persistencia;
 using WashPoints.IntegrationTests.Infra;
@@ -47,7 +49,7 @@ public sealed class BusquedaProximidadTest : IClassFixture<ContenedorPostgres>, 
             .UseNpgsql(_baseDeDatos.CadenaConexion)
             .Options);
 
-    private CustomWebApplicationFactory CrearApi() =>
+    private CustomWebApplicationFactory CrearApi(Action<IServiceCollection>? configurar = null) =>
         new(_baseDeDatos.CadenaConexion, builder =>
         {
             builder.UseSetting("ConnectionStrings:Postgres", _baseDeDatos.CadenaConexion);
@@ -66,6 +68,8 @@ public sealed class BusquedaProximidadTest : IClassFixture<ContenedorPostgres>, 
                         servicios.Remove(descriptor);
                     }
                 }
+
+                configurar?.Invoke(servicios);
             });
         });
 
@@ -211,6 +215,8 @@ public sealed class BusquedaProximidadTest : IClassFixture<ContenedorPostgres>, 
         Assert.Equal("Lavadero Sol", unico.Nombre);
         Assert.Equal("Av. Rivadavia 1234", unico.Direccion);
         Assert.True(unico.DistanciaMetros > 0);
+        Assert.Equal(-34.6040, unico.Latitud, 4);
+        Assert.Equal(-58.3820, unico.Longitud, 4);
 
         Assert.Equal(2, unico.Ocupacion.PuestosTotales);
         Assert.Equal(1, unico.Ocupacion.PuestosActivos);
@@ -326,6 +332,21 @@ public sealed class BusquedaProximidadTest : IClassFixture<ContenedorPostgres>, 
     }
 
     [Fact]
+    public async Task LaBusquedaPorDireccionResponde503CuandoElProveedorNoResponde()
+    {
+        using var api = CrearApi(servicios =>
+            servicios.AddScoped<IGeocodificador>(_ => new GeocodificadorQueFalla()));
+        using var cliente = api.CrearClienteDeCliente();
+
+        var http = await cliente.GetAsync(
+            "/api/lavaderos/cercanos?direccion=Av.%20Rivadavia%201234&radioMetros=1000");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, http.StatusCode);
+        var error = await http.Content.ReadFromJsonAsync<RespuestaError>();
+        Assert.Equal("proveedor_mapas_no_disponible", error!.Error);
+    }
+
+    [Fact]
     public async Task LaRutaLiteralNoEsCapturadaPorElIdDeLavadero()
     {
         using var api = CrearApi();
@@ -357,9 +378,17 @@ public sealed class BusquedaProximidadTest : IClassFixture<ContenedorPostgres>, 
         string Nombre,
         string? Direccion,
         double DistanciaMetros,
+        double Latitud,
+        double Longitud,
         OcupacionDto Ocupacion);
 
     private sealed record OcupacionDto(int PuestosTotales, int PuestosActivos, int OcupadosAhora);
 
     private sealed record RespuestaError(string Error);
+
+    private sealed class GeocodificadorQueFalla : IGeocodificador
+    {
+        public Task<Coordenadas?> GeocodificarAsync(string direccion, CancellationToken ct = default) =>
+            throw new ProveedorMapasNoDisponibleException("El proveedor de mapas no respondió.");
+    }
 }

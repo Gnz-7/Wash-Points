@@ -28,4 +28,20 @@ class RepositorioBusquedaHttp implements RepositorioBusqueda {
 
     return ResultadoBusqueda.desdeJson(cuerpo);
   }
+
+  @override
+  Future<ResultadoBusqueda> buscarPorDireccion({
+    required String direccion,
+    required int radioMetros,
+  }) async {
+    final cuerpo = await _api.obtener(
+      '/api/lavaderos/cercanos',
+      parametros: <String, dynamic>{
+        'direccion': direccion,
+        'radioMetros': radioMetros,
+      },
+    );
+
+    return ResultadoBusqueda.desdeJson(cuerpo);
+  }
 }

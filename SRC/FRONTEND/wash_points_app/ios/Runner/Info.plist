@@ -8,6 +8,8 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
 	<string>Wash Points App</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Wash Points usa tu ubicación para mostrar los lavaderos cercanos.</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

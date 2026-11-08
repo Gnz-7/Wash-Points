@@ -11,4 +11,12 @@ abstract interface class RepositorioBusqueda {
     required double longitud,
     required int radioMetros,
   });
+
+  /// Busca lavaderos alrededor de [direccion] (CA-7.3).
+  ///
+  /// El backend geocodifica; el cliente nunca resuelve coordenadas.
+  Future<ResultadoBusqueda> buscarPorDireccion({
+    required String direccion,
+    required int radioMetros,
+  });
 }

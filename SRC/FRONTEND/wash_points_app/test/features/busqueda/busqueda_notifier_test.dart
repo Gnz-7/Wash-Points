@@ -33,6 +33,8 @@ void main() {
     nombre: 'Lavadero Central',
     direccion: 'Av. Corrientes 1234',
     distanciaMetros: 850.5,
+    latitud: -34.6040,
+    longitud: -58.3820,
     ocupacion: OcupacionResumen(
       puestosTotales: 4,
       puestosActivos: 3,

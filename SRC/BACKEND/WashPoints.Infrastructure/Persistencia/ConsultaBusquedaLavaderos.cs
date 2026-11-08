@@ -19,6 +19,8 @@ public sealed class ConsultaBusquedaLavaderos : IBusquedaLavaderos
             SELECT l.id,
                    l.nombre,
                    l.direccion,
+                   l.latitud,
+                   l.longitud,
                    6371000.0 * 2.0 * asin(sqrt(
                        least(1.0, greatest(0.0,
                            power(sin(radians(l.latitud - @latitud) / 2.0), 2)
@@ -35,6 +37,8 @@ public sealed class ConsultaBusquedaLavaderos : IBusquedaLavaderos
                c.nombre,
                c.direccion,
                c.distancia_metros,
+               c.latitud,
+               c.longitud,
                (SELECT count(*)::int
                   FROM puestos p
                  WHERE p.lavadero_id = c.id) AS puestos_totales,
@@ -93,9 +97,11 @@ public sealed class ConsultaBusquedaLavaderos : IBusquedaLavaderos
                     lector.GetString(1),
                     lector.IsDBNull(2) ? null : lector.GetString(2),
                     lector.GetDouble(3),
-                    lector.GetInt32(4),
-                    lector.GetInt32(5),
-                    lector.GetInt32(6)));
+                    lector.GetDouble(4),
+                    lector.GetDouble(5),
+                    lector.GetInt32(6),
+                    lector.GetInt32(7),
+                    lector.GetInt32(8)));
             }
 
             return resultados;

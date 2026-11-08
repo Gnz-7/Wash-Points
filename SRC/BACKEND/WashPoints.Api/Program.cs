@@ -83,9 +83,27 @@ builder.Services.AddScoped<CierreAgendaServicio>();
 builder.Services.AddScoped<IMetricasConsulta, ConsultaMetricas>();
 builder.Services.AddScoped<MetricasServicio>();
 
-// Búsqueda por proximidad (CU-01, US-C07, slice-07).
+// Búsqueda por proximidad (CU-01, US-C07, slice-07) y geocodificación real (slice-16).
 builder.Services.AddScoped<IBusquedaLavaderos, ConsultaBusquedaLavaderos>();
-builder.Services.AddScoped<IGeocodificador, GeocodificadorStub>();
+var opcionesMapas = builder.Configuration
+    .GetSection(OpcionesMapas.Seccion)
+    .Get<OpcionesMapas>() ?? new OpcionesMapas();
+builder.Services.AddSingleton(opcionesMapas);
+if (opcionesMapas.EstaConfigurado)
+{
+    builder.Services.AddHttpClient("mapas", cliente =>
+        cliente.Timeout = TimeSpan.FromSeconds(4));
+    builder.Services.AddScoped<IGeocodificador>(servicios =>
+        new GeocodificadorMapTiler(
+            opcionesMapas,
+            servicios.GetRequiredService<IHttpClientFactory>().CreateClient("mapas"),
+            servicios.GetRequiredService<TimeProvider>()));
+}
+else
+{
+    builder.Services.AddScoped<IGeocodificador, GeocodificadorStub>();
+}
+
 builder.Services.AddScoped<BusquedaLavaderosServicio>();
 
 builder.Services.AddScoped<ReservaServicio>();
@@ -1156,6 +1174,12 @@ app.MapGet("/api/lavaderos/cercanos", async (
             new { error = "proveedor_mapas_no_configurado" },
             statusCode: StatusCodes.Status503ServiceUnavailable);
     }
+    catch (ProveedorMapasNoDisponibleException)
+    {
+        return Results.Json(
+            new { error = "proveedor_mapas_no_disponible" },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
     catch (System.Data.Common.DbException)
     {
         return Results.Json(
@@ -1699,6 +1723,8 @@ static object BusquedaLavaderosAJson(ResultadoBusqueda resultado) => new
         nombre = lavadero.Nombre,
         direccion = lavadero.Direccion,
         distanciaMetros = Math.Round(lavadero.DistanciaMetros, 1, MidpointRounding.AwayFromZero),
+        latitud = lavadero.Latitud,
+        longitud = lavadero.Longitud,
         ocupacion = new
         {
             puestosTotales = lavadero.PuestosTotales,

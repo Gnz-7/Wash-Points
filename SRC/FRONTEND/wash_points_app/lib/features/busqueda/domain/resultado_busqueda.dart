@@ -42,6 +42,8 @@ class LavaderoCercano {
     required this.nombre,
     this.direccion,
     required this.distanciaMetros,
+    required this.latitud,
+    required this.longitud,
     required this.ocupacion,
   });
 
@@ -52,6 +54,8 @@ class LavaderoCercano {
         nombre: _texto(json['nombre']),
         direccion: _textoOpcional(json['direccion']),
         distanciaMetros: _decimal(json['distanciaMetros']),
+        latitud: _decimal(json['latitud']),
+        longitud: _decimal(json['longitud']),
         ocupacion: OcupacionResumen.desdeJson(_mapa(json['ocupacion'])),
       );
 
@@ -65,6 +69,11 @@ class LavaderoCercano {
 
   /// Distancia al centro de búsqueda, en metros, tal como la calculó el backend.
   final double distanciaMetros;
+
+  /// Coordenadas del lavadero (slice-16): permiten ubicar el pin en el mapa.
+  final double latitud;
+
+  final double longitud;
 
   final OcupacionResumen ocupacion;
 }
