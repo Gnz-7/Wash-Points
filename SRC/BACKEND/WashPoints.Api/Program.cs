@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -14,6 +15,7 @@ using WashPoints.Application.Catalogo;
 using WashPoints.Application.Comprobantes;
 using WashPoints.Application.Espontanea;
 using WashPoints.Application.Geo;
+using WashPoints.Application.Horarios;
 using WashPoints.Application.Metricas;
 using WashPoints.Application.MisTurnos;
 using WashPoints.Application.Pagos;
@@ -32,6 +34,7 @@ using WashPoints.Domain.Ocupacion;
 using WashPoints.Domain.Puertos;
 using WashPoints.Domain.Reembolsos;
 using WashPoints.Domain.Seguridad;
+using WashPoints.Domain.Tiempo;
 using WashPoints.Domain.Turnos;
 using WashPoints.Infrastructure.Comprobantes;
 using WashPoints.Infrastructure.Geo;
@@ -75,8 +78,13 @@ builder.Services.AddScoped<IConsultaCatalogo, ConsultaCatalogo>();
 // Gestión de puestos y agenda (CU-05/CU-06, slice-04).
 builder.Services.AddScoped<IPuestoRepositorio, PuestoRepositorio>();
 builder.Services.AddScoped<ITipoLavadoRepositorio, TipoLavadoRepositorio>();
+
+// Horarios de atención y compatibilidad puesto ↔ tipo (slice-17, R-1 y R-4).
+builder.Services.AddScoped<IHorarioRepositorio, HorarioRepositorio>();
 builder.Services.AddScoped<IConsultaAgenda, ConsultaAgenda>();
 builder.Services.AddScoped<GestionPuestosServicio>();
+builder.Services.AddScoped<GestionHorariosServicio>();
+builder.Services.AddScoped<ServicioSlots>();
 builder.Services.AddScoped<GestionTiposLavadoServicio>();
 builder.Services.AddScoped<AgendaServicio>();
 builder.Services.AddScoped<CierreAgendaServicio>();
@@ -144,6 +152,24 @@ builder.Services.AddSingleton(opcionesPago);
 var opcionesAgenda = builder.Configuration.GetSection(OpcionesAgenda.Seccion).Get<OpcionesAgenda>()
     ?? new OpcionesAgenda();
 builder.Services.AddSingleton(opcionesAgenda);
+
+// Conversión UTC ↔ hora local del lavadero para las reglas de reserva
+// (slice-17, D-17.5). Application la consume por puerto; hay una sola zona.
+builder.Services.AddSingleton<IConversorHorario, ConversorHorarioPort>();
+
+// Horarios de atención por defecto del alta (sección "Horarios", slice-17
+// D-17.2): lun–sáb 08:00–20:00 si la sección no existe.
+var seccionHorarios = builder.Configuration.GetSection(OpcionesHorarios.Seccion);
+var opcionesHorarios = seccionHorarios.Get<OpcionesHorarios>() ?? new OpcionesHorarios();
+if (!seccionHorarios.Exists())
+{
+    using var loggerFactory = LoggerFactory.Create(logging => logging.AddConsole());
+    loggerFactory.CreateLogger("WashPoints.Horarios").LogWarning(
+        "No existe la sección de configuración {Seccion}; se siembran los horarios por defecto.",
+        OpcionesHorarios.Seccion);
+}
+
+builder.Services.AddSingleton(opcionesHorarios);
 
 // Comprobantes (RB-3, slice-02): generador de tokens, cifrado del token en
 // reposo y emisión enganchada a la confirmación de la seña. La clave AES-256 va
@@ -400,6 +426,8 @@ app.MapGet("/api/lavaderos/{id:guid}/catalogo", async (
         {
             id = p.Id,
             nombre = p.Nombre,
+            // Lista vacía = el puesto atiende todos los servicios (D-17.7).
+            tiposLavadoIds = catalogo.TiposDe(p.Id),
         }),
         tiposLavado = catalogo.Tipos.Select(t => new
         {
@@ -412,6 +440,164 @@ app.MapGet("/api/lavaderos/{id:guid}/catalogo", async (
     });
 })
 .WithName("ObtenerCatalogoLavadero")
+.RequireAuthorization()
+.WithOpenApi();
+
+// Horarios de atención del lavadero (slice-17, T-178, R-1). El panel manda la
+// semana completa y el servidor la reemplaza dentro de una transacción: nunca
+// queda un estado intermedio mientras el administrador edita (D-17.11).
+app.MapGet("/api/lavaderos/{id:guid}/horarios", async (
+    Guid id,
+    GestionHorariosServicio horarios,
+    CancellationToken ct) =>
+{
+    var franjas = await horarios.ObtenerAsync(id, ct);
+
+    return Results.Ok(new
+    {
+        lavaderoId = id,
+        zonaHoraria = "America/Argentina/Buenos_Aires",
+        franjas = franjas.Select(f => new
+        {
+            id = f.Id,
+            diaSemana = f.DiaSemana,
+            apertura = f.Apertura.ToString("HH:mm", CultureInfo.InvariantCulture),
+            cierre = f.Cierre.ToString("HH:mm", CultureInfo.InvariantCulture),
+        }),
+    });
+})
+.WithName("ObtenerHorariosLavadero")
+.RequireAuthorization()
+.WithOpenApi();
+
+app.MapPut("/api/lavaderos/{id:guid}/horarios", async (
+    Guid id,
+    HorariosSolicitud? cuerpo,
+    GestionHorariosServicio horarios,
+    CancellationToken ct) =>
+{
+    if (cuerpo?.Franjas is null)
+    {
+        return Results.BadRequest(new
+        {
+            error = "franja_invalida",
+            detalle = "Faltan las franjas del lavadero.",
+        });
+    }
+
+    try
+    {
+        var franjas = await horarios.ReemplazarAsync(
+            id,
+            cuerpo.Franjas
+                .Select(f => new FranjaSolicitada(
+                    f.DiaSemana,
+                    f.Apertura ?? string.Empty,
+                    f.Cierre ?? string.Empty))
+                .ToArray(),
+            ct);
+
+        return Results.Ok(new
+        {
+            lavaderoId = id,
+            zonaHoraria = "America/Argentina/Buenos_Aires",
+            franjas = franjas.Select(f => new
+            {
+                id = f.Id,
+                diaSemana = f.DiaSemana,
+                apertura = f.Apertura.ToString("HH:mm", CultureInfo.InvariantCulture),
+                cierre = f.Cierre.ToString("HH:mm", CultureInfo.InvariantCulture),
+            }),
+        });
+    }
+    catch (LavaderoNoEncontradoException)
+    {
+        return Results.NotFound(new { error = "lavadero_no_encontrado" });
+    }
+    catch (FranjaInvalidaException ex)
+    {
+        return Results.BadRequest(new { error = "franja_invalida", detalle = ex.Message });
+    }
+})
+.WithName("ReemplazarHorariosLavadero")
+.RequireAuthorization()
+.WithOpenApi();
+
+// Grilla de slots de una fecha y un tipo de lavado (slice-17, T-183, D-17.9).
+// Es aditivo: la disponibilidad en tiempo real y el hub de SignalR no cambian.
+// El cliente sólo pinta lo que el servidor oferta; no calcula reglas (D-17.12).
+app.MapGet("/api/lavaderos/{id:guid}/slots", async (
+    Guid id,
+    string? fecha,
+    string? tipoLavadoId,
+    ServicioSlots slots,
+    CancellationToken ct) =>
+{
+    if (!DateOnly.TryParseExact(
+            fecha,
+            "yyyy-MM-dd",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.None,
+            out var fechaLocal))
+    {
+        return Results.BadRequest(new
+        {
+            error = "fecha_invalida",
+            detalle = "La fecha debe tener el formato YYYY-MM-DD.",
+        });
+    }
+
+    if (!Guid.TryParse(tipoLavadoId, out var tipoId) || tipoId == Guid.Empty)
+    {
+        return Results.BadRequest(new
+        {
+            error = "tipo_lavado_invalido",
+            detalle = "El tipo de lavado debe ser un uuid.",
+        });
+    }
+
+    try
+    {
+        var grilla = await slots.ObtenerAsync(id, fechaLocal, tipoId, ct);
+
+        return Results.Ok(new
+        {
+            fecha = grilla.Fecha.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            zonaHoraria = "America/Argentina/Buenos_Aires",
+            tipoLavadoId = grilla.TipoLavadoId,
+            duracionMinutos = grilla.DuracionMinutos,
+            abierto = grilla.Abierto,
+            franjas = grilla.Franjas.Select(franja => new
+            {
+                apertura = franja.Apertura.ToString("HH:mm", CultureInfo.InvariantCulture),
+                cierre = franja.Cierre.ToString("HH:mm", CultureInfo.InvariantCulture),
+            }),
+            slots = grilla.Slots.Select(slot => new
+            {
+                inicio = slot.Inicio.ToString("HH:mm", CultureInfo.InvariantCulture),
+                fin = slot.Fin.ToString("HH:mm", CultureInfo.InvariantCulture),
+                disponible = slot.Disponible,
+                puestosLibres = slot.PuestosLibres,
+                motivo = slot.Motivo,
+            }),
+        });
+    }
+    catch (LavaderoNoEncontradoException)
+    {
+        return Results.NotFound(new { error = "lavadero_no_encontrado" });
+    }
+    catch (TipoLavadoNoEncontradoException)
+    {
+        return Results.NotFound(new { error = "tipo_lavado_no_encontrado" });
+    }
+    catch (FueraDeHorizonteException ex)
+    {
+        return Results.Json(
+            new { error = "fuera_de_horizonte", detalle = ex.Message },
+            statusCode: StatusCodes.Status422UnprocessableEntity);
+    }
+})
+.WithName("ObtenerSlotsLavadero")
 .RequireAuthorization()
 .WithOpenApi();
 
@@ -469,6 +655,38 @@ app.MapPost("/api/lavaderos/{id:guid}/turnos", async (
     catch (TurnoConflictoException ex)
     {
         return Results.Conflict(new { error = "slot_ya_ocupado", detalle = ex.Message });
+    }
+    catch (TipoLavadoNoEncontradoException)
+    {
+        return Results.NotFound(new { error = "tipo_lavado_no_encontrado" });
+    }
+    catch (PuestoNoEncontradoException)
+    {
+        return Results.NotFound(new { error = "puesto_no_encontrado" });
+    }
+    catch (AnticipacionInsuficienteException ex)
+    {
+        return Results.Json(
+            new { error = "anticipacion_insuficiente", detalle = ex.Message },
+            statusCode: StatusCodes.Status422UnprocessableEntity);
+    }
+    catch (FueraDeHorizonteException ex)
+    {
+        return Results.Json(
+            new { error = "fuera_de_horizonte", detalle = ex.Message },
+            statusCode: StatusCodes.Status422UnprocessableEntity);
+    }
+    catch (FueraDeHorarioAtencionException ex)
+    {
+        return Results.Json(
+            new { error = "fuera_de_horario_atencion", detalle = ex.Message },
+            statusCode: StatusCodes.Status422UnprocessableEntity);
+    }
+    catch (PuestoIncompatibleException ex)
+    {
+        return Results.Json(
+            new { error = "puesto_incompatible", detalle = ex.Message },
+            statusCode: StatusCodes.Status422UnprocessableEntity);
     }
     catch (PasarelaNoDisponibleException)
     {
@@ -808,6 +1026,46 @@ app.MapPost("/api/lavaderos/{id:guid}/puestos/{puestoId:guid}/activar", async (
     }
 })
 .WithName("ActivarPuesto")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
+.WithOpenApi();
+
+// Servicios que atiende un puesto (slice-17, T-181, R-4). Reemplaza el
+// conjunto completo; una lista vacía deja el puesto atendiendo todos los
+// servicios (D-17.7). Un tipo ajeno o inactivo es indistinguible de
+// inexistente (404 tipo_lavado_no_encontrado, D-17.10).
+app.MapPut("/api/lavaderos/{id:guid}/puestos/{puestoId:guid}/tipos-lavado", async (
+    Guid id,
+    Guid puestoId,
+    SolicitudTiposLavadoPuestoHttp? cuerpo,
+    GestionPuestosServicio servicio,
+    CancellationToken ct) =>
+{
+    if (cuerpo?.TiposLavadoIds is null)
+    {
+        return Results.BadRequest(new
+        {
+            error = "solicitud_invalida",
+            detalle = "Faltan los tiposLavadoIds del puesto.",
+        });
+    }
+
+    try
+    {
+        var tipos = await servicio.AsignarTiposAsync(
+            id, puestoId, cuerpo.TiposLavadoIds, ct);
+
+        return Results.Ok(new { puestoId, tiposLavadoIds = tipos });
+    }
+    catch (PuestoNoEncontradoException)
+    {
+        return Results.NotFound(new { error = "puesto_no_encontrado" });
+    }
+    catch (TipoLavadoNoEncontradoException)
+    {
+        return Results.NotFound(new { error = "tipo_lavado_no_encontrado" });
+    }
+})
+.WithName("AsignarTiposLavadoPuesto")
 .RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
 .WithOpenApi();
 
@@ -1836,6 +2094,15 @@ public sealed record SolicitudReconciliacionHttp(List<CanjeOfflineHttp>? Canjes)
 
 /// <summary>Canje offline: hash del comprobante y el instante en que el dispositivo lo validó.</summary>
 public sealed record CanjeOfflineHttp(string? Hash, DateTimeOffset? ValidadoEn);
+
+/// <summary>Franja enviada por el panel; horas en formato HH:mm.</summary>
+public sealed record FranjaSolicitudHttp(int DiaSemana, string? Apertura, string? Cierre);
+
+/// <summary>Cuerpo del reemplazo de horarios: la semana completa del lavadero.</summary>
+public sealed record HorariosSolicitud(List<FranjaSolicitudHttp>? Franjas);
+
+/// <summary>Tipos de lavado que atiende un puesto; lista vacía = todos.</summary>
+public sealed record SolicitudTiposLavadoPuestoHttp(List<Guid>? TiposLavadoIds);
 
 /// <summary>Punto de entrada para los tests de integración (WebApplicationFactory).</summary>
 public partial class Program;

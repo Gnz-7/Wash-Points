@@ -8,7 +8,27 @@ namespace WashPoints.Domain.Catalogo;
 /// </summary>
 public interface IConsultaCatalogo
 {
-    Task<TipoLavado?> ObtenerTipoLavadoAsync(Guid tipoLavadoId, CancellationToken ct);
+    /// <summary>
+    /// Tipo de lavado del lavadero indicado, activo. Un id de otro comercio se
+    /// trata como inexistente (slice-17, D-17.8): nunca se cobra la seña de un
+    /// tipo ajeno.
+    /// </summary>
+    Task<TipoLavado?> ObtenerTipoLavadoAsync(
+        Guid lavaderoId, Guid tipoLavadoId, CancellationToken ct);
+
+    /// <summary>
+    /// Puesto del lavadero indicado, activo (slice-17, D-17.8). Un puesto de
+    /// otro comercio se trata como inexistente.
+    /// </summary>
+    Task<Puesto?> ObtenerPuestoAsync(
+        Guid lavaderoId, Guid puestoId, CancellationToken ct);
+
+    /// <summary>
+    /// ¿El puesto atiende ese tipo de lavado? (slice-17, D-17.7 y D-17.10).
+    /// Sin filas de compatibilidad, el puesto atiende todos los servicios.
+    /// </summary>
+    Task<bool> PuestoAtiendeTipoAsync(
+        Guid lavaderoId, Guid puestoId, Guid tipoLavadoId, CancellationToken ct);
 
     /// <summary>
     /// Catálogo del lavadero para que el cliente arme una reserva

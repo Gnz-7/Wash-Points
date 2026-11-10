@@ -1,8 +1,8 @@
 # Catálogo de pruebas — Wash Points
 
-Referencia funcional de la suite del backend: **440 tests** (236 unitarios y 204 de integración),
-verificados en verde el 07/11/2026 sobre el árbol del slice-16. La suite Flutter suma **388 tests**
-(`flutter test`), verificados en la misma fecha.
+Referencia funcional de la suite del backend: **529 tests** (291 unitarios y 238 de integración),
+verificados en verde el 08/11/2026 sobre el árbol del slice-17. La suite Flutter suma **410 tests**
+(`flutter test`), verificados el 08/11/2026 sobre el mismo árbol con `flutter analyze` limpio.
 
 - **Propósito.** Que cualquier persona del equipo —sin leer código— entienda qué comportamiento
   del sistema está protegido por cada prueba y qué se rompe si esa prueba falla.
@@ -18,19 +18,83 @@ verificados en verde el 07/11/2026 sobre el árbol del slice-16. La suite Flutte
   06 = métricas y BI; 07 = búsqueda por proximidad; 08 = alta de cuentas;
   09 = frontend; 10 = panel de administración; 11 = validación offline; 12 = sincronización en
   tiempo real; 13 = catálogo y onboarding; 14 = ciclo del cliente, cancelación y reembolsos;
-  15 = pagos reales y ejecución de reembolsos; 16 = mapa, GPS y geocodificación.
+  15 = pagos reales y ejecución de reembolsos; 16 = mapa, GPS y geocodificación;
+  17 = horarios de atención, reglas temporales y servicios por puesto.
 
-> **Cobertura del catálogo.** Las entradas detalladas cubren los slices 00–08. Los tests de los
-> slices 09–16 están documentados en su spec (`SPECS/slice-09`…`slice-16`, §12 «Estado de
-> implementación») y todavía no se desglosan aquí caso por caso. El conteo de cabecera (440) sí
+> **Cobertura del catálogo.** Las entradas detalladas cubren los slices 00–08 y el 17. Los tests de
+> los slices 09–16 están documentados en su spec (`SPECS/slice-09`…`slice-16`, §12 «Estado de
+> implementación») y todavía no se desglosan aquí caso por caso. El conteo de cabecera (529) sí
 > los incluye.
 
 ---
 
-## 1. Pruebas Unitarias (236 en total; 125 detalladas abajo)
+## 1. Pruebas Unitarias (291 en total; 180 detalladas abajo)
 
 Prueban una pieza aislada del sistema, sin base de datos ni red. Son las más rápidas y las que
 primero señalan que una regla del dominio cambió.
+
+### `Catalogo/CalendarioAtencionTest.cs` — Slice 17 (14 tests)
+
+- **`AceptaUnTurnoQueEntraCompletoEnLaFranja`** — *Slice 17.* Un turno cuya ventana cae entera dentro
+  de una franja de atención es válido: es la condición base para poder reservar.
+- **`AceptaElBordeExactoDeAperturaYCierre`** — *Slice 17.* Empezar justo en la apertura y terminar justo
+  en el cierre es válido; los bordes son inclusivos y no obligan a dejar minutos muertos.
+- **`RechazaUnInicioAnteriorALaApertura`** — *Slice 17.* No se puede reservar antes de que el lavadero
+  abra, aunque el turno termine dentro del horario.
+- **`RechazaUnFinPosteriorAlCierre`** — *Slice 17.* Un turno que se extiende más allá del cierre se
+  rechaza: el lavado no puede quedar a medio hacer con el local cerrado.
+- **`RechazaUnTurnoQueCruzaElCorteDelMediodia`** — *Slice 17.* Con dos franjas separadas por el mediodía,
+  un turno no puede atravesar el hueco: el lavadero no atiende en ese intervalo.
+- **`RechazaUnTurnoQueTerminaAlDiaSiguiente`** — *Slice 17.* Un turno que cruza la medianoche se rechaza;
+  el calendario razona por día y una franja nunca pasa de las 24 horas.
+- **`RechazaUnDiaSinFranjas`** — *Slice 17.* Un día sin franjas cargadas está cerrado: la ausencia de
+  horarios significa «no se atiende», nunca «se atiende las 24 horas».
+- **`IgnoraLasFranjasInactivas`** — *Slice 17.* Una franja dada de baja no habilita reservas: la baja
+  lógica del panel tiene efecto real sobre la disponibilidad.
+- **`RechazaUnRangoVacioOInvertido`** — *Slice 17.* Un turno con fin anterior o igual al inicio es
+  inválido y no llega a evaluarse contra el horario.
+- **`DevuelveLasFranjasDelDiaIndicado`** — *Slice 17.* El calendario filtra por día de la semana y
+  devuelve sólo las franjas de ese día, ordenadas para poder evaluarlas.
+- **`NoSePuedeCrearUnaFranjaConUnDiaFueraDeRango` (día inválido)** — *Slice 17.* Una franja sólo admite
+  los días 1 (lunes) a 7 (domingo); cualquier otro valor es un error de programación y no se persiste.
+- **`NoSePuedeCrearUnaFranjaQueCierraAntesDeAbrir`** — *Slice 17.* Una franja con cierre anterior a la
+  apertura es inválida: no representa ningún intervalo de atención.
+- **`UnaFranjaNuevaNaceActiva`** — *Slice 17.* Toda franja creada queda vigente sin pasos extra, para que
+  cargar horarios en el panel habilite reservas de inmediato.
+
+### `Catalogo/GestionHorariosServicioTest.cs` — Slice 17 (12 tests)
+
+- **`DevuelveLasFranjasDelLavadero`** — *Slice 17.* El panel lee la semana configurada de su propio
+  lavadero, que es lo que muestra la pantalla de horarios.
+- **`UnLavaderoInexistenteNoSeConfigura`** — *Slice 17.* Configurar horarios de un lavadero que no existe
+  responde «no encontrado» en vez de crear filas huérfanas.
+- **`ReemplazaLaSemanaCompletaDentroDeUnaTransaccion`** — *Slice 17.* Guardar horarios sustituye la semana
+  entera de forma atómica: no puede quedar media configuración aplicada si algo falla.
+- **`UnaListaVaciaDejaElLavaderoCerrado`** — *Slice 17.* Guardar sin franjas deja el lavadero cerrado y
+  sin turnos reservables; es una acción válida y explícita, no un error.
+- **`UnDiaFueraDeRangoEsFranjaInvalida` (día inválido)** — *Slice 17.* El servicio rechaza días fuera de
+  1..7 con `franja_invalida` antes de tocar la base.
+- **`LaAperturaDebeSerAnteriorAlCierre`** — *Slice 17.* Una franja que cierra antes de abrir se rechaza:
+  el panel no puede guardar un horario sin sentido.
+- **`LasFranjasSuperpuestasDelMismoDiaSeRechazan`** — *Slice 17.* Dos franjas del mismo día que se pisan
+  se rechazan, porque harían ambiguo el cálculo de cupo.
+- **`MasDeSeisFranjasPorDiaSeRechaza`** — *Slice 17.* Se limita a seis franjas por día: más cortes
+  convierten la grilla en algo inmanejable y suelen ser un error de carga.
+- **`UnaHoraMalFormadaSeRechaza` (hora mal formada)** — *Slice 17.* Horas que no respetan `HH:mm` se
+  rechazan en el servidor, sin depender de la validación del cliente.
+
+### `Catalogo/GestionPuestosServicioTest.cs` — Slice 17 (5 tests)
+
+- **`AsignaLosTiposCompatiblesDelLavadero`** — *Slice 17.* El dueño puede declarar qué servicios atiende
+  cada puesto, y esa restricción se guarda tal cual.
+- **`UnaListaVaciaDejaElPuestoAtendiendoTodosLosServicios`** — *Slice 17.* Sin restricciones el puesto
+  atiende todo: es el comportamiento por defecto y no obliga a configurar nada.
+- **`UnPuestoDeOtroLavaderoNoSeConfigura`** — *Slice 17.* Un administrador no puede tocar puestos de otro
+  lavadero: la pertenencia se valida antes de escribir.
+- **`UnTipoDeOtroLavaderoSeRechaza`** — *Slice 17.* No se puede asociar a un puesto un servicio ajeno;
+  evita cruzar catálogos entre comercios.
+- **`DeduplicaLosTiposRepetidos`** — *Slice 17.* Enviar el mismo tipo dos veces no duplica la fila ni
+  rompe la clave compuesta de la tabla puente.
 
 ### `Catalogo/PuestoTest.cs` — Slice 04 (4 tests)
 
@@ -42,6 +106,36 @@ primero señalan que una regla del dominio cambió.
   de nuevo, conservando su historia.
 - **`OperacionesSonIdempotentes`** — *Slice 04.* Activar o desactivar dos veces seguidas no debe
   cambiar el resultado: los reintentos de la interfaz no dejan al puesto en un estado inesperado.
+
+### `Catalogo/ServicioSlotsTest.cs` — Slice 17 (13 tests)
+
+- **`GeneraLaGrillaPorDuracionDesdeLaApertura`** — *Slice 17.* La grilla se arma desde la apertura y
+  avanza según la duración del servicio: el cliente ve exactamente los turnos que caben.
+- **`DescartaElSlotQueExcedeElCierre`** — *Slice 17.* Un slot que terminaría después del cierre no se
+  ofrece, porque el lavado no entraría en el horario.
+- **`UneLasFranjasDelDiaEnUnaSolaGrilla`** — *Slice 17.* Con corte de mediodía, el cliente ve una sola
+  lista ordenada de horarios y no dos bloques separados.
+- **`MarcaOcupadoCuandoTodosLosPuestosCompatiblesEstanTomados`** — *Slice 17.* Un horario sin puestos
+  libres se publica como ocupado en vez de desaparecer, para que el cliente entienda que el lavadero
+  atiende pero está lleno.
+- **`UnTurnoPendienteVigenteOcupaElPuesto`** — *Slice 17.* Un turno esperando el pago de la seña reserva
+  el puesto mientras su plazo siga vigente: si no, dos clientes podrían pagar el mismo horario.
+- **`UnTurnoPendienteVencidoNoOcupaElPuesto`** — *Slice 17.* Pasado el plazo de pago, el puesto vuelve a
+  ofrecerse en la grilla.
+- **`MarcaAnticipacionLosSlotsDentroDeLaAnticipacionMinima`** — *Slice 17.* Los horarios demasiado
+  próximos se marcan como no reservables, coherente con la anticipación mínima del servidor.
+- **`UnPuestoIncompatibleNoCuentaComoLibre`** — *Slice 17.* Un puesto que no atiende el servicio elegido
+  no suma cupo: la grilla no promete turnos que el lavadero no puede cumplir.
+- **`UnDiaSinFranjasDevuelveLaGrillaCerrada`** — *Slice 17.* Sin franjas la grilla viene cerrada y sin
+  slots, en lugar de inventar disponibilidad.
+- **`UnaFechaFueraDelHorizonteSeRechaza`** — *Slice 17.* Consultar más allá del horizonte de reserva es
+  un error de pedido, no una grilla vacía.
+- **`ElUltimoDiaDelHorizonteSeAcepta`** — *Slice 17.* El último día permitido sigue siendo reservable:
+  el borde del horizonte es inclusivo.
+- **`UnLavaderoInexistenteSeRechaza`** — *Slice 17.* La grilla de un lavadero que no existe responde «no
+  encontrado».
+- **`UnTipoDeOtroLavaderoSeTrataComoInexistente`** — *Slice 17.* Pedir la grilla con un servicio de otro
+  comercio responde «no encontrado», sin filtrar datos ajenos.
 
 ### `Comprobantes/CifradorComprobanteTest.cs` — Slice 02 (4 tests)
 
@@ -188,7 +282,7 @@ primero señalan que una regla del dominio cambió.
 - **`SinHeaderDeFirmaEsRechazada`** — *Slice 01.* Una notificación sin firma no se procesa: es la
   garantía de que el turno solo se confirma por un aviso verificado.
 
-### `Registro/RegistroServicioTest.cs` — Slice 08 (11 tests)
+### `Registro/RegistroServicioTest.cs` — Slice 08 (12 tests)
 
 - **`ElAdministradorQuedaVinculadoASuLavadero`** — *Slice 08.* La cuenta de administrador queda atada al
   lavadero que se crea con ella, y nunca a un cliente de negocio.
@@ -212,6 +306,9 @@ primero señalan que una regla del dominio cambió.
   haya dos formas de escribir la misma cuenta.
 - **`UnUsuarioDuplicadoSePropaga`** — *Slice 08.* Si el nombre de usuario ya está tomado, el alta falla y
   el conflicto se informa: dos personas no pueden compartir credencial.
+- **`ElAltaDelAdministradorSiembraHorariosDeLunesASabado`** — *Slice 17.* Al crear el lavadero se siembran
+  las seis franjas de lunes a sábado 08:00–20:00 en la misma transacción: el comercio nace operativo y
+  no depende de que alguien configure horarios para recibir su primer turno.
 
 ### `Seguridad/EmisorTokenTest.cs` — Slice 05 (6 tests)
 
@@ -325,9 +422,31 @@ primero señalan que una regla del dominio cambió.
 - **`TransicionesRechazadas` (NoPresentado → EnCurso)** — *Slice 00.* Una ausencia registrada no puede
   pasar a atención.
 
+### `Turnos/ReservaServicioReglasTest.cs` — Slice 17 (10 tests)
+
+- **`UnaReservadentroDeLaFranjaSeAcepta`** — *Slice 17.* Una reserva dentro del horario y con la
+  anticipación cumplida se acepta y sigue el camino normal hacia el pago.
+- **`ReservarConMenosDeLaAnticipacionMinimaSeRechaza`** — *Slice 17.* No se puede reservar un turno que
+  empieza en menos de la anticipación mínima: el lavadero necesita margen para organizarse.
+- **`ReservarEnElPasadoSeRechaza`** — *Slice 17.* Un horario ya pasado no es reservable.
+- **`ReservarMasAllaDelHorizonteSeRechaza`** — *Slice 17.* No se reserva más allá del horizonte máximo;
+  evita comprometer capacidad con demasiada anticipación.
+- **`ReservarAntesDeAbrirSeRechaza`** — *Slice 17.* El turno debe caer dentro de una franja: antes de la
+  apertura el lavadero está cerrado.
+- **`UnTurnoQueTerminaDespuesDelCierreSeRechaza`** — *Slice 17.* Tampoco alcanza con empezar dentro del
+  horario: el lavado completo tiene que terminar antes del cierre.
+- **`ReservarUnDiaSinFranjasSeRechaza`** — *Slice 17.* Un día cerrado rechaza la reserva aunque el
+  cliente tenga todo lo demás en orden.
+- **`UnPuestoQueNoAtiendeElTipoSeRechaza`** — *Slice 17.* No se puede reservar un servicio en un puesto
+  que no lo atiende: la compatibilidad se valida en el servidor.
+- **`UnPuestoDeOtroLavaderoSeTrataComoInexistente`** — *Slice 17.* Un `puestoId` de otro comercio se
+  trata como inexistente y no filtra información del otro lavadero.
+- **`UnTipoDeOtroLavaderoSeTrataComoInexistente`** — *Slice 17.* Ídem para el servicio: un tipo ajeno no
+  se puede usar para reservar.
+
 ---
 
-## 2. Pruebas de Integración (204 en total; 155 detalladas abajo)
+## 2. Pruebas de Integración (238 en total; 189 detalladas abajo)
 
 Levantan la API completa contra una base PostgreSQL real y ejercitan el sistema de punta a punta:
 petición, reglas de negocio, persistencia y respuesta.
@@ -523,6 +642,34 @@ petición, reglas de negocio, persistencia y respuesta.
 - **`PuestoDeOtroLavaderoDevuelve404`** — *Slice 04.* Un administrador no puede operar puestos de otro
   comercio.
 
+### `HorariosBackfillTest.cs` — Slice 17 (1 test)
+
+- **`ElLavaderoPrevioAlSliceQuedaConLaSemanaLunASabado`** — *Slice 17.* Un lavadero que existía antes del
+  slice recibe la semana lunes–sábado 08:00–20:00 al migrar: el backfill evita que todos los comercios
+  queden cerrados y dejen de recibir reservas por el solo hecho de actualizar.
+
+### `HorariosTest.cs` — Slice 17 (10 tests)
+
+- **`ElGetDevuelveLaSemanaSembrada`** — *Slice 17.* El panel lee la semana del lavadero tal como está
+  guardada, con día, apertura y cierre en formato `HH:mm` y la zona horaria del comercio.
+- **`ElPutReemplazaLaSemanaCompleta`** — *Slice 17.* Guardar horarios sustituye la semana entera, no la
+  mezcla: lo que el dueño borró deja de existir y el `GET` posterior lo confirma.
+- **`ElPutConFranjasSuperpuestasDevuelve400`** — *Slice 17.* Dos franjas del mismo día que se pisan se
+  rechazan con `franja_invalida`: el sistema no acepta una agenda ambigua.
+- **`ElPutSinFranjasDevuelve400`** — *Slice 17.* Un cuerpo sin la lista de franjas se rechaza en vez de
+  interpretarse como «cerrar todo»: borrar la semana exige enviar una lista vacía explícita.
+- **`ElPutDeUnLavaderoInexistenteDevuelve404`** — *Slice 17.* No se pueden configurar horarios de un
+  lavadero que no existe.
+- **`ElPutSinTokenDevuelve401`** — *Slice 17.* La agenda no es pública: sin sesión no se lee ni se modifica.
+- **`ElCatalogoPublicaVacioCuandoElPuestoAtiendeTodosLosServicios`** — *Slice 17.* Un puesto sin filas de
+  compatibilidad publica una lista vacía de servicios, que significa «atiende todos».
+- **`ElPutDeTiposLavadoAsignaYElCatalogoLoPublica`** — *Slice 17.* El dueño restringe un puesto a ciertos
+  servicios y el catálogo que ve el cliente refleja esa restricción de inmediato.
+- **`ElPutDeTiposLavadoConUnTipoAjenoDevuelve404`** — *Slice 17.* Un puesto no se puede configurar con un
+  tipo de lavado que no pertenece al lavadero.
+- **`UnAdministradorDeOtroLavaderoRecibe403`** — *Slice 17.* La configuración de puestos es del dueño: un
+  administrador ajeno recibe un rechazo de permisos, no un 404 ambiguo.
+
 ### `HumoTest.cs` — Slice 00 (3 tests)
 
 - **`PostgresResponde`** — *Slice 00.* La base de datos del entorno de pruebas está viva: sin esto, el resto
@@ -552,7 +699,7 @@ petición, reglas de negocio, persistencia y respuesta.
 - **`UnPuestoAjenoDevuelve404`** — *Slice 06.* No se puede consultar la ocupación de un puesto de otro
   comercio.
 
-### `MigracionTest.cs` — Slice 00 (13 tests)
+### `MigracionTest.cs` — Slice 00 (14 tests)
 
 - **`LaMigracionAplicaUnaSolaVez`** — *Slice 00.* La estructura de la base se crea una única vez y de forma
   repetible, sin duplicar objetos.
@@ -579,6 +726,9 @@ petición, reglas de negocio, persistencia y respuesta.
   guardan sin duplicarse.
 - **`LaTablaUsuariosExisteConRestricciones`** — *Slice 00.* La tabla de cuentas existe con sus reglas de
   integridad, incluida la separación entre administrador y cliente.
+- **`LaMigracionDelSlice17CreaHorariosYPuestosTipos`** — *Slice 17.* La migración crea las tablas de
+  horarios y de servicios por puesto con sus restricciones (día 1..7, apertura anterior al cierre,
+  índice único parcial por franja activa) y la clave compuesta de la tabla puente.
 
 ### `OcupacionServicioTest.cs` — Slice 00 (3 tests)
 
@@ -667,6 +817,28 @@ petición, reglas de negocio, persistencia y respuesta.
 - **`LaRespuestaDeAdministradorNoTraeClienteId`** — *Slice 08.* La respuesta de un administrador no incluye
   un vínculo de cliente que no existe.
 
+### `ReglasReservaTest.cs` — Slice 17 (9 tests)
+
+- **`UnaReservaDentroDeLaFranjaSeAcepta`** — *Slice 17.* Un turno que entra completo en una franja de
+  atención se reserva y queda esperando el pago de la seña.
+- **`UnDiaSinFranjasRechazaLaReserva`** — *Slice 17.* Un día cerrado no admite reservas: 422
+  `fuera_de_horario_atencion` en lugar de un turno que nadie va a atender.
+- **`UnaReservaSinLaAnticipacionMinimaSeRechaza`** — *Slice 17.* No se reserva un turno para dentro de
+  menos de la anticipación mínima: 422 `anticipacion_insuficiente`.
+- **`UnaReservaEnElPasadoSeRechaza`** — *Slice 17.* Un turno en el pasado cae dentro de la anticipación y
+  se rechaza: no se puede reservar hacia atrás.
+- **`UnaReservaMasAllaDelHorizonteSeRechaza`** — *Slice 17.* La agenda no se abre más allá del horizonte
+  configurado: 422 `fuera_de_horizonte`.
+- **`UnTipoDeOtroLavaderoDevuelve404`** — *Slice 17.* No se puede reservar con el servicio de otro
+  lavadero; se responde como inexistente para no filtrar datos ajenos.
+- **`UnPuestoDeOtroLavaderoDevuelve404`** — *Slice 17.* Tampoco se puede reservar sobre un puesto ajeno,
+  y el rechazo no revela que exista.
+- **`UnPuestoConFilasQueNoIncluyeElTipoDevuelve422`** — *Slice 17.* Si el puesto está restringido a otros
+  servicios, el turno se rechaza con `puesto_incompatible` en vez de aceptarse y ocupar una bahía que no
+  puede atenderlo.
+- **`UnPuestoSinFilasAceptaCualquierTipoActivo`** — *Slice 17.* Sin restricciones cargadas, el puesto
+  atiende cualquier servicio del lavadero.
+
 ### `ReservaServicioTest.cs` — Slice 01 (5 tests)
 
 - **`ReintentoIdenticoConElOriginalPendienteDevuelveElMismoTurno`** — *Slice 01.* Si el cliente reintenta la
@@ -679,6 +851,31 @@ petición, reglas de negocio, persistencia y respuesta.
   ningún turno a medias.
 - **`UnaSegundaReservaDistintaDelMismoIntervaloChocaPorElExclude`** — *Slice 01.* Dos reservas distintas del
   mismo horario no pueden coexistir.
+
+### `SlotsTest.cs` — Slice 17 (13 tests)
+
+- **`LaGrillaSaleDelHorarioYDeLaDuracionDelServicio`** — *Slice 17.* La respuesta HTTP publica los slots que
+  salen de la franja cargada y de la duración del servicio, con la fecha y el tipo pedidos.
+- **`DescartaLosSlotsQueNoEntranEnLaFranja`** — *Slice 17.* El último horario que no alcanza a terminar
+  antes del cierre no se publica.
+- **`UnTurnoVigenteMarcaElSlotComoOcupado`** — *Slice 17.* Un turno ya reservado en ese horario se ve como
+  ocupado en la grilla, no como libre.
+- **`UnDiaSinFranjasDevuelveLaGrillaCerrada`** — *Slice 17.* Un día cerrado responde 200 con `abierto:
+  false` y sin slots: el cliente entiende que el lavadero no atiende, no que falló la consulta.
+- **`UnaFechaFueraDelHorizonteDevuelve422`** — *Slice 17.* Consultar más allá del horizonte máximo es un
+  pedido inválido y se informa como tal.
+- **`UnaFechaDelPasadoDevuelve422`** — *Slice 17.* Una fecha ya pasada tampoco es una grilla vacía: es un
+  pedido inválido.
+- **`UnLavaderoInexistenteDevuelve404`** — *Slice 17.* La grilla de un lavadero que no existe responde «no
+  encontrado».
+- **`UnTipoDeOtroLavaderoDevuelve404`** — *Slice 17.* Un servicio de otro comercio responde «no
+  encontrado», sin revelar su existencia.
+- **`UnaFechaMalFormadaDevuelve400` (fecha `2026-13-40` / `manana`)** — *Slice 17.* Fechas imposibles o con
+  otro formato se rechazan con `fecha_invalida` antes de consultar la base.
+- **`UnTipoMalFormadoDevuelve400` (uuid inválido / uuid vacío)** — *Slice 17.* Un identificador de servicio
+  mal formado se rechaza como pedido inválido.
+- **`SinTokenLaGrillaDevuelve401`** — *Slice 17.* La disponibilidad no es pública: sin sesión no se
+  consulta.
 
 ### `WebhookTest.cs` — Slice 01 (8 tests)
 

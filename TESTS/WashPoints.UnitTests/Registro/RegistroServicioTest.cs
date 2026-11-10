@@ -1,4 +1,5 @@
 using WashPoints.Application.Catalogo;
+using WashPoints.Application.Horarios;
 using WashPoints.Application.Registro;
 using WashPoints.Domain.Catalogo;
 using WashPoints.Domain.Ocupacion;
@@ -170,7 +171,8 @@ public sealed class RegistroServicioTest
         var servicio = new RegistroServicio(
             clientes, lavaderos, usuarios, hasheador, emisor, unidad,
             new PuestoRepositorioFake(), new TipoLavadoRepositorioFake(),
-            new OpcionesCatalogo());
+            new HorarioRepositorioFake(), new OpcionesCatalogo(),
+            new OpcionesHorarios());
 
         return (servicio, clientes, lavaderos, usuarios, hasheador, emisor, unidad);
     }
@@ -198,9 +200,57 @@ public sealed class RegistroServicioTest
             unidad,
             puestos,
             tipos,
-            opciones ?? new OpcionesCatalogo());
+            new HorarioRepositorioFake(),
+            opciones ?? new OpcionesCatalogo(),
+            new OpcionesHorarios());
 
         return (servicio, puestos, tipos, unidad);
+    }
+
+    /// <summary>
+    /// Variante que expone las franjas sembradas por el alta (T-177, D-17.2).
+    /// </summary>
+    private static (RegistroServicio Servicio, HorarioRepositorioFake Horarios)
+        CrearConHorarios()
+    {
+        var horarios = new HorarioRepositorioFake();
+
+        var servicio = new RegistroServicio(
+            new ClienteRepositorioFake(),
+            new LavaderoRepositorioFake(),
+            new UsuarioRepositorioFake(),
+            new HasheadorFake(),
+            new EmisorTokenFake(),
+            new UnidadDeTrabajoFake(),
+            new PuestoRepositorioFake(),
+            new TipoLavadoRepositorioFake(),
+            horarios,
+            new OpcionesCatalogo(),
+            new OpcionesHorarios());
+
+        return (servicio, horarios);
+    }
+
+    [Fact]
+    public async Task ElAltaDelAdministradorSiembraHorariosDeLunesASabado()
+    {
+        var (servicio, horarios) = CrearConHorarios();
+
+        var registro = await servicio.RegistrarAdministradorAsync(Admin());
+
+        Assert.Equal(6, horarios.Agregadas.Count);
+        Assert.Equal(
+            new[] { 1, 2, 3, 4, 5, 6 },
+            horarios.Agregadas.Select(f => f.DiaSemana).ToArray());
+        Assert.All(horarios.Agregadas, franja =>
+        {
+            Assert.Equal(new TimeOnly(8, 0), franja.Apertura);
+            Assert.Equal(new TimeOnly(20, 0), franja.Cierre);
+            Assert.True(franja.Activo);
+            Assert.Equal(registro.LavaderoId, franja.LavaderoId);
+        });
+
+        Assert.Equal(1, horarios.Guardados);
     }
 
     [Fact]
@@ -284,8 +334,49 @@ public sealed class RegistroServicioTest
         public Task<IReadOnlyList<Puesto>> ListarAsync(Guid lavaderoId, CancellationToken ct = default) =>
             throw new NotSupportedException();
 
+        public Task<IReadOnlyList<Guid>> ObtenerTiposAsync(
+            Guid puestoId, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyDictionary<Guid, IReadOnlyList<Guid>>> ObtenerTiposPorPuestoAsync(
+            Guid lavaderoId, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public Task ReemplazarTiposAsync(
+            Guid puestoId, IReadOnlyList<Guid> tiposLavadoIds, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
         public Task GuardarAsync(CancellationToken ct = default) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class HorarioRepositorioFake : IHorarioRepositorio
+    {
+        public List<FranjaAtencion> Agregadas { get; } = new();
+
+        public int Guardados { get; private set; }
+
+        public Task AgregarRangoAsync(
+            IEnumerable<FranjaAtencion> franjas, CancellationToken ct = default)
+        {
+            Agregadas.AddRange(franjas);
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<FranjaAtencion>> ListarAsync(
+            Guid lavaderoId, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<FranjaAtencion>>(
+                Agregadas.Where(f => f.LavaderoId == lavaderoId && f.Activo).ToArray());
+
+        public Task ReemplazarAsync(
+            Guid lavaderoId, IReadOnlyList<FranjaAtencion> franjas, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public Task GuardarAsync(CancellationToken ct = default)
+        {
+            Guardados++;
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class TipoLavadoRepositorioFake : ITipoLavadoRepositorio

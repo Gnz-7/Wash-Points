@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using WashPoints.Application.Agenda;
 using WashPoints.Application.Pagos;
 using WashPoints.Application.ReservarTurno;
 using WashPoints.Domain.Catalogo;
@@ -6,6 +7,7 @@ using WashPoints.Domain.Ocupacion;
 using WashPoints.Domain.Puertos;
 using WashPoints.Domain.Turnos;
 using WashPoints.Infrastructure.Persistencia;
+using WashPoints.Infrastructure.Tiempo;
 using WashPoints.IntegrationTests.Infra;
 using WashPoints.UnitTests.Fakes;
 using Xunit;
@@ -39,7 +41,7 @@ public sealed class ReservaServicioTest : IClassFixture<ContenedorPostgres>, IDi
 
     private async Task LimpiarTablas() =>
         await _baseDeDatos.EjecutarSqlAsync("""
-            TRUNCATE TABLE outbox, pagos, turnos, clientes, puestos, tipos_lavado, lavaderos CASCADE;
+            TRUNCATE TABLE outbox, pagos, turnos, clientes, puestos, tipos_lavado, horarios_atencion, puestos_tipos_lavado, lavaderos CASCADE;
             """);
 
     private WashPointsDbContext CrearContexto() =>
@@ -55,8 +57,17 @@ public sealed class ReservaServicioTest : IClassFixture<ContenedorPostgres>, IDi
         var puesto = Puesto.Crear(lavadero.Id, "Puesto 1");
         var tipo = TipoLavado.Crear(lavadero.Id, "Exterior", 30, 15000m, 3000m);
         var cliente = Cliente.Crear("Cliente de Prueba");
+        var creadoEn = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        // Horario de atención lun–sáb 08:00–20:00 (slice-17, D-17.2): sin
+        // franjas el lavadero está cerrado y toda reserva sería rechazada.
+        var franjas = Enumerable.Range(1, 6)
+            .Select(dia => FranjaAtencion.Crear(
+                lavadero.Id, dia, new TimeOnly(8, 0), new TimeOnly(20, 0), creadoEn))
+            .ToArray();
 
         contexto.AddRange(lavadero, puesto, tipo, cliente);
+        contexto.AddRange(franjas);
         await contexto.SaveChangesAsync();
 
         return (lavadero.Id, puesto.Id, tipo.Id, cliente.Id);
@@ -70,7 +81,10 @@ public sealed class ReservaServicioTest : IClassFixture<ContenedorPostgres>, IDi
             new OutboxRepositorio(contexto, new RelojFijo(Ahora)),
             pasarela,
             new OpcionesPago(),
-            new RelojFijo(Ahora));
+            new RelojFijo(Ahora),
+            new ConversorHorarioPort(),
+            new HorarioRepositorio(contexto),
+            new OpcionesAgenda());
 
     private static SolicitudReserva Solicitud(
         Guid lavaderoId, Guid puestoId, Guid tipoId, Guid clienteId, int hora = 13) =>

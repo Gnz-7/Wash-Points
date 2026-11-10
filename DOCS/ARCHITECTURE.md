@@ -167,6 +167,38 @@ CREATE TABLE tipos_lavado (
   activo boolean NOT NULL DEFAULT true
 );
 
+-- Horarios de atención semanales (slice-17, D-17.1). Franjas en hora local del
+-- lavadero, 1 = lunes … 7 = domingo. Sin filas = cerrado: no existe el 24/7
+-- implícito. La baja es lógica (`activo`) para conservar historial.
+CREATE TABLE horarios_atencion (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  lavadero_id uuid NOT NULL,
+  dia_semana integer NOT NULL CHECK (dia_semana BETWEEN 1 AND 7),
+  apertura time NOT NULL,
+  cierre time NOT NULL,
+  activo boolean NOT NULL DEFAULT true,
+  creado_en timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT ck_horarios_atencion_rango CHECK (apertura < cierre)
+);
+
+-- Una sola franja activa por lavadero, día y apertura: el PUT reemplaza la
+-- semana completa y la baja lógica previa libera el índice.
+CREATE UNIQUE INDEX ix_horarios_atencion_franja
+  ON horarios_atencion (lavadero_id, dia_semana, apertura)
+  WHERE activo;
+
+CREATE INDEX ix_horarios_atencion_lavadero_dia
+  ON horarios_atencion (lavadero_id, dia_semana)
+  WHERE activo;
+
+-- Servicios que atiende cada puesto (slice-17, D-17.3). Sin filas = el puesto
+-- atiende todos los servicios activos del lavadero.
+CREATE TABLE puestos_tipos_lavado (
+  puesto_id uuid NOT NULL REFERENCES puestos(id) ON DELETE CASCADE,
+  tipo_lavado_id uuid NOT NULL REFERENCES tipos_lavado(id) ON DELETE CASCADE,
+  PRIMARY KEY (puesto_id, tipo_lavado_id)
+);
+
 CREATE TABLE turnos (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   lavadero_id uuid NOT NULL,
@@ -273,6 +305,10 @@ CREATE TABLE outbox (
 - **`turnos.cancelado_por`** (`cliente` | `administrador`, nullable): distingue la cancelación que genera reintegro (cliente, según política) de la administrativa, que nunca lo genera (D-14.9). Es nullable porque los turnos previos al slice-14 se backfillearon a `administrador` y los turnos vigentes todavía no están cancelados.
 - **`comprobantes` con `UNIQUE (turno_id)`**: un turno confirmado tiene exactamente un comprobante (slice-02, US-C08 CA-8.1); la emisión ocurre en el mismo `SaveChangesAsync` que `pendiente_pago → confirmado`. `hash` y `token_cifrado` son columnas distintas: el canje y la unicidad usan el hash; el hash único impide además emitir dos veces el mismo token. El canje es único por `usado_at IS NULL` evaluado en la misma transacción que `confirmado → en_curso`, la única transición que dispara RB-3 (slice-02 §3).
 - **`outbox` escrita en la misma transacción** que el cambio de estado: garantiza que si el estado cambió, el evento existe.
+- **`horarios_atencion` sin filas = cerrado** (slice-17, D-17.1/D-17.2). No existe un horario 24/7 implícito: la ausencia de franjas para un día significa que el lavadero no atiende ese día, y `GET /slots` responde `abierto: false`. El alta de administrador siembra lun–sáb 08:00–20:00 (`Horarios:PorDefecto`) en la misma transacción que el lavadero, y la migración backfilleó esa misma semana a los lavaderos existentes. Una migración no lee configuración de la app: los literales del backfill son fijos a propósito.
+- **Una franja activa por `(lavadero_id, dia_semana, apertura)`** (índice único parcial por `activo`): el `PUT` reemplaza la semana completa con baja lógica y alta, en dos `SaveChanges` dentro de la misma transacción, para que el índice no choque con la fila saliente.
+- **`puestos_tipos_lavado` sin filas = todos los servicios** (slice-17, D-17.3). La tabla puente restringe qué tipos de lavado puede atender un puesto; la ausencia de filas es "sin restricción", no "no atiende nada". Esa semántica vive en una única consulta (`PuestoAtiendeTipoAsync`) que consumen tanto la grilla de slots como la reserva.
+- **Las reglas temporales no se duplican en el cliente** (slice-17, D-17.12): anticipación mínima (`Agenda:AnticipacionMinimaMinutos`, 5 min), horizonte máximo (`Agenda:HorizonteMaximoDias`, 7 días), pertenencia de puesto/tipo, horario de atención y compatibilidad se validan en el servidor antes de crear la preferencia de pago. La grilla (`GET /slots`) es la vista de esas reglas; Flutter solo pinta lo que recibe.
 
 ## 5. Máquina de estados de `Turno`
 
@@ -391,6 +427,18 @@ El único cliente Flutter cubre cliente y administrador, differentiated por rol 
 - La ubicación del cliente se obtiene con `geolocator` y permisos *when-in-use*. Los estados denegado, denegado permanentemente, servicio apagado y timeout se muestran con un mensaje y **nunca bloquean** la búsqueda: queda el centro por defecto y la búsqueda por dirección.
 - Los pines muestran nombre, distancia y disponibilidad; la selección se sincroniza con la lista (pin → scroll a la tarjeta, tarjeta → centrar el mapa) y cada pin expone `Semantics`. Si las teselas fallan se muestra un banner y no se inventa disponibilidad.
 
+### 7.5 Disponibilidad de turnos: horarios, compatibilidad y grilla (slice-17)
+
+`GET /api/lavaderos/{id}/slots?fecha=YYYY-MM-DD&tipoLavadoId=…` es la **única** fuente de verdad de lo que se puede reservar (D-17.12). Devuelve `abierto`, las franjas del día y los slots calculados con la duración del tipo de lavado desde la apertura de cada franja.
+
+- **Sin filas = cerrado:** un día sin `horarios_atencion` responde `200` con `abierto: false`, `franjas: []` y `slots: []`; no es un error. La UI informa «cerrado ese día» en lugar de mostrar una grilla vacía.
+- **`motivo`** ∈ `ocupado` | `anticipacion` | `null`. Un slot no disponible viaja igual, con `puestosLibres` y su motivo, para que el cliente lo vea deshabilitado en vez de hacerlo desaparecer. `anticipacion` aplica si el inicio cae dentro de `Agenda:AnticipacionMinimaMinutos` (5 min); `ocupado` si ningún puesto activo y compatible queda libre.
+- **`puestosLibres`** cuenta los puestos activos que atienden el tipo (sin filas en `puestos_tipos_lavado` = todos) y cuyo intervalo no colisiona con un turno vigente. La ocupación se lee de `turnos` con `IOcupacionRepositorio`, no de `IDisponibilidadConsulta`: esta última excluye `pendiente_pago` y D-17.9 exige considerarlo vigente mientras `expira_en > now()` (RB-2).
+- **Horizonte:** `fecha` fuera de `[hoy, hoy + Agenda:HorizonteMaximoDias]` ⇒ `422 fuera_de_horizonte`. Un `fecha` malformado o un `tipoLavadoId` no-UUID ⇒ `400`; lavadero o tipo inexistente/inactivo ⇒ `404`.
+- **Generación de la grilla (D-17.9):** desde la apertura de cada franja se avanza `DuracionMinutos`; un slot se descarta si su fin excede el cierre. Con duraciones que no dividen la franja (45 min) el remanente queda sin oferta, y eso es aceptado.
+
+La reserva (`POST /api/lavaderos/{id}/turnos`) revalida todo en el servidor **antes** de insertar el turno y de crear la preferencia de Mercado Pago: pertenencia de puesto y tipo al lavadero de la ruta, anticipación, horizonte, rango dentro de una franja y compatibilidad puesto/tipo. Los rechazos son `422` (`anticipacion_insuficiente`, `fuera_de_horizonte`, `fuera_de_horario_atencion`, `puesto_incompatible`) y `404` (`puesto_no_encontrado`, `tipo_lavado_no_encontrado`); el `409 slot_ya_ocupado` queda reservado a la carrera en el `INSERT`. Una reserva inválida nunca crea una preferencia de pago (RB-1).
+
 ## 8. Seguridad
 
 - Sin credenciales en el repositorio. Todo secreto por variable de entorno o secreto de Docker.
@@ -445,8 +493,8 @@ Para no bloquear la migración inicial del slice 0, se las creó con el mínimo 
 
 | Tabla | Columnas creadas | Queda pendiente |
 |-------|------------------|-----------------|
-| `lavaderos` | `id`, `nombre`, `activo`, `direccion`, `latitud`, `longitud` | horarios de atención, teléfono |
-| `puestos` | `id`, `lavadero_id`, `nombre`, `activo` | orden, tipos de lavado compatibles, alta/baja por el admin |
+| `lavaderos` | `id`, `nombre`, `activo`, `direccion`, `latitud`, `longitud` | teléfono |
+| `puestos` | `id`, `lavadero_id`, `nombre`, `activo` | orden |
 | `clientes` | `id`, `nombre` | teléfono, patente, historial; cualquier dato es PII (AGENTS.md §3.4) |
 | `usuarios` | `id`, `nombre_usuario` (único), `hash_contrasena`, `rol`, `lavadero_id` (NULL para `cliente`), `cliente_id` (NULL; FK a `clientes`, slice-05b), `activo`, `creado_en` | — (alta de credenciales **resuelta** en slice-08) |
 
@@ -464,7 +512,9 @@ Además quedó sin decidir si `puestos.lavadero_id` y `turnos.lavadero_id` ganan
 
 **Decisión de slice-10 (T-99, US-A07).** El esquema de `puestos` que necesita el ABM de administración queda **fijado** en lo que el caso de uso exige: `id`, `lavadero_id`, `nombre`, `activo` (`Puesto.cs`), con nombre único por lavadero y los conflictos `puesto_ya_existe` y `puesto_con_turnos_activos`. El panel lista, crea y activa/desactiva puestos con esas columnas; US-A07 no requiere ampliar la tabla.
 
-**Estado:** **cerrada para lo que bloqueaba un caso de uso.** Con `puestos` fijado por el slice-10 y `usuarios`/`clientes` por los slices 05, 05b y 08, ningún CU depende de columnas que no existan. Quedan como deuda **no bloqueante** —nadie la consume todavía—: horarios de atención y teléfono del lavadero, tipos de lavado por puesto y las FK explícitas de `puestos.lavadero_id`, `turnos.lavadero_id` y `tipos_lavado.lavadero_id`. El **teléfono del cliente** sigue diferido por minimización de PII (D-09.1). Resoluble por `architect` (§2.1 de AGENTS.md) sin intervención del responsable del producto, a diferencia de las 1 a 3.
+**Decisión de slice-17 (T-174…T-181).** Los horarios de atención y los tipos de lavado por puesto quedan **resueltos** por `SPECS/slice-17-horarios-reglas-puestos.md`: `horarios_atencion` (`lavadero_id`, `dia_semana` 1–7, `apertura`, `cierre`, `activo`, `creado_en`) y la tabla puente `puestos_tipos_lavado` (`puesto_id`, `tipo_lavado_id`), ambas detalladas en §4.1 y con sus decisiones en §4.2. El alta de administrador siembra «Puesto 1», los dos tipos de lavado y la semana lun–sáb 08:00–20:00 en la misma transacción; la migración backfillea esa semana a los lavaderos existentes.
+
+**Estado:** **cerrada para lo que bloqueaba un caso de uso.** Con `puestos` fijado por el slice-10, `usuarios`/`clientes` por los slices 05, 05b y 08, y horarios/tipos por puesto por el slice-17, ningún CU depende de columnas que no existan. Quedan como deuda **no bloqueante** —nadie la consume todavía—: teléfono del lavadero y las FK explícitas de `puestos.lavadero_id`, `turnos.lavadero_id` y `tipos_lavado.lavadero_id`. El **teléfono del cliente** sigue diferido por minimización de PII (D-09.1). Resoluble por `architect` (§2.1 de AGENTS.md) sin intervención del responsable del producto, a diferencia de las 1 a 3.
 
 ### 10.8 `pendiente_pago` bloquea mientras vigente (decidida) e impacto en `REQUIREMENTS`
 

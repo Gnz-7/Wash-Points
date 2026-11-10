@@ -35,9 +35,16 @@ public sealed class CarreraReservaTest : IClassFixture<ContenedorPostgres>, IDis
 
     public void Dispose() => LimpiarTablas().GetAwaiter().GetResult();
 
+    /// <summary>
+    /// Día en que reservan los casos: mañana en hora local. Desde el slice-17 la
+    /// reserva valida anticipación mínima y horizonte (D-17.5).
+    /// </summary>
+    private static readonly DateOnly Dia = DateOnly.FromDateTime(DateTime.Now).AddDays(1);
+
     private async Task LimpiarTablas() =>
         await _baseDeDatos.EjecutarSqlAsync("""
-            TRUNCATE TABLE pagos, turnos, clientes, puestos, tipos_lavado, lavaderos CASCADE;
+            TRUNCATE TABLE pagos, turnos, clientes, puestos, tipos_lavado,
+                           horarios_atencion, puestos_tipos_lavado, lavaderos CASCADE;
             """);
 
     private WashPointsDbContext CrearContexto() =>
@@ -54,10 +61,28 @@ public sealed class CarreraReservaTest : IClassFixture<ContenedorPostgres>, IDis
         var tipo = TipoLavado.Crear(lavadero.Id, "Exterior", 30, 15000m, 3000m);
 
         contexto.AddRange(lavadero, puesto, tipo);
+
+        // Sin franjas el lavadero está cerrado y toda reserva responde 422
+        // (D-17.2): los casos siembran la jornada del día que reservan.
+        contexto.HorariosAtencion.Add(FranjaAtencion.Crear(
+            lavadero.Id,
+            DiaSemana(Dia),
+            new TimeOnly(8, 0),
+            new TimeOnly(20, 0),
+            DateTime.UtcNow));
+
         await contexto.SaveChangesAsync();
 
         return (lavadero.Id, puesto.Id, tipo.Id);
     }
+
+    /// <summary>Día ISO-8601 del calendario de atención (domingo = 7).</summary>
+    private static int DiaSemana(DateOnly fecha) =>
+        fecha.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)fecha.DayOfWeek;
+
+    /// <summary>Instante local del día de los casos, en formato ISO sin zona.</summary>
+    private static string Inicio(int hora, int minuto = 0) =>
+        $"{Dia:yyyy-MM-dd}T{hora:00}:{minuto:00}:00";
 
     private CustomWebApplicationFactory CrearApi(PasarelaPagosFakeSimulada pasarela) =>
         new(_baseDeDatos.CadenaConexion, builder =>
@@ -89,7 +114,7 @@ public sealed class CarreraReservaTest : IClassFixture<ContenedorPostgres>, IDis
                     puestoId,
                     tipoLavadoId = tipoId,
                     clienteId = Guid.NewGuid(),
-                    inicio = "2026-10-10T13:00:00",
+                    inicio = Inicio(13),
                 });
 
             return respuesta.StatusCode;

@@ -35,6 +35,17 @@ class PanelAdmin extends ConsumerWidget {
         appBar: AppBar(
           title: Text(_titulos[navegacion.currentIndex]),
           actions: [
+            // Horarios de atención (slice-17, T-188): pantalla propia fuera del
+            // shell, abierta con push para no sumar una sexta pestaña.
+            Semantics(
+              identifier: 'boton_horarios',
+              child: IconButton(
+                key: const ValueKey('boton_horarios'),
+                tooltip: 'Horarios de atención',
+                icon: const Icon(Icons.schedule),
+                onPressed: () => context.push('/admin/horarios'),
+              ),
+            ),
             Semantics(
               identifier: 'boton_cerrar_sesion',
               child: IconButton(

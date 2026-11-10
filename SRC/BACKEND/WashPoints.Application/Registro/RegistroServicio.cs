@@ -1,4 +1,5 @@
 using WashPoints.Application.Catalogo;
+using WashPoints.Application.Horarios;
 using WashPoints.Domain.Catalogo;
 using WashPoints.Domain.Ocupacion;
 using WashPoints.Domain.Seguridad;
@@ -33,7 +34,9 @@ public sealed class RegistroServicio
     private readonly IUnidadDeTrabajo _unidadDeTrabajo;
     private readonly IPuestoRepositorio _puestos;
     private readonly ITipoLavadoRepositorio _tipos;
+    private readonly IHorarioRepositorio _horarios;
     private readonly OpcionesCatalogo _opciones;
+    private readonly OpcionesHorarios _horariosOpciones;
 
     public RegistroServicio(
         IClienteRepositorio clientes,
@@ -44,7 +47,9 @@ public sealed class RegistroServicio
         IUnidadDeTrabajo unidadDeTrabajo,
         IPuestoRepositorio puestos,
         ITipoLavadoRepositorio tipos,
-        OpcionesCatalogo opciones)
+        IHorarioRepositorio horarios,
+        OpcionesCatalogo opciones,
+        OpcionesHorarios horariosOpciones)
     {
         _clientes = clientes ?? throw new ArgumentNullException(nameof(clientes));
         _lavaderos = lavaderos ?? throw new ArgumentNullException(nameof(lavaderos));
@@ -54,7 +59,9 @@ public sealed class RegistroServicio
         _unidadDeTrabajo = unidadDeTrabajo ?? throw new ArgumentNullException(nameof(unidadDeTrabajo));
         _puestos = puestos ?? throw new ArgumentNullException(nameof(puestos));
         _tipos = tipos ?? throw new ArgumentNullException(nameof(tipos));
+        _horarios = horarios ?? throw new ArgumentNullException(nameof(horarios));
         _opciones = opciones ?? throw new ArgumentNullException(nameof(opciones));
+        _horariosOpciones = horariosOpciones ?? throw new ArgumentNullException(nameof(horariosOpciones));
     }
 
     /// <summary>Alta de un cliente conductor con sesión inmediata (D-09.2).</summary>
@@ -156,6 +163,17 @@ public sealed class RegistroServicio
                 token);
 
             await _tipos.GuardarAsync(token);
+
+            // Horarios de atención por defecto (SPECS/slice-17 §5.1, D-17.2):
+            // el lavadero nace con franjas cargadas, nunca sin atención. Se
+            // siembran en la MISMA transacción del alta; si la configuración
+            // es inválida, el alta revierte entera en vez de dejar un lavadero
+            // cerrado sin que nadie lo sepa.
+            await _horarios.AgregarRangoAsync(
+                _horariosOpciones.CrearFranjasPorDefecto(lavadero.Id, DateTime.UtcNow),
+                token);
+
+            await _horarios.GuardarAsync(token);
 
             var sesion = _emisor.Emitir(usuario.Id, RolUsuario.Administrador, lavadero.Id);
 

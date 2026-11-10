@@ -1,9 +1,11 @@
 using System.Security.Cryptography;
 using System.Text;
+using WashPoints.Application.Agenda;
 using WashPoints.Application.Pagos;
 using WashPoints.Domain.Catalogo;
 using WashPoints.Domain.Ocupacion;
 using WashPoints.Domain.Puertos;
+using WashPoints.Domain.Tiempo;
 using WashPoints.Domain.Turnos;
 
 namespace WashPoints.Application.ReservarTurno;
@@ -32,6 +34,9 @@ public sealed class ReservaServicio
     private readonly IPasarelaPagos _pasarela;
     private readonly OpcionesPago _opciones;
     private readonly TimeProvider _reloj;
+    private readonly IConversorHorario _conversor;
+    private readonly IHorarioRepositorio _horarios;
+    private readonly OpcionesAgenda _agenda;
 
     public ReservaServicio(
         IOcupacionRepositorio repositorio,
@@ -40,7 +45,10 @@ public sealed class ReservaServicio
         IOutbox outbox,
         IPasarelaPagos pasarela,
         OpcionesPago opciones,
-        TimeProvider reloj)
+        TimeProvider reloj,
+        IConversorHorario conversor,
+        IHorarioRepositorio horarios,
+        OpcionesAgenda agenda)
     {
         _repositorio = repositorio;
         _unidadDeTrabajo = unidadDeTrabajo;
@@ -49,17 +57,60 @@ public sealed class ReservaServicio
         _pasarela = pasarela;
         _opciones = opciones;
         _reloj = reloj;
+        _conversor = conversor;
+        _horarios = horarios;
+        _agenda = agenda;
     }
 
     public async Task<Turno> ReservarTurnoAsync(SolicitudReserva solicitud, CancellationToken ct)
     {
-        var tipo = await _catalogo.ObtenerTipoLavadoAsync(solicitud.TipoLavadoId, ct)
-            ?? throw new ArgumentException(
-                $"No existe el tipo de lavado {solicitud.TipoLavadoId}.", nameof(solicitud));
+        // Orden de validación D-17.5: pertenencia → ventana temporal → horario
+        // → compatibilidad. Todo rechazo ocurre antes de crear el turno y de
+        // tocar la pasarela: nunca se pide una preferencia de pago por una
+        // reserva inválida (refuerza RB-1).
+        var tipo = await _catalogo.ObtenerTipoLavadoAsync(
+                solicitud.LavaderoId, solicitud.TipoLavadoId, ct)
+            ?? throw new TipoLavadoNoEncontradoException(
+                $"No existe el tipo de lavado {solicitud.TipoLavadoId} en el lavadero {solicitud.LavaderoId}.");
+
+        _ = await _catalogo.ObtenerPuestoAsync(
+                solicitud.LavaderoId, solicitud.PuestoId, ct)
+            ?? throw new PuestoNoEncontradoException(
+                $"No existe el puesto {solicitud.PuestoId} en el lavadero {solicitud.LavaderoId}.");
+
+        var ahoraUtc = _reloj.GetUtcNow().UtcDateTime;
+
+        if (solicitud.InicioUtc < ahoraUtc.AddMinutes(_agenda.AnticipacionMinimaMinutos))
+        {
+            throw new AnticipacionInsuficienteException(
+                $"El turno debe reservarse con al menos {_agenda.AnticipacionMinimaMinutos} minutos de anticipación.");
+        }
+
+        if (solicitud.InicioUtc > ahoraUtc.AddDays(_agenda.HorizonteMaximoDias))
+        {
+            throw new FueraDeHorizonteException(
+                $"Sólo se puede reservar hasta {_agenda.HorizonteMaximoDias} días de anticipación.");
+        }
 
         var finUtc = solicitud.InicioUtc.AddMinutes(tipo.DuracionMinutos);
+        var franjas = await _horarios.ListarAsync(solicitud.LavaderoId, ct);
+
+        if (!CalendarioAtencion.EstaAbierto(
+                franjas, _conversor.ALocal(solicitud.InicioUtc), _conversor.ALocal(finUtc)))
+        {
+            throw new FueraDeHorarioAtencionException(
+                "El turno no entra completo en el horario de atención del lavadero.");
+        }
+
+        if (!await _catalogo.PuestoAtiendeTipoAsync(
+                solicitud.LavaderoId, solicitud.PuestoId, solicitud.TipoLavadoId, ct))
+        {
+            throw new PuestoIncompatibleException(
+                "El puesto no atiende el tipo de lavado elegido.");
+        }
+
         var idempotencyKey = CalcularIdempotencyKey(solicitud, finUtc);
-        var expiraEn = _reloj.GetUtcNow().UtcDateTime.AddMinutes(_opciones.TtlReservaMinutos);
+        var expiraEn = ahoraUtc.AddMinutes(_opciones.TtlReservaMinutos);
 
         var turno = Turno.CrearParaReserva(
             solicitud.LavaderoId,

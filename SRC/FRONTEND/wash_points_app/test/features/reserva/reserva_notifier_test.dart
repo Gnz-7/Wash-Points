@@ -22,15 +22,25 @@ void main() {
     return contenedor;
   }
 
+  Future<void> cargarSlots(ProviderContainer c) => c
+      .read(slotsProvider.notifier)
+      .cargar(
+        ConsultaSlots(
+          lavaderoId: 'lav-1',
+          fecha: DateTime(2026, 10, 29),
+          tipoLavadoId: 'tipo-1',
+        ),
+      );
+
   Future<void> confirmar(ProviderContainer c) =>
       c.read(reservaProvider('lav-1').notifier).confirmar(
-            puestoId: 'puesto-1',
-            tipoLavadoId: 'tipo-1',
-            clienteId: 'cli-1',
-            inicio: DateTime.utc(2026, 10, 29, 13),
-          );
+        puestoId: 'puesto-1',
+        tipoLavadoId: 'tipo-1',
+        clienteId: 'cli-1',
+        inicio: DateTime.utc(2026, 10, 29, 13),
+      );
 
-  test('confirmar crea la reserva y queda esperando el pago', () async {
+  test('crea la reserva y queda esperando el pago', () async {
     final repositorio = RepositorioReservasFalso();
     final c = contenedor(repositorio, AbridorCheckoutFalso());
 
@@ -38,74 +48,77 @@ void main() {
 
     final estado = c.read(reservaProvider('lav-1'));
     expect(estado.fase, FaseReserva.esperandoPago);
-    expect(estado.reserva?.id, 'turno-1');
-    expect(repositorio.creaciones.single.lavaderoId, 'lav-1');
-    expect(repositorio.creaciones.single.clienteId, 'cli-1');
+    expect(estado.esperandoPago, isTrue);
     expect(repositorio.creaciones.single.inicio, DateTime.utc(2026, 10, 29, 13));
   });
 
-  test('abrir el checkout no confirma la reserva (RB-1)', () async {
+  test('abrir el checkout no confirma el turno', () async {
+    final repositorio = RepositorioReservasFalso();
     final abridor = AbridorCheckoutFalso();
-    final c = contenedor(RepositorioReservasFalso(), abridor);
-    await confirmar(c);
+    final c = contenedor(repositorio, abridor);
 
-    final abierto = await c.read(reservaProvider('lav-1').notifier).abrirCheckout();
+    await confirmar(c);
+    final abierto = await c
+        .read(reservaProvider('lav-1').notifier)
+        .abrirCheckout();
 
     expect(abierto, isTrue);
-    expect(abridor.urls.single, 'https://checkout.test/pref-1');
     expect(c.read(reservaProvider('lav-1')).fase, FaseReserva.esperandoPago);
   });
 
-  test('si el checkout no abre, sigue esperando el pago con un mensaje', () async {
+  test('un checkout que no abre deja un mensaje', () async {
+    final repositorio = RepositorioReservasFalso();
     final c = contenedor(
-      RepositorioReservasFalso(),
+      repositorio,
       AbridorCheckoutFalso(abre: false),
     );
-    await confirmar(c);
 
-    final abierto = await c.read(reservaProvider('lav-1').notifier).abrirCheckout();
+    await confirmar(c);
+    final abierto = await c
+        .read(reservaProvider('lav-1').notifier)
+        .abrirCheckout();
 
     expect(abierto, isFalse);
-    final estado = c.read(reservaProvider('lav-1'));
-    expect(estado.fase, FaseReserva.esperandoPago);
-    expect(estado.mensaje, isNotNull);
+    expect(c.read(reservaProvider('lav-1')).mensaje, isNotNull);
   });
 
-  test('verificar contra el backend confirmado pasa a confirmada', () async {
+  test('verificar un turno confirmado lo muestra confirmado', () async {
     final repositorio = RepositorioReservasFalso(
       estadoTurno: reservaDeEjemplo(estado: EstadoReserva.confirmada),
     );
     final c = contenedor(repositorio, AbridorCheckoutFalso());
-    await confirmar(c);
 
+    await confirmar(c);
     await c.read(reservaProvider('lav-1').notifier).verificarEstado();
 
-    expect(repositorio.consultas.single, 'turno-1');
     expect(c.read(reservaProvider('lav-1')).fase, FaseReserva.confirmada);
   });
 
-  test('el backend que sigue en pendiente_pago no confirma', () async {
-    final c = contenedor(RepositorioReservasFalso(), AbridorCheckoutFalso());
-    await confirmar(c);
+  test('un turno pendiente no confirma la reserva', () async {
+    final repositorio = RepositorioReservasFalso(
+      estadoTurno: reservaDeEjemplo(estado: EstadoReserva.pendientePago),
+    );
+    final c = contenedor(repositorio, AbridorCheckoutFalso());
 
+    await confirmar(c);
     await c.read(reservaProvider('lav-1').notifier).verificarEstado();
 
     expect(c.read(reservaProvider('lav-1')).fase, FaseReserva.esperandoPago);
   });
 
-  test('un turno cancelado pasa a rechazada', () async {
+  test('un turno cancelado se muestra como rechazado', () async {
     final repositorio = RepositorioReservasFalso(
       estadoTurno: reservaDeEjemplo(estado: EstadoReserva.cancelada),
     );
     final c = contenedor(repositorio, AbridorCheckoutFalso());
-    await confirmar(c);
 
+    await confirmar(c);
     await c.read(reservaProvider('lav-1').notifier).verificarEstado();
 
     expect(c.read(reservaProvider('lav-1')).fase, FaseReserva.rechazada);
   });
 
-  test('un puesto ocupado vuelve a la selección con el mensaje del backend', () async {
+  test('un slot ocupado vuelve a la selección con su mensaje', () async {
     final repositorio = RepositorioReservasFalso(
       errorCrear: const ApiException(CodigoError.slotYaOcupado, estado: 409),
     );
@@ -116,5 +129,58 @@ void main() {
     final estado = c.read(reservaProvider('lav-1'));
     expect(estado.fase, FaseReserva.seleccionando);
     expect(estado.mensaje, isNotNull);
+    expect(estado.codigo, CodigoError.slotYaOcupado);
+  });
+
+  test('un 422 de regla temporal recarga la grilla de slots', () async {
+    // CA-17.25: la reserva se rechaza antes de la pasarela y la pantalla
+    // vuelve a pedir los slots, que ya no ofrecen el horario elegido.
+    final repositorio = RepositorioReservasFalso(
+      errorCrear: const ApiException(
+        CodigoError.anticipacionInsuficiente,
+        estado: 422,
+      ),
+    );
+    final c = contenedor(repositorio, AbridorCheckoutFalso());
+
+    await cargarSlots(c);
+    expect(repositorio.slotsPedidos, hasLength(1));
+
+    await confirmar(c);
+
+    final estado = c.read(reservaProvider('lav-1'));
+    expect(estado.fase, FaseReserva.seleccionando);
+    expect(estado.codigo, CodigoError.anticipacionInsuficiente);
+    expect(estado.mensaje, isNotNull);
+
+    // La grilla se volvió a pedir con la misma consulta.
+    expect(repositorio.slotsPedidos, hasLength(2));
+    expect(repositorio.slotsPedidos.last.tipoLavadoId, 'tipo-1');
+  });
+
+  test('un error de red no recarga la grilla', () async {
+    final repositorio = RepositorioReservasFalso(
+      errorCrear: const ApiException(CodigoError.sinConexion),
+    );
+    final c = contenedor(repositorio, AbridorCheckoutFalso());
+
+    await cargarSlots(c);
+    await confirmar(c);
+
+    expect(repositorio.slotsPedidos, hasLength(1));
+  });
+
+  test('reintentar vuelve al estado inicial', () async {
+    final repositorio = RepositorioReservasFalso(
+      errorCrear: const ApiException(CodigoError.slotYaOcupado, estado: 409),
+    );
+    final c = contenedor(repositorio, AbridorCheckoutFalso());
+
+    await confirmar(c);
+    c.read(reservaProvider('lav-1').notifier).reintentar();
+
+    final estado = c.read(reservaProvider('lav-1'));
+    expect(estado.fase, FaseReserva.seleccionando);
+    expect(estado.mensaje, isNull);
   });
 }

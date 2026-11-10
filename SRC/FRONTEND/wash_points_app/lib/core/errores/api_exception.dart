@@ -31,6 +31,14 @@ enum CodigoError {
   sinConexion('sin_conexion'),
   errorDeRed('error_de_red'),
   fechaInvalida('fecha_invalida'),
+  tipoLavadoInvalido('tipo_lavado_invalido'),
+  tipoLavadoNoEncontrado('tipo_lavado_no_encontrado'),
+  lavaderoNoEncontrado('lavadero_no_encontrado'),
+  anticipacionInsuficiente('anticipacion_insuficiente'),
+  fueraDeHorizonte('fuera_de_horizonte'),
+  fueraDeHorarioAtencion('fuera_de_horario_atencion'),
+  puestoIncompatible('puesto_incompatible'),
+  franjaInvalida('franja_invalida'),
   ventanaInvalida('ventana_invalida'),
   metricasNoDisponibles('metricas_no_disponibles'),
   comprobanteYaUtilizado('comprobante_ya_utilizado'),
@@ -197,6 +205,22 @@ class ApiException implements Exception {
         return 'No pudimos conectarnos con el servidor. Revisá tu red.';
       case CodigoError.fechaInvalida:
         return 'La fecha consultada no es válida.';
+      case CodigoError.tipoLavadoInvalido:
+        return 'Elegí un servicio válido.';
+      case CodigoError.tipoLavadoNoEncontrado:
+        return 'Ese servicio ya no está disponible. Actualizá el catálogo.';
+      case CodigoError.lavaderoNoEncontrado:
+        return 'No encontramos ese lavadero.';
+      case CodigoError.anticipacionInsuficiente:
+        return 'Ese horario es demasiado próximo. Elegí uno con al menos 5 minutos.';
+      case CodigoError.fueraDeHorizonte:
+        return 'Solo se puede reservar dentro de los próximos días. Elegí otra fecha.';
+      case CodigoError.fueraDeHorarioAtencion:
+        return 'El lavadero no atiende en ese horario. Elegí otro.';
+      case CodigoError.puestoIncompatible:
+        return 'Ese puesto no atiende el servicio elegido. Elegí otro puesto.';
+      case CodigoError.franjaInvalida:
+        return 'Revisá los horarios: hay una franja inválida.';
       case CodigoError.ventanaInvalida:
         return 'La ventana de tiempo no es válida.';
       case CodigoError.metricasNoDisponibles:

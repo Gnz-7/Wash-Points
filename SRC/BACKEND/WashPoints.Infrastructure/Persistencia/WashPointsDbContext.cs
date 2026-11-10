@@ -29,6 +29,8 @@ public sealed class WashPointsDbContext : DbContext
     public DbSet<Lavadero> Lavaderos => Set<Lavadero>();
     public DbSet<Puesto> Puestos => Set<Puesto>();
     public DbSet<TipoLavado> TiposLavado => Set<TipoLavado>();
+    public DbSet<FranjaAtencion> HorariosAtencion => Set<FranjaAtencion>();
+    public DbSet<PuestoTipoLavado> PuestosTiposLavado => Set<PuestoTipoLavado>();
     public DbSet<Cliente> Clientes => Set<Cliente>();
     public DbSet<Pago> Pagos => Set<Pago>();
     public DbSet<Comprobante> Comprobantes => Set<Comprobante>();
@@ -282,6 +284,49 @@ public sealed class WashPointsDbContext : DbContext
         tipo.Property(x => x.PrecioSena).HasColumnName("precio_sena").HasColumnType("numeric(10,2)");
         tipo.Property(x => x.Activo).HasColumnName("activo").IsRequired();
         tipo.HasIndex(x => new { x.LavaderoId, x.Nombre }).IsUnique();
+
+        // Horarios de atención (slice-17, R-1). El día es ISO-8601 (1 = lunes) y
+        // las horas son locales del lavadero: `time` sin zona a propósito,
+        // porque son reglas de calendario, no instantes (D-17.1).
+        var franja = modelo.Entity<FranjaAtencion>();
+        franja.ToTable("horarios_atencion", tabla =>
+        {
+            tabla.HasCheckConstraint(
+                "ck_horarios_atencion_dia_semana", "dia_semana BETWEEN 1 AND 7");
+            tabla.HasCheckConstraint(
+                "ck_horarios_atencion_rango", "apertura < cierre");
+        });
+        franja.HasKey(x => x.Id);
+        franja.Property(x => x.Id).HasColumnName("id");
+        franja.Property(x => x.LavaderoId).HasColumnName("lavadero_id").IsRequired();
+        franja.Property(x => x.DiaSemana).HasColumnName("dia_semana").IsRequired();
+        franja.Property(x => x.Apertura).HasColumnName("apertura").IsRequired();
+        franja.Property(x => x.Cierre).HasColumnName("cierre").IsRequired();
+        franja.Property(x => x.Activo).HasColumnName("activo").IsRequired();
+        franja.Property(x => x.CreadoEn).HasColumnName("creado_en").IsRequired();
+        franja.HasIndex(x => new { x.LavaderoId, x.DiaSemana, x.Apertura })
+            .IsUnique()
+            .HasFilter(@"""activo""")
+            .HasDatabaseName("ix_horarios_atencion_franja");
+        franja.HasIndex(x => new { x.LavaderoId, x.DiaSemana })
+            .HasFilter(@"""activo""")
+            .HasDatabaseName("ix_horarios_atencion_lavadero_dia");
+
+        // Compatibilidad puesto ↔ tipo de lavado (slice-17, R-4). Sin filas, el
+        // puesto atiende todos los servicios (D-17.7).
+        var puente = modelo.Entity<PuestoTipoLavado>();
+        puente.ToTable("puestos_tipos_lavado");
+        puente.HasKey(x => new { x.PuestoId, x.TipoLavadoId });
+        puente.Property(x => x.PuestoId).HasColumnName("puesto_id").IsRequired();
+        puente.Property(x => x.TipoLavadoId).HasColumnName("tipo_lavado_id").IsRequired();
+        puente.HasOne<Puesto>()
+            .WithMany()
+            .HasForeignKey(x => x.PuestoId)
+            .OnDelete(DeleteBehavior.Cascade);
+        puente.HasOne<TipoLavado>()
+            .WithMany()
+            .HasForeignKey(x => x.TipoLavadoId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         var cliente = modelo.Entity<Cliente>();
         cliente.ToTable("clientes");

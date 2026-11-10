@@ -8,6 +8,7 @@ import 'package:wash_points_app/core/sesion/sesion_provider.dart';
 import 'package:wash_points_app/features/panel/presentation/agenda/agenda_notifier.dart';
 import 'package:wash_points_app/features/panel/presentation/catalogo/catalogo_notifier.dart';
 import 'package:wash_points_app/features/panel/presentation/metricas/metricas_notifier.dart';
+import 'package:wash_points_app/features/panel/presentation/horarios/horarios_notifier.dart';
 import 'package:wash_points_app/features/panel/presentation/puestos/puestos_notifier.dart';
 
 import '../../soporte/almacen_sesion_falso.dart';
@@ -17,6 +18,7 @@ import '../../soporte/almacen_offline_memoria.dart';
 import '../../soporte/repositorio_catalogo_falso.dart';
 import '../../soporte/repositorio_metricas_falso.dart';
 import '../../soporte/repositorio_validacion_falso.dart';
+import '../../soporte/repositorio_horarios_falso.dart';
 import '../../soporte/repositorio_puestos_falso.dart';
 import 'package:wash_points_app/core/tiempo_real/tiempo_real_notifier.dart';
 import '../../soporte/canal_tiempo_real_falso.dart';
@@ -66,6 +68,9 @@ void main() {
           (ref) async => AlmacenOfflineMemoria(),
         ),
         repositorioPuestosProvider.overrideWithValue(RepositorioPuestosFalso()),
+        repositorioHorariosProvider.overrideWithValue(
+          RepositorioHorariosFalso(),
+        ),
         repositorioCatalogoProvider.overrideWithValue(
           RepositorioCatalogoFalso(),
         ),
@@ -169,6 +174,16 @@ void main() {
     expect(contenedor.read(sesionProvider), isNull);
     expect(almacen.guardada, isNull);
     expect(find.textContaining('no tiene un lavadero asociado'), findsOneWidget);
+  });
+
+  testWidgets('horarios de atención abre la pantalla semanal', (tester) async {
+    await arrancar(tester, sesionAdministrador());
+
+    await tester.tap(find.byKey(const ValueKey('boton_horarios')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('pantalla_horarios')), findsOneWidget);
+    expect(find.byKey(const ValueKey('dia_1')), findsOneWidget);
   });
 
   testWidgets('cerrar sesión desde el panel vuelve al login', (tester) async {

@@ -41,6 +41,56 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
                     b.ToTable("clientes", (string)null);
                 });
 
+            modelBuilder.Entity("WashPoints.Domain.Catalogo.FranjaAtencion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Activo")
+                        .HasColumnType("boolean")
+                        .HasColumnName("activo");
+
+                    b.Property<TimeOnly>("Apertura")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("apertura");
+
+                    b.Property<TimeOnly>("Cierre")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("cierre");
+
+                    b.Property<DateTime>("CreadoEn")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("creado_en");
+
+                    b.Property<int>("DiaSemana")
+                        .HasColumnType("integer")
+                        .HasColumnName("dia_semana");
+
+                    b.Property<Guid>("LavaderoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lavadero_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LavaderoId", "DiaSemana")
+                        .HasDatabaseName("ix_horarios_atencion_lavadero_dia")
+                        .HasFilter("\"activo\"");
+
+                    b.HasIndex("LavaderoId", "DiaSemana", "Apertura")
+                        .IsUnique()
+                        .HasDatabaseName("ix_horarios_atencion_franja")
+                        .HasFilter("\"activo\"");
+
+                    b.ToTable("horarios_atencion", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_horarios_atencion_dia_semana", "dia_semana BETWEEN 1 AND 7");
+
+                            t.HasCheckConstraint("ck_horarios_atencion_rango", "apertura < cierre");
+                        });
+                });
+
             modelBuilder.Entity("WashPoints.Domain.Catalogo.Lavadero", b =>
                 {
                     b.Property<Guid>("Id")
@@ -114,6 +164,23 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
                         .IsUnique();
 
                     b.ToTable("puestos", (string)null);
+                });
+
+            modelBuilder.Entity("WashPoints.Domain.Catalogo.PuestoTipoLavado", b =>
+                {
+                    b.Property<Guid>("PuestoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("puesto_id");
+
+                    b.Property<Guid>("TipoLavadoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tipo_lavado_id");
+
+                    b.HasKey("PuestoId", "TipoLavadoId");
+
+                    b.HasIndex("TipoLavadoId");
+
+                    b.ToTable("puestos_tipos_lavado", (string)null);
                 });
 
             modelBuilder.Entity("WashPoints.Domain.Catalogo.TipoLavado", b =>
@@ -509,6 +576,21 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
                         .HasFilter("\"publicado_en\" IS NULL");
 
                     b.ToTable("outbox", (string)null);
+                });
+
+            modelBuilder.Entity("WashPoints.Domain.Catalogo.PuestoTipoLavado", b =>
+                {
+                    b.HasOne("WashPoints.Domain.Catalogo.Puesto", null)
+                        .WithMany()
+                        .HasForeignKey("PuestoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("WashPoints.Domain.Catalogo.TipoLavado", null)
+                        .WithMany()
+                        .HasForeignKey("TipoLavadoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("WashPoints.Domain.Comprobantes.Comprobante", b =>

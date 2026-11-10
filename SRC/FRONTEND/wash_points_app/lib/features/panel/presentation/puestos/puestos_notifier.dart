@@ -91,14 +91,54 @@ class PuestosNotifier extends AsyncNotifier<EstadoPuestos> {
           ? await repositorio.desactivar(lavaderoId, puesto.id)
           : await repositorio.activar(lavaderoId, puesto.id);
 
+      // El endpoint de puestos no publica `tiposLavadoIds`: se conserva lo que
+      // ya sabíamos del puesto para no borrar la compatibilidad en pantalla.
+      final conTipos = actualizado.copia(
+        tiposLavadoIds: puesto.tiposLavadoIds,
+      );
+
       state = AsyncData(
         actual.conPuestos(<PuestoAdmin>[
           for (final cada in actual.puestos)
-            cada.id == actualizado.id ? actualizado : cada,
+            cada.id == conTipos.id ? conTipos : cada,
         ]),
       );
     } on ApiException catch (error) {
       state = AsyncData(actual.conError(error.mensaje, error.detalle));
+    }
+  }
+
+  /// Reemplaza los servicios del puesto (slice-17, T-189, R-4).
+  ///
+  /// Devuelve `true` sólo si el backend aceptó el cambio; si falla, la lista
+  /// queda como estaba y el error se publica aparte.
+  Future<bool> asignarTipos(PuestoAdmin puesto, List<String> tiposLavadoIds) async {
+    final actual = state.valueOrNull;
+    if (actual == null) {
+      return false;
+    }
+
+    final lavaderoId = ref.read(lavaderoActualProvider);
+
+    try {
+      final guardados = await ref
+          .read(repositorioPuestosProvider)
+          .asignarTipos(lavaderoId, puesto.id, tiposLavadoIds);
+
+      state = AsyncData(
+        actual
+            .conPuestos(<PuestoAdmin>[
+              for (final cada in actual.puestos)
+                cada.id == puesto.id
+                    ? cada.copia(tiposLavadoIds: guardados)
+                    : cada,
+            ])
+            .conError(null, null),
+      );
+      return true;
+    } on ApiException catch (error) {
+      state = AsyncData(actual.conError(error.mensaje, error.detalle));
+      return false;
     }
   }
 

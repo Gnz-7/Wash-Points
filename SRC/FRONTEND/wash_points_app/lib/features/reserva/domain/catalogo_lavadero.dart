@@ -4,13 +4,29 @@
 /// Solo trae elementos activos: el cliente no filtra ni decide qué se puede
 /// reservar, eso lo resuelve el servidor (D-09.12).
 class PuestoResumen {
-  const PuestoResumen({required this.id, required this.nombre});
+  const PuestoResumen({
+    required this.id,
+    required this.nombre,
+    this.tiposLavadoIds = const <String>[],
+  });
 
-  factory PuestoResumen.desdeJson(Map<String, dynamic> json) =>
-      PuestoResumen(id: _texto(json['id']), nombre: _texto(json['nombre']));
+  factory PuestoResumen.desdeJson(Map<String, dynamic> json) => PuestoResumen(
+    id: _texto(json['id']),
+    nombre: _texto(json['nombre']),
+    tiposLavadoIds: _textos(json['tiposLavadoIds']),
+  );
 
   final String id;
   final String nombre;
+
+  /// Servicios que atiende el puesto (slice-17, T-181). Vacío significa que
+  /// atiende todos, igual que en el servidor.
+  final List<String> tiposLavadoIds;
+
+  /// El servidor decide la compatibilidad real al reservar; esto solo ordena
+  /// la oferta de la pantalla.
+  bool atiende(String tipoLavadoId) =>
+      tiposLavadoIds.isEmpty || tiposLavadoIds.contains(tipoLavadoId);
 }
 
 class TipoLavadoResumen {
@@ -56,9 +72,25 @@ class CatalogoLavadero {
 
   /// Sin puestos o sin tipos no hay nada que reservar.
   bool get vacio => puestos.isEmpty || tipos.isEmpty;
+
+  /// ¿El puesto indicado atiende el servicio indicado? Un puesto sin
+  /// restricciones atiende todos (D-17.7); un id desconocido no atiende nada.
+  bool atiendePuesto(String puestoId, String tipoLavadoId) {
+    for (final puesto in puestos) {
+      if (puesto.id == puestoId) {
+        return puesto.atiende(tipoLavadoId);
+      }
+    }
+    return false;
+  }
 }
 
 String _texto(Object? valor) => valor is String ? valor : '';
+
+/// Lista de textos; descarta cualquier elemento que no sea String.
+List<String> _textos(Object? valor) => valor is List
+    ? valor.whereType<String>().toList(growable: false)
+    : const <String>[];
 
 int _entero(Object? valor) => valor is num ? valor.toInt() : 0;
 

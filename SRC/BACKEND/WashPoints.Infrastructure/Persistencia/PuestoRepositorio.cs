@@ -34,6 +34,58 @@ public sealed class PuestoRepositorio : IPuestoRepositorio
             .OrderBy(p => p.Nombre)
             .ToArrayAsync(ct);
 
+    public async Task<IReadOnlyList<Guid>> ObtenerTiposAsync(
+        Guid puestoId, CancellationToken ct) =>
+        await _contexto.PuestosTiposLavado
+            .AsNoTracking()
+            .Where(x => x.PuestoId == puestoId)
+            .Select(x => x.TipoLavadoId)
+            .ToArrayAsync(ct);
+
+    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<Guid>>> ObtenerTiposPorPuestoAsync(
+        Guid lavaderoId, CancellationToken ct)
+    {
+        var filas = await (
+                from puente in _contexto.PuestosTiposLavado.AsNoTracking()
+                join puesto in _contexto.Puestos.AsNoTracking()
+                    on puente.PuestoId equals puesto.Id
+                where puesto.LavaderoId == lavaderoId
+                select new { puente.PuestoId, puente.TipoLavadoId })
+            .ToArrayAsync(ct);
+
+        return filas
+            .GroupBy(f => f.PuestoId)
+            .ToDictionary(
+                grupo => grupo.Key,
+                grupo => (IReadOnlyList<Guid>)grupo
+                    .Select(f => f.TipoLavadoId)
+                    .ToArray());
+    }
+
+    public async Task ReemplazarTiposAsync(
+        Guid puestoId, IReadOnlyList<Guid> tiposLavadoIds, CancellationToken ct)
+    {
+        var nuevas = tiposLavadoIds.Distinct().ToHashSet();
+
+        var vigentes = await _contexto.PuestosTiposLavado
+            .Where(x => x.PuestoId == puestoId)
+            .ToListAsync(ct);
+
+        // Se borra sólo lo que sobra y se agrega sólo lo que falta: así el
+        // guardado no depende del orden en que EF ejecute DELETE e INSERT
+        // sobre la misma clave compuesta.
+        _contexto.PuestosTiposLavado.RemoveRange(
+            vigentes.Where(x => !nuevas.Contains(x.TipoLavadoId)));
+
+        var existentes = vigentes.Select(x => x.TipoLavadoId).ToHashSet();
+
+        foreach (var tipoLavadoId in nuevas.Where(id => !existentes.Contains(id)))
+        {
+            await _contexto.PuestosTiposLavado.AddAsync(
+                PuestoTipoLavado.Crear(puestoId, tipoLavadoId), ct);
+        }
+    }
+
     public async Task GuardarAsync(CancellationToken ct)
     {
         try

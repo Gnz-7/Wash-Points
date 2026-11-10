@@ -32,6 +32,81 @@ void main() {
     expect(catalogo.tipos.single.duracionMinutos, 30);
   });
 
+  test('la grilla de slots manda fecha local y tipo, y traduce el día',
+      () async {
+    final api = ClienteApiFalso(
+      respuestaGet: <String, dynamic>{
+        'fecha': '2026-10-29',
+        'tipoLavadoId': 'tipo-1',
+        'duracionMinutos': 30,
+        'abierto': true,
+        'franjas': <dynamic>[
+          <String, dynamic>{'apertura': '10:00', 'cierre': '12:00'},
+        ],
+        'slots': <dynamic>[
+          <String, dynamic>{
+            'inicio': '10:00',
+            'fin': '10:30',
+            'disponible': true,
+            'puestosLibres': 1,
+          },
+          <String, dynamic>{
+            'inicio': '10:30',
+            'fin': '11:00',
+            'disponible': false,
+            'puestosLibres': 0,
+            'motivo': 'ocupado',
+          },
+        ],
+      },
+    );
+
+    final grilla = await RepositorioReservasHttp(api).obtenerSlots(
+      lavaderoId: 'lav-1',
+      fecha: DateTime(2026, 10, 29, 15, 45),
+      tipoLavadoId: 'tipo-1',
+    );
+
+    final llamada = api.llamadasGet.single;
+    expect(llamada.ruta, '/api/lavaderos/lav-1/slots');
+    expect(llamada.parametros, <String, dynamic>{
+      'fecha': '2026-10-29',
+      'tipoLavadoId': 'tipo-1',
+    });
+    expect(grilla.abierto, isTrue);
+    expect(grilla.duracionMinutos, 30);
+    expect(grilla.franjas.single.apertura, '10:00');
+    expect(grilla.slots, hasLength(2));
+    expect(grilla.slots.first.disponible, isTrue);
+    expect(grilla.slots.last.motivoVisible, 'Ocupado');
+    expect(grilla.sinCupo, isFalse);
+    expect(grilla.slots.first.inicioEn(DateTime(2026, 10, 29)).hour, 10);
+  });
+
+  test('un día sin franjas llega cerrado y sin cupo', () async {
+    final api = ClienteApiFalso(
+      respuestaGet: <String, dynamic>{
+        'fecha': '2026-10-26',
+        'tipoLavadoId': 'tipo-1',
+        'duracionMinutos': 30,
+        'abierto': false,
+        'franjas': <dynamic>[],
+        'slots': <dynamic>[],
+      },
+    );
+
+    final grilla = await RepositorioReservasHttp(api).obtenerSlots(
+      lavaderoId: 'lav-1',
+      fecha: DateTime(2026, 10, 26),
+      tipoLavadoId: 'tipo-1',
+    );
+
+    expect(grilla.abierto, isFalse);
+    expect(grilla.franjas, isEmpty);
+    expect(grilla.slots, isEmpty);
+    expect(grilla.sinCupo, isTrue);
+  });
+
   test('crear reserva manda el cuerpo y devuelve el initPoint', () async {
     final api = ClienteApiFalso(
       respuesta: <String, dynamic>{

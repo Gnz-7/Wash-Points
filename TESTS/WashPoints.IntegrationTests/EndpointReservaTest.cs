@@ -34,9 +34,17 @@ public sealed class EndpointReservaTest : IClassFixture<ContenedorPostgres>, IDi
 
     public void Dispose() => LimpiarTablas().GetAwaiter().GetResult();
 
+    /// <summary>
+    /// Día en que reservan los casos: mañana en hora local. Desde el slice-17 la
+    /// reserva valida anticipación mínima y horizonte (D-17.5), así que una
+    /// fecha fija del pasado ya no es aceptable.
+    /// </summary>
+    private static readonly DateOnly Dia = DateOnly.FromDateTime(DateTime.Now).AddDays(1);
+
     private async Task LimpiarTablas() =>
         await _baseDeDatos.EjecutarSqlAsync("""
-            TRUNCATE TABLE pagos, turnos, clientes, puestos, tipos_lavado, lavaderos CASCADE;
+            TRUNCATE TABLE pagos, turnos, clientes, puestos, tipos_lavado,
+                           horarios_atencion, puestos_tipos_lavado, lavaderos CASCADE;
             """);
 
     private WashPointsDbContext CrearContexto() =>
@@ -54,10 +62,28 @@ public sealed class EndpointReservaTest : IClassFixture<ContenedorPostgres>, IDi
         var cliente = Cliente.Crear("Cliente de Prueba");
 
         contexto.AddRange(lavadero, puesto, tipo, cliente);
+
+        // Sin franjas el lavadero está cerrado y toda reserva responde 422
+        // (D-17.2): los casos siembran la jornada del día que reservan.
+        contexto.HorariosAtencion.Add(FranjaAtencion.Crear(
+            lavadero.Id,
+            DiaSemana(Dia),
+            new TimeOnly(8, 0),
+            new TimeOnly(20, 0),
+            DateTime.UtcNow));
+
         await contexto.SaveChangesAsync();
 
         return (lavadero.Id, puesto.Id, tipo.Id, cliente.Id);
     }
+
+    /// <summary>Día ISO-8601 del calendario de atención (domingo = 7).</summary>
+    private static int DiaSemana(DateOnly fecha) =>
+        fecha.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)fecha.DayOfWeek;
+
+    /// <summary>Instante local del día de los casos, en formato ISO sin zona.</summary>
+    private static string Inicio(int hora, int minuto = 0) =>
+        $"{Dia:yyyy-MM-dd}T{hora:00}:{minuto:00}:00";
 
     private CustomWebApplicationFactory CrearApi(PasarelaPagosFakeSimulada pasarela) =>
         new(_baseDeDatos.CadenaConexion, builder =>
@@ -88,7 +114,7 @@ public sealed class EndpointReservaTest : IClassFixture<ContenedorPostgres>, IDi
 
         var respuesta = await cliente.PostAsJsonAsync(
             $"/api/lavaderos/{lavaderoId}/turnos",
-            Cuerpo(puestoId, tipoId, clienteId, "2026-10-10T10:00:00"));
+            Cuerpo(puestoId, tipoId, clienteId, Inicio(10)));
 
         Assert.Equal(HttpStatusCode.Created, respuesta.StatusCode);
         var creado = await respuesta.Content.ReadFromJsonAsync<RespuestaTurno>();
@@ -107,15 +133,15 @@ public sealed class EndpointReservaTest : IClassFixture<ContenedorPostgres>, IDi
 
         var alta = await cliente.PostAsJsonAsync(
             $"/api/lavaderos/{lavaderoId}/turnos",
-            Cuerpo(puestoId, tipoId, clienteId, "2026-10-10T10:00:00"));
+            Cuerpo(puestoId, tipoId, clienteId, Inicio(10)));
         Assert.Equal(HttpStatusCode.Created, alta.StatusCode);
 
         var ocupados = await cliente.GetFromJsonAsync<List<RespuestaDisponibilidad>>(
-            $"/api/lavaderos/{lavaderoId}/disponibilidad?desde=2026-10-10T09:00:00&hasta=2026-10-10T12:00:00");
+            $"/api/lavaderos/{lavaderoId}/disponibilidad?desde={Inicio(9)}&hasta={Inicio(12)}");
 
         Assert.NotNull(ocupados);
         var intervalo = Assert.Single(ocupados!);
-        Assert.Equal("2026-10-10T10:00:00", intervalo.desde);
+        Assert.Equal(Inicio(10), intervalo.desde);
     }
 
     [Fact]
@@ -128,12 +154,12 @@ public sealed class EndpointReservaTest : IClassFixture<ContenedorPostgres>, IDi
 
         var primero = await cliente.PostAsJsonAsync(
             $"/api/lavaderos/{lavaderoId}/turnos",
-            Cuerpo(puestoId, tipoId, Guid.NewGuid(), "2026-10-10T10:00:00"));
+            Cuerpo(puestoId, tipoId, Guid.NewGuid(), Inicio(10)));
         Assert.Equal(HttpStatusCode.Created, primero.StatusCode);
 
         var segundo = await cliente.PostAsJsonAsync(
             $"/api/lavaderos/{lavaderoId}/turnos",
-            Cuerpo(puestoId, tipoId, Guid.NewGuid(), "2026-10-10T10:00:00"));
+            Cuerpo(puestoId, tipoId, Guid.NewGuid(), Inicio(10)));
 
         Assert.Equal(HttpStatusCode.Conflict, segundo.StatusCode);
     }

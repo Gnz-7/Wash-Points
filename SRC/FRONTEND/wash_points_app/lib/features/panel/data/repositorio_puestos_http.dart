@@ -1,4 +1,5 @@
 import '../../../core/red/cliente_http.dart';
+import '../../reserva/domain/catalogo_lavadero.dart';
 import '../domain/puesto_admin.dart';
 import '../domain/repositorio_puestos.dart';
 
@@ -48,5 +49,27 @@ class RepositorioPuestosHttp implements RepositorioPuestos {
     );
 
     return PuestoAdmin.desdeJson(cuerpo);
+  }
+
+  @override
+  Future<CatalogoLavadero> obtenerCatalogo(String lavaderoId) async =>
+      CatalogoLavadero.desdeJson(
+        await _api.obtener('/api/lavaderos/$lavaderoId/catalogo'),
+      );
+
+  @override
+  Future<List<String>> asignarTipos(
+    String lavaderoId,
+    String puestoId,
+    List<String> tiposLavadoIds,
+  ) async {
+    final cuerpo = await _api.reemplazar(
+      '/api/lavaderos/$lavaderoId/puestos/$puestoId/tipos-lavado',
+      cuerpo: <String, dynamic>{'tiposLavadoIds': tiposLavadoIds},
+    );
+
+    final tipos = cuerpo['tiposLavadoIds'];
+
+    return tipos is List ? tipos.whereType<String>().toList() : <String>[];
   }
 }

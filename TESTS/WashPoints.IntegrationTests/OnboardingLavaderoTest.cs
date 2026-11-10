@@ -38,7 +38,8 @@ public sealed class OnboardingLavaderoTest : IClassFixture<ContenedorPostgres>, 
     private async Task LimpiarTablas() =>
         await _baseDeDatos.EjecutarSqlAsync("""
             TRUNCATE TABLE outbox, comprobantes, pagos, turnos, usuarios,
-                           clientes, puestos, tipos_lavado, lavaderos CASCADE;
+                           clientes, puestos, tipos_lavado, horarios_atencion,
+                           puestos_tipos_lavado, lavaderos CASCADE;
             """);
 
     private CustomWebApplicationFactory CrearApi() =>
@@ -144,8 +145,15 @@ public sealed class OnboardingLavaderoTest : IClassFixture<ContenedorPostgres>, 
                 $"/api/lavaderos/{lavaderoId}/tipos-lavado"))!,
             t => t.nombre == "Lavado básico");
 
-        var inicioLocal = DateTime.Now.Date.AddDays(1).AddHours(10)
-            .ToString("yyyy-MM-ddTHH:mm:ss");
+        // El horario sembrado es lun–sáb 08:00–20:00 (slice-17, D-17.2), así
+        // que «mañana» no sirve si cae domingo: se elige el próximo día hábil.
+        var diaReserva = DateTime.Now.Date.AddDays(1);
+        while (diaReserva.DayOfWeek == DayOfWeek.Sunday)
+        {
+            diaReserva = diaReserva.AddDays(1);
+        }
+
+        var inicioLocal = diaReserva.AddHours(10).ToString("yyyy-MM-ddTHH:mm:ss");
 
         var respuesta = await cliente.PostAsJsonAsync(
             $"/api/lavaderos/{lavaderoId}/turnos",

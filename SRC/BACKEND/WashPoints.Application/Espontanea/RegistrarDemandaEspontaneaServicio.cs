@@ -49,7 +49,8 @@ public sealed class RegistrarDemandaEspontaneaServicio
 
     public async Task<Turno> RegistrarAsync(SolicitudEspontanea solicitud, CancellationToken ct)
     {
-        var tipo = await _catalogo.ObtenerTipoLavadoAsync(solicitud.TipoLavadoId, ct)
+        var tipo = await _catalogo.ObtenerTipoLavadoAsync(
+                solicitud.LavaderoId, solicitud.TipoLavadoId, ct)
             ?? throw new ArgumentException(
                 $"No existe el tipo de lavado {solicitud.TipoLavadoId}.", nameof(solicitud));
 

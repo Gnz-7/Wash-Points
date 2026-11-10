@@ -16,15 +16,18 @@ public sealed class GestionPuestosServicio
 {
     private readonly IPuestoRepositorio _puestos;
     private readonly IOcupacionRepositorio _ocupacion;
+    private readonly IConsultaCatalogo _catalogo;
     private readonly TimeProvider _reloj;
 
     public GestionPuestosServicio(
         IPuestoRepositorio puestos,
         IOcupacionRepositorio ocupacion,
+        IConsultaCatalogo catalogo,
         TimeProvider reloj)
     {
         _puestos = puestos;
         _ocupacion = ocupacion;
+        _catalogo = catalogo;
         _reloj = reloj;
     }
 
@@ -61,6 +64,41 @@ public sealed class GestionPuestosServicio
         await _puestos.GuardarAsync(ct);
 
         return puesto;
+    }
+
+    /// <summary>
+    /// Reemplaza los tipos de lavado que atiende el puesto (slice-17, D-17.10,
+    /// R-4). Una lista vacía deja el puesto atendiendo todos los servicios
+    /// (D-17.7). Un tipo de otro lavadero o inactivo es indistinguible de
+    /// inexistente y se rechaza antes de escribir nada.
+    /// </summary>
+    public async Task<IReadOnlyList<Guid>> AsignarTiposAsync(
+        Guid lavaderoId,
+        Guid puestoId,
+        IReadOnlyList<Guid> tiposLavadoIds,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(tiposLavadoIds);
+
+        _ = await _puestos.ObtenerAsync(lavaderoId, puestoId, ct)
+            ?? throw new PuestoNoEncontradoException(
+                $"No existe el puesto {puestoId} en el lavadero {lavaderoId}.");
+
+        var distintos = tiposLavadoIds.Distinct().ToArray();
+
+        foreach (var tipoLavadoId in distintos)
+        {
+            if (await _catalogo.ObtenerTipoLavadoAsync(lavaderoId, tipoLavadoId, ct) is null)
+            {
+                throw new TipoLavadoNoEncontradoException(
+                    $"No existe el tipo de lavado {tipoLavadoId} en el lavadero {lavaderoId}.");
+            }
+        }
+
+        await _puestos.ReemplazarTiposAsync(puestoId, distintos, ct);
+        await _puestos.GuardarAsync(ct);
+
+        return distintos;
     }
 
     public async Task<Puesto> ActivarAsync(Guid lavaderoId, Guid puestoId, CancellationToken ct)

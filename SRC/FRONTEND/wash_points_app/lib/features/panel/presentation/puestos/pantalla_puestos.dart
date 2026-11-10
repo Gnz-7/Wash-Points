@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/errores/api_exception.dart';
+import '../../../reserva/domain/catalogo_lavadero.dart';
 import '../../domain/puesto_admin.dart';
+import '../lavadero_actual.dart';
 import 'puestos_notifier.dart';
 
 /// Gestión de puestos de lavado (slice-10, CU-05).
@@ -146,25 +148,151 @@ class _PantallaPuestosState extends ConsumerState<PantallaPuestos> {
       );
 
   Widget _tarjeta(BuildContext context, PuestoAdmin puesto) {
+    final servicios = puesto.tiposLavadoIds.isEmpty
+        ? 'todos los servicios'
+        : '${puesto.tiposLavadoIds.length} servicios';
+
     return Card(
       key: ValueKey('tarjeta_puesto_${puesto.id}'),
       child: ListTile(
         title: Text(puesto.nombre),
-        subtitle: Text(puesto.activo ? 'Activo' : 'Inactivo'),
-        trailing: puesto.activo
-            ? TextButton(
+        subtitle: Text(
+          '${puesto.activo ? 'Activo' : 'Inactivo'} · $servicios',
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            TextButton(
+              key: ValueKey('boton_servicios_puesto_${puesto.id}'),
+              onPressed: () => _servicios(context, puesto),
+              child: const Text('Servicios'),
+            ),
+            if (puesto.activo)
+              TextButton(
                 key: ValueKey('boton_desactivar_puesto_${puesto.id}'),
                 onPressed: () =>
                     ref.read(puestosProvider.notifier).alternar(puesto),
                 child: const Text('Desactivar'),
               )
-            : TextButton(
+            else
+              TextButton(
                 key: ValueKey('boton_activar_puesto_${puesto.id}'),
                 onPressed: () =>
                     ref.read(puestosProvider.notifier).alternar(puesto),
                 child: const Text('Activar'),
               ),
+          ],
+        ),
       ),
     );
   }
+
+  /// Abre la selección de servicios del puesto (slice-17, T-189).
+  ///
+  /// La compatibilidad vigente y los tipos activos salen del catálogo: el
+  /// listado de puestos no los publica. Sin selección el puesto atiende todo
+  /// (D-17.7), y esa regla la decide el servidor.
+  Future<void> _servicios(BuildContext context, PuestoAdmin puesto) async {
+    final lavaderoId = ref.read(lavaderoActualProvider);
+
+    late final CatalogoLavadero catalogo;
+    try {
+      catalogo = await ref
+          .read(repositorioPuestosProvider)
+          .obtenerCatalogo(lavaderoId);
+    } on ApiException catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.mensaje)));
+      return;
+    }
+
+    if (!context.mounted) {
+      return;
+    }
+
+    var actuales = const <String>[];
+    for (final cada in catalogo.puestos) {
+      if (cada.id == puesto.id) {
+        actuales = cada.tiposLavadoIds;
+      }
+    }
+
+    final elegidos = await showDialog<List<String>>(
+      context: context,
+      builder: (context) => _DialogoServicios(
+        tipos: catalogo.tipos,
+        seleccionados: actuales,
+      ),
+    );
+
+    if (elegidos == null) {
+      return;
+    }
+
+    await ref.read(puestosProvider.notifier).asignarTipos(puesto, elegidos);
+  }
+}
+
+/// Selección de servicios de un puesto. Vacío = todos (D-17.7).
+class _DialogoServicios extends StatefulWidget {
+  const _DialogoServicios({required this.tipos, required this.seleccionados});
+
+  final List<TipoLavadoResumen> tipos;
+  final List<String> seleccionados;
+
+  @override
+  State<_DialogoServicios> createState() => _DialogoServiciosState();
+}
+
+class _DialogoServiciosState extends State<_DialogoServicios> {
+  late final Set<String> _elegidos = <String>{...widget.seleccionados};
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Servicios del puesto'),
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Text('Sin selección, el puesto atiende todos los servicios.'),
+          const SizedBox(height: 8),
+          if (widget.tipos.isEmpty)
+            const Text(
+              'No hay servicios activos.',
+              key: ValueKey('servicios_vacio'),
+            ),
+          for (final tipo in widget.tipos)
+            FilterChip(
+              key: ValueKey('chip_tipo_${tipo.id}'),
+              label: Text(tipo.nombre),
+              selected: _elegidos.contains(tipo.id),
+              onSelected: (elegido) => setState(() {
+                if (elegido) {
+                  _elegidos.add(tipo.id);
+                } else {
+                  _elegidos.remove(tipo.id);
+                }
+              }),
+            ),
+        ],
+      ),
+    ),
+    actions: <Widget>[
+      TextButton(
+        key: const ValueKey('boton_cancelar_servicios'),
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Cancelar'),
+      ),
+      FilledButton(
+        key: const ValueKey('boton_guardar_servicios'),
+        onPressed: () => Navigator.of(context).pop(_elegidos.toList()),
+        child: const Text('Guardar'),
+      ),
+    ],
+  );
 }

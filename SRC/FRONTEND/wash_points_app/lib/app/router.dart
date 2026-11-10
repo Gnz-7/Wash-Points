@@ -13,6 +13,7 @@ import '../features/disponibilidad/presentation/pantalla_disponibilidad.dart';
 import '../features/misturnos/presentation/pantalla_mis_turnos.dart';
 import '../features/panel/presentation/agenda/pantalla_agenda.dart';
 import '../features/panel/presentation/catalogo/pantalla_catalogo.dart';
+import '../features/panel/presentation/horarios/pantalla_horarios.dart';
 import '../features/panel/presentation/metricas/pantalla_metricas.dart';
 import '../features/panel/presentation/panel_admin.dart';
 import '../features/panel/presentation/puestos/pantalla_puestos.dart';
@@ -95,6 +96,14 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/mis-turnos',
         name: 'misTurnos',
         builder: (context, state) => const PantallaMisTurnos(),
+      ),
+      // Horarios de atención (slice-17, T-188). Cuelga fuera del shell porque
+      // se abre desde la barra del panel con `push` y trae su propio Scaffold;
+      // agregar una sexta pestaña iría contra la guía de Material.
+      GoRoute(
+        path: '/admin/horarios',
+        name: 'adminHorarios',
+        builder: (context, state) => const PantallaHorarios(),
       ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navegacion) =>

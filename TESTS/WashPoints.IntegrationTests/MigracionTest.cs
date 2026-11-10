@@ -377,4 +377,79 @@ public sealed class MigracionTest : IClassFixture<ContenedorPostgres>, IAsyncLif
             """);
         Assert.True(checkAdminRequiereLavadero, "Falta el CHECK administrador ⇒ lavadero_id NOT NULL.");
     }
+
+    [Fact]
+    public async Task LaMigracionDelSlice17CreaHorariosYPuestosTipos()
+    {
+        // Slice-17 (T-175, R-1 y R-4): horarios de atención del lavadero y
+        // compatibilidad puesto ↔ tipo de lavado.
+        async Task<bool> ExisteTabla(string tabla) =>
+            await _baseDeDatos.ConsultarEscalarAsync<bool>($"""
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.tables WHERE table_name = '{tabla}'
+                )
+                """);
+
+        Assert.True(await ExisteTabla("horarios_atencion"), "Falta la tabla horarios_atencion (R-1).");
+        Assert.True(await ExisteTabla("puestos_tipos_lavado"), "Falta la tabla puestos_tipos_lavado (R-4).");
+
+        async Task<bool> ExisteColumna(string tabla, string columna) =>
+            await _baseDeDatos.ConsultarEscalarAsync<bool>($"""
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = '{tabla}' AND column_name = '{columna}'
+                )
+                """);
+
+        Assert.True(await ExisteColumna("horarios_atencion", "dia_semana"), "Falta horarios_atencion.dia_semana.");
+        Assert.True(await ExisteColumna("horarios_atencion", "apertura"), "Falta horarios_atencion.apertura.");
+        Assert.True(await ExisteColumna("horarios_atencion", "cierre"), "Falta horarios_atencion.cierre.");
+        Assert.True(await ExisteColumna("horarios_atencion", "activo"), "Falta horarios_atencion.activo (baja lógica).");
+
+        // La unicidad de la franja es PARCIAL (WHERE activo): el reemplazo de
+        // horarios da de baja la fila vieja y da de alta otra con la misma
+        // apertura; un único trivial rompería el ABM (D-17.3).
+        var indiceUnicoParcial = await _baseDeDatos.ConsultarEscalarAsync<bool>("""
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_index i
+                JOIN pg_class t ON t.oid = i.indrelid
+                WHERE t.relname = 'horarios_atencion'
+                  AND i.indisunique
+                  AND i.indpred IS NOT NULL
+                  AND pg_get_indexdef(i.indexrelid) LIKE '%lavadero_id%'
+                  AND pg_get_indexdef(i.indexrelid) LIKE '%dia_semana%'
+                  AND pg_get_indexdef(i.indexrelid) LIKE '%apertura%'
+            )
+            """);
+        Assert.True(indiceUnicoParcial, "Falta el índice único parcial de franjas activas.");
+
+        async Task<bool> ExisteCheck(string tabla, string nombre) =>
+            await _baseDeDatos.ConsultarEscalarAsync<bool>($"""
+                SELECT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conrelid = '{tabla}'::regclass
+                      AND contype = 'c'
+                      AND conname = '{nombre}'
+                )
+                """);
+
+        Assert.True(
+            await ExisteCheck("horarios_atencion", "ck_horarios_atencion_dia_semana"),
+            "Falta el CHECK que restringe dia_semana a 1..7.");
+        Assert.True(
+            await ExisteCheck("horarios_atencion", "ck_horarios_atencion_rango"),
+            "Falta el CHECK apertura < cierre.");
+
+        // Las dos FK del puente borran en cascada: borrar un puesto o un tipo
+        // no puede dejar filas de compatibilidad huérfanas.
+        var fkEnCascada = await _baseDeDatos.ConsultarEscalarAsync<long>("""
+            SELECT COUNT(*)
+            FROM pg_constraint
+            WHERE conrelid = 'puestos_tipos_lavado'::regclass
+              AND contype = 'f'
+              AND confdeltype = 'c'
+            """);
+        Assert.Equal(2L, fkEnCascada);
+    }
 }
