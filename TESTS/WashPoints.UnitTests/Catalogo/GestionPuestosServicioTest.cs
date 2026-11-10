@@ -98,14 +98,79 @@ public sealed class GestionPuestosServicioTest
         Assert.Equal(2, reemplazo.Tipos.Count);
     }
 
+    [Fact]
+    public async Task CrearUnPuestoEmiteUnAvisoDeMetricasSinFecha()
+    {
+        var puestos = new PuestoRepositorioFake();
+        var outbox = new OutboxFake();
+        var servicio = Crear(puestos: puestos, outbox: outbox);
+
+        await servicio.CrearAsync(LavaderoId, "Puesto 2", CancellationToken.None);
+
+        var evento = Assert.Single(outbox.Metricas);
+        Assert.Equal(LavaderoId, evento.LavaderoId);
+        Assert.Null(evento.Fecha);
+    }
+
+    [Fact]
+    public async Task ActivarUnPuestoEmiteUnAvisoDeMetricas()
+    {
+        var outbox = new OutboxFake();
+        var servicio = Crear(outbox: outbox);
+
+        await servicio.ActivarAsync(LavaderoId, PuestoId, CancellationToken.None);
+
+        var evento = Assert.Single(outbox.Metricas);
+        Assert.Equal(LavaderoId, evento.LavaderoId);
+        Assert.Null(evento.Fecha);
+    }
+
+    [Fact]
+    public async Task DesactivarUnPuestoEmiteUnAvisoDeMetricas()
+    {
+        var outbox = new OutboxFake();
+        var servicio = Crear(outbox: outbox);
+
+        await servicio.DesactivarAsync(LavaderoId, PuestoId, CancellationToken.None);
+
+        var evento = Assert.Single(outbox.Metricas);
+        Assert.Equal(LavaderoId, evento.LavaderoId);
+        Assert.Null(evento.Fecha);
+    }
+
+    [Fact]
+    public async Task AsignarTiposNoEmiteAvisoDeMetricas()
+    {
+        var outbox = new OutboxFake();
+        var servicio = Crear(outbox: outbox);
+
+        await servicio.AsignarTiposAsync(
+            LavaderoId, PuestoId, new[] { TipoBasicoId }, CancellationToken.None);
+
+        Assert.Empty(outbox.Metricas);
+    }
+
     private static GestionPuestosServicio Crear(
         PuestoRepositorioFake? puestos = null,
-        ConsultaCatalogoFake? catalogo = null) =>
+        ConsultaCatalogoFake? catalogo = null,
+        OutboxFake? outbox = null) =>
         new(
             puestos ?? new PuestoRepositorioFake(),
             new OcupacionRepositorioFake(),
             catalogo ?? new ConsultaCatalogoFake { TiposDelLavadero = { TipoBasicoId, TipoCompletoId } },
-            TimeProvider.System);
+            TimeProvider.System,
+            outbox ?? new OutboxFake());
+
+    private sealed class OutboxFake : IOutbox
+    {
+        public List<EventoMetricas> Metricas { get; } = new();
+
+        public void Encolar(EventoOcupacion evento) => throw new NotSupportedException();
+
+        public void Encolar(EventoAgenda evento) => throw new NotSupportedException();
+
+        public void Encolar(EventoMetricas evento) => Metricas.Add(evento);
+    }
 
     private sealed class PuestoRepositorioFake : IPuestoRepositorio
     {
@@ -113,10 +178,15 @@ public sealed class GestionPuestosServicioTest
 
         public List<(Guid PuestoId, IReadOnlyList<Guid> Tipos)> Reemplazos { get; } = new();
 
+        public List<Puesto> Agregados { get; } = new();
+
         public int Guardados { get; private set; }
 
-        public Task AgregarAsync(Puesto puesto, CancellationToken ct = default) =>
-            throw new NotSupportedException();
+        public Task AgregarAsync(Puesto puesto, CancellationToken ct = default)
+        {
+            Agregados.Add(puesto);
+            return Task.CompletedTask;
+        }
 
         public Task<Puesto?> ObtenerAsync(
             Guid lavaderoId, Guid puestoId, CancellationToken ct = default) =>

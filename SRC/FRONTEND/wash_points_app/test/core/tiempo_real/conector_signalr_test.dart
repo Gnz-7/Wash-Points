@@ -84,6 +84,61 @@ void main() {
     });
   });
 
+  group('mapeo del evento de métricas', () {
+    const Map<String, dynamic> metricas = <String, dynamic>{
+      'lavaderoId': 'lav-5',
+      'fecha': '2026-11-10',
+      'generadoEn': '2026-11-10T18:22:31Z',
+    };
+
+    test('traduce metricasActualizadas', () {
+      final evento =
+          ConectorSignalR.mapearEventoMetricas('metricasActualizadas', metricas);
+
+      expect(evento, isNotNull);
+      expect(evento!.lavaderoId, 'lav-5');
+      expect(evento.fecha, '2026-11-10');
+    });
+
+    test('acepta la carga como texto JSON', () {
+      final evento = ConectorSignalR.mapearEventoMetricas(
+        'metricasActualizadas',
+        jsonEncode(metricas),
+      );
+
+      expect(evento, isNotNull);
+      expect(evento!.lavaderoId, 'lav-5');
+    });
+
+    test('un nombre de evento distinto no produce nada', () {
+      expect(
+        ConectorSignalR.mapearEventoMetricas('agendaActualizada', metricas),
+        isNull,
+      );
+    });
+
+    test('un payload sin lavaderoId se descarta', () {
+      final sinLavadero = Map<String, dynamic>.of(metricas)
+        ..remove('lavaderoId');
+
+      expect(
+        ConectorSignalR.mapearEventoMetricas('metricasActualizadas', sinLavadero),
+        isNull,
+      );
+    });
+
+    test('una carga que no es JSON no rompe el stream', () {
+      expect(
+        ConectorSignalR.mapearEventoMetricas('metricasActualizadas', null),
+        isNull,
+      );
+      expect(
+        ConectorSignalR.mapearEventoMetricas('metricasActualizadas', 42),
+        isNull,
+      );
+    });
+  });
+
   group('URL de conexión', () {
     test('conserva https y agrega el token en access_token', () {
       final conector = ConectorSignalR(

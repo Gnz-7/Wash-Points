@@ -17,8 +17,11 @@ class RepositorioMetricasFalso implements RepositorioMetricas {
 
   final ResumenMetricas resumen;
   final List<OcupacionPuesto> ocupacion;
-  final Object? errorResumen;
-  final Object? errorOcupacion;
+
+  /// Mutables para simular que el servidor empieza a fallar después de una
+  /// carga exitosa (CA-18.19).
+  Object? errorResumen;
+  Object? errorOcupacion;
 
   final List<DateTime> fechasResumen = <DateTime>[];
   final List<DateTime> fechasOcupacion = <DateTime>[];

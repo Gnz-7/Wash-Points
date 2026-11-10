@@ -297,5 +297,7 @@ public sealed class CancelacionClienteServicioTest
         public void Encolar(EventoOcupacion evento) => Eventos.Add(evento);
 
         public void Encolar(EventoAgenda evento) => Eventos.Add(evento);
+
+        public void Encolar(EventoMetricas evento) => Eventos.Add(evento);
     }
 }

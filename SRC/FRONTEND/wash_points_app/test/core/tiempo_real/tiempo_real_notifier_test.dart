@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wash_points_app/core/errores/api_exception.dart';
 import 'package:wash_points_app/core/tiempo_real/canal_tiempo_real.dart';
+import 'package:wash_points_app/core/tiempo_real/evento_metricas.dart';
 import 'package:wash_points_app/core/tiempo_real/politica_reconexion.dart';
 import 'package:wash_points_app/core/tiempo_real/tiempo_real_notifier.dart';
 
@@ -162,5 +163,67 @@ void main() {
     expect(esperas, isEmpty);
     expect(canales, hasLength(1));
     expect(contenedor.read(tiempoRealProvider), EstadoCanal.desconectado);
+  });
+
+  test('unirseAMetricas suma el grupo administrativo', () async {
+    final canales = <CanalTiempoRealFalso>[];
+    final esperas = <Duration>[];
+    final contenedor = _contenedor(canales: canales, esperas: esperas);
+    final notifier = contenedor.read(tiempoRealProvider.notifier);
+    await notifier.iniciar();
+
+    await notifier.unirseAMetricas('lav-5');
+
+    expect(canales.single.unidosAMetricas, <String>['lav-5']);
+  });
+
+  test('al reconectar vuelve a unirse al grupo de métricas', () async {
+    final canales = <CanalTiempoRealFalso>[];
+    final esperas = <Duration>[];
+    final contenedor = _contenedor(canales: canales, esperas: esperas);
+    final notifier = contenedor.read(tiempoRealProvider.notifier);
+    await notifier.iniciar();
+    await notifier.unirseAMetricas('lav-5');
+
+    await notifier.pausar();
+    await notifier.reanudar();
+
+    expect(canales, hasLength(2));
+    expect(canales.last.unidosAMetricas, <String>['lav-5']);
+  });
+
+  test('salirDe saca el lavadero del grupo de métricas', () async {
+    final canales = <CanalTiempoRealFalso>[];
+    final esperas = <Duration>[];
+    final contenedor = _contenedor(canales: canales, esperas: esperas);
+    final notifier = contenedor.read(tiempoRealProvider.notifier);
+    await notifier.iniciar();
+    await notifier.unirseAMetricas('lav-5');
+
+    await notifier.salirDe('lav-5');
+
+    expect(canales.single.unidosAMetricas, isEmpty);
+  });
+
+  test('las señales de métricas llegan por su propio stream', () async {
+    final canales = <CanalTiempoRealFalso>[];
+    final esperas = <Duration>[];
+    final contenedor = _contenedor(canales: canales, esperas: esperas);
+    await contenedor.read(tiempoRealProvider.notifier).iniciar();
+
+    final recibidos = <EventoMetricas>[];
+    final suscripcion = contenedor
+        .read(tiempoRealProvider.notifier)
+        .eventosMetricas
+        .listen(recibidos.add);
+    addTearDown(suscripcion.cancel);
+
+    canales.single.emitirMetricas(
+      const EventoMetricas(lavaderoId: 'lav-5', fecha: '2026-11-10'),
+    );
+    await pumpEventQueue();
+
+    expect(recibidos.single.lavaderoId, 'lav-5');
+    expect(recibidos.single.fecha, '2026-11-10');
   });
 }

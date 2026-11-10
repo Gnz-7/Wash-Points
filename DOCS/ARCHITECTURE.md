@@ -410,10 +410,18 @@ El único cliente Flutter cubre cliente y administrador, differentiated por rol 
 
 ### 7.3 Tiempo real (SignalR)
 
-- Un Hub (`DisponibilidadHub`, ruta `/hubs/disponibilidad`) con **grupo por `lavaderoId`**, nombrado `lavadero-{id}`. Cada cliente se une con `UnirseALavadero(lavaderoId)` y sale con `SalirDeLavadero(lavaderoId)`.
-- El evento se llama `disponibilidadActualizada` y lleva el payload de ocupación `{ turnoId, lavaderoId, puestoId, origen, estado, desde, hasta }`, consistente con `GET /disponibilidad`.
+Un solo Hub (`DisponibilidadHub`, ruta `/hubs/disponibilidad`) con **un grupo por lavadero y por tipo de suscripción**. Todos los grupos se derivan del `lavaderoId` y todos exigen la misma autorización: rol `administrador` y claim `LavaderoId` igual al de la ruta (si no, `HubException("no_es_propietario")`).
+
+| Grupo | Método de unión / salida | Evento | Payload |
+|-------|--------------------------|--------|---------|
+| `lavadero-{id}` | `UnirseALavadero` / `SalirDeLavadero` | `disponibilidadActualizada` | `{ turnoId, lavaderoId, puestoId, origen, estado, desde, hasta }` |
+| `agenda-{id}` | `UnirseAAgenda` / `SalirDeAgenda` | `agendaActualizada` | `{ turnoId, lavaderoId, puestoId, origen, estado, inicioUtc, finUtc }` |
+| `metricas-{id}` | `UnirseAMetricas` / `SalirDeMetricas` | `metricasActualizadas` | `{ lavaderoId, fecha, generadoEn }` (señal de invalidación, §7.6) |
+
+- `SalirDe(lavaderoId)` del puerto Flutter invoca las tres salidas: un socket que se va no deja grupos huérfanos.
 - Los eventos se publican desde la outbox: un worker lee las filas no publicadas (orden `creado_en`), las envía al grupo y marca `publicado_en` (entrega *at-least-once*).
-- El cliente usa reconexión automática. Al reconectar, **re-suscribe y pide un snapshot completo** de disponibilidad mediante `SolicitarSnapshot(lavaderoId)`. Es un requisito de cierre del rol `frontend`: si la conexión en tiempo real se pierde, la UI debe degradar con claridad y nunca mostrar disponibilidad inventada.
+- **Fan-out y aislamiento (slice-18).** El publicador deriva `metricasActualizadas` de las filas `ocupacion_cambiada` y `agenda_cambiada` que ya emite, y agrega el tipo `metricas_cambiada` para los cambios de capacidad. La pata de métricas va en su propio `try/catch` con log de advertencia: si falla, **no** impide marcar la fila ni publicar los eventos primarios. Es *best-effort* a propósito; el dato sigue disponible por REST (§7.6).
+- El cliente usa reconexión automática. Al reconectar, **re-suscribe y pide un snapshot completo** de disponibilidad mediante `SolicitarSnapshot(lavaderoId)`, y re-une los grupos de agenda y métricas que tenía activos. Es un requisito de cierre del rol `frontend`: si la conexión en tiempo real se pierde, la UI debe degradar con claridad y nunca mostrar disponibilidad inventada.
 
 ### 7.4 Mapas y geolocalización
 
@@ -438,6 +446,17 @@ El único cliente Flutter cubre cliente y administrador, differentiated por rol 
 - **Generación de la grilla (D-17.9):** desde la apertura de cada franja se avanza `DuracionMinutos`; un slot se descarta si su fin excede el cierre. Con duraciones que no dividen la franja (45 min) el remanente queda sin oferta, y eso es aceptado.
 
 La reserva (`POST /api/lavaderos/{id}/turnos`) revalida todo en el servidor **antes** de insertar el turno y de crear la preferencia de Mercado Pago: pertenencia de puesto y tipo al lavadero de la ruta, anticipación, horizonte, rango dentro de una franja y compatibilidad puesto/tipo. Los rechazos son `422` (`anticipacion_insuficiente`, `fuera_de_horizonte`, `fuera_de_horario_atencion`, `puesto_incompatible`) y `404` (`puesto_no_encontrado`, `tipo_lavado_no_encontrado`); el `409 slot_ya_ocupado` queda reservado a la carrera en el `INSERT`. Una reserva inválida nunca crea una preferencia de pago (RB-1).
+
+### 7.6 Métricas en tiempo real (slice-18)
+
+Cierra **CA-8.3** («las métricas se actualizan en tiempo real»), que el slice-06 había diferido con D-07.9. El canal de agenda **no** se reutiliza como transporte de métricas (D-18.1/D-18.3): se agrega un evento propio, un grupo propio y una señal de invalidación, no un push de números.
+
+- **Evento `metricasActualizadas`** (`{ lavaderoId, fecha, generadoEn }`) al grupo `metricas-{id}`. `fecha` es el día local del turno afectado (`yyyy-MM-dd`) y llega `null` cuando el cambio es de capacidad (puesto creado, activado o desactivado). No transporta importes, conteos ni PII: es una señal para que el panel vuelva a leer por REST, que sigue siendo la única fuente de verdad (D-18.2).
+- **Origen.** El publicador hace fan-out de las filas de outbox que ya existen (`ocupacion_cambiada`, `agenda_cambiada`) y agrega `metricas_cambiada` para la capacidad, encolada por `GestionPuestosServicio` en la misma transacción que el cambio del puesto (D-18.3, D-18.5).
+- **Aislamiento.** El envío a `metricas-{id}` va después del primario y en su propio `try/catch`: un fallo del canal administrativo se registra y se descarta, nunca impide publicar agenda/disponibilidad ni degrada RB-2 (D-18.4). La entrega es *best-effort*; el polling acota la ventana.
+- **Cliente.** `PantallaMetricas` es `ConsumerStatefulWidget`: se une a `metricas-{id}`, debouncea 500 ms las ráfagas, filtra por `lavaderoId` y por fecha (un evento sin fecha aplica a cualquier día) y mantiene **un solo refresco en vuelo** con coalescencia. Además refresca con el polling de respaldo de 30 s, que corre **siempre** —también con el canal conectado— porque la foto «ahora» (puestos ocupados, tasa de ocupación) envejece sin escritura y ningún evento la corrige (D-18.6, D-18.8).
+- **Frescura visible.** La cabecera muestra un indicador de canal (`indicador_tiempo_real`), un botón de refresco manual (`boton_refrescar_metricas`) y, si un refresco falla, el aviso `aviso_desactualizado` conservando los últimos datos en pantalla en lugar de reemplazarlos por un error (D-18.10, D-18.11).
+- **Degradación.** Sin sesión no se abre socket y el indicador dice «Sin conexión»; la pantalla sigue funcionando por polling y REST. Si el hub nunca responde, la vista no se bloquea (CA-18.21).
 
 ## 8. Seguridad
 
@@ -513,6 +532,8 @@ Además quedó sin decidir si `puestos.lavadero_id` y `turnos.lavadero_id` ganan
 **Decisión de slice-10 (T-99, US-A07).** El esquema de `puestos` que necesita el ABM de administración queda **fijado** en lo que el caso de uso exige: `id`, `lavadero_id`, `nombre`, `activo` (`Puesto.cs`), con nombre único por lavadero y los conflictos `puesto_ya_existe` y `puesto_con_turnos_activos`. El panel lista, crea y activa/desactiva puestos con esas columnas; US-A07 no requiere ampliar la tabla.
 
 **Decisión de slice-17 (T-174…T-181).** Los horarios de atención y los tipos de lavado por puesto quedan **resueltos** por `SPECS/slice-17-horarios-reglas-puestos.md`: `horarios_atencion` (`lavadero_id`, `dia_semana` 1–7, `apertura`, `cierre`, `activo`, `creado_en`) y la tabla puente `puestos_tipos_lavado` (`puesto_id`, `tipo_lavado_id`), ambas detalladas en §4.1 y con sus decisiones en §4.2. El alta de administrador siembra «Puesto 1», los dos tipos de lavado y la semana lun–sáb 08:00–20:00 en la misma transacción; la migración backfillea esa semana a los lavaderos existentes.
+
+**Decisión de slice-18 (T-205).** El canal de métricas **no agrega columnas ni tablas**: reutiliza la outbox existente (`outbox_eventos`) con el tipo `metricas_cambiada` y la columna `payload` ya presente. `GestionPuestosServicio` escribe la fila en la misma transacción que el cambio de puesto, así que la capacidad observada y la notificación no divergen. No hay migración nueva.
 
 **Estado:** **cerrada para lo que bloqueaba un caso de uso.** Con `puestos` fijado por el slice-10, `usuarios`/`clientes` por los slices 05, 05b y 08, y horarios/tipos por puesto por el slice-17, ningún CU depende de columnas que no existan. Quedan como deuda **no bloqueante** —nadie la consume todavía—: teléfono del lavadero y las FK explícitas de `puestos.lavadero_id`, `turnos.lavadero_id` y `tipos_lavado.lavadero_id`. El **teléfono del cliente** sigue diferido por minimización de PII (D-09.1). Resoluble por `architect` (§2.1 de AGENTS.md) sin intervención del responsable del producto, a diferencia de las 1 a 3.
 

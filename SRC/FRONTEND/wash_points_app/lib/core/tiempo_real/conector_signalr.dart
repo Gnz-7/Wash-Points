@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:signalr_netcore/signalr_client.dart';
 
 import 'canal_tiempo_real.dart';
+import 'evento_metricas.dart';
 import 'evento_tiempo_real.dart';
 
 /// Conector con el hub `/hubs/disponibilidad` (D-12.1).
@@ -30,12 +31,15 @@ class ConectorSignalR implements CanalTiempoReal {
   /// Nombres de evento que publica el backend (`PublicadorOutbox`).
   static const String eventoAgenda = 'agendaActualizada';
   static const String eventoDisponibilidad = 'disponibilidadActualizada';
+  static const String eventoMetricas = 'metricasActualizadas';
 
   /// Métodos del hub (`DisponibilidadHub`).
   static const String metodoUnirseALavadero = 'UnirseALavadero';
   static const String metodoSalirDeLavadero = 'SalirDeLavadero';
   static const String metodoUnirseAAgenda = 'UnirseAAgenda';
   static const String metodoSalirDeAgenda = 'SalirDeAgenda';
+  static const String metodoUnirseAMetricas = 'UnirseAMetricas';
+  static const String metodoSalirDeMetricas = 'SalirDeMetricas';
   static const String metodoSnapshot = 'SolicitarSnapshot';
 
   final String _urlBase;
@@ -46,6 +50,8 @@ class ConectorSignalR implements CanalTiempoReal {
       StreamController<EstadoCanal>.broadcast();
   final StreamController<EventoTiempoReal> _eventos =
       StreamController<EventoTiempoReal>.broadcast();
+  final StreamController<EventoMetricas> _eventosMetricas =
+      StreamController<EventoMetricas>.broadcast();
 
   HubConnection? _conexion;
   EstadoCanal _estado = EstadoCanal.desconectado;
@@ -58,6 +64,9 @@ class ConectorSignalR implements CanalTiempoReal {
 
   @override
   Stream<EventoTiempoReal> get eventos => _eventos.stream;
+
+  @override
+  Stream<EventoMetricas> get eventosMetricas => _eventosMetricas.stream;
 
   @override
   Future<void> conectar() async {
@@ -76,6 +85,10 @@ class ConectorSignalR implements CanalTiempoReal {
     conexion.on(
       eventoDisponibilidad,
       (argumentos) => _recibir(eventoDisponibilidad, argumentos),
+    );
+    conexion.on(
+      eventoMetricas,
+      (argumentos) => _recibirMetricas(argumentos),
     );
     conexion.onclose(({Exception? error}) => _alCerrar(error));
 
@@ -101,11 +114,16 @@ class ConectorSignalR implements CanalTiempoReal {
       _invocar(metodoUnirseAAgenda, <Object>[lavaderoId]);
 
   @override
+  Future<void> unirseAMetricas(String lavaderoId) =>
+      _invocar(metodoUnirseAMetricas, <Object>[lavaderoId]);
+
+  @override
   Future<void> salirDe(String lavaderoId) async {
     // Salir de un grupo es best-effort: si el socket ya no está, el servidor
     // descarta los grupos con la conexión.
     await _invocarSinFalla(metodoSalirDeLavadero, <Object>[lavaderoId]);
     await _invocarSinFalla(metodoSalirDeAgenda, <Object>[lavaderoId]);
+    await _invocarSinFalla(metodoSalirDeMetricas, <Object>[lavaderoId]);
   }
 
   @override
@@ -151,6 +169,10 @@ class ConectorSignalR implements CanalTiempoReal {
       await _eventos.close();
     }
 
+    if (!_eventosMetricas.isClosed) {
+      await _eventosMetricas.close();
+    }
+
     if (!_estados.isClosed) {
       await _estados.close();
     }
@@ -181,6 +203,19 @@ class ConectorSignalR implements CanalTiempoReal {
     // `desdeJson` descarta payloads sin lavaderoId o con fechas ilegibles: un
     // mensaje basura nunca rompe el stream (entrega at-least-once).
     return EventoTiempoReal.desdeJson(json, tipo: tipo);
+  }
+
+  /// Traduce la señal de métricas, o `null` si no es utilizable (D-18.7).
+  ///
+  /// Es un evento distinto de [EventoTiempoReal] a propósito: no lleva turno
+  /// ni intervalo, así que no comparte su validación de fechas. Un payload sin
+  /// `lavaderoId` se descarta y la conexión sigue viva.
+  static EventoMetricas? mapearEventoMetricas(String nombre, Object? carga) {
+    if (nombre != eventoMetricas) {
+      return null;
+    }
+
+    return EventoMetricas.desdeJson(_comoMapa(carga));
   }
 
   /// URL del hub, con esquema **http/https**.
@@ -222,6 +257,17 @@ class ConectorSignalR implements CanalTiempoReal {
 
     if (evento != null && !_eventos.isClosed) {
       _eventos.add(evento);
+    }
+  }
+
+  void _recibirMetricas(List<Object?>? argumentos) {
+    final carga = argumentos == null || argumentos.isEmpty
+        ? null
+        : argumentos.first;
+    final evento = mapearEventoMetricas(eventoMetricas, carga);
+
+    if (evento != null && !_eventosMetricas.isClosed) {
+      _eventosMetricas.add(evento);
     }
   }
 

@@ -7,6 +7,7 @@ import '../errores/api_exception.dart';
 import '../sesion/sesion_provider.dart';
 import 'canal_tiempo_real.dart';
 import 'conector_signalr.dart';
+import 'evento_metricas.dart';
 import 'evento_tiempo_real.dart';
 import 'politica_reconexion.dart';
 
@@ -51,6 +52,11 @@ final reconexionesTiempoRealProvider = Provider<Stream<void>>(
   (ref) => ref.watch(tiempoRealProvider.notifier).reconexiones,
 );
 
+/// Señales de invalidación del panel de métricas (D-18.7).
+final eventosMetricasProvider = Provider<Stream<EventoMetricas>>(
+  (ref) => ref.watch(tiempoRealProvider.notifier).eventosMetricas,
+);
+
 /// Dueño único de la conexión de tiempo real (D-12.8).
 ///
 /// Una conexión por app y varios grupos. El estado que publica es el que la UI
@@ -60,11 +66,16 @@ class TiempoRealNotifier extends Notifier<EstadoCanal> {
   CanalTiempoReal? _canal;
   StreamSubscription<EstadoCanal>? _suscripcion;
   StreamSubscription<EventoTiempoReal>? _suscripcionEventos;
+  StreamSubscription<EventoMetricas>? _suscripcionMetricas;
 
   /// Un solo controlador para toda la vida del notifier: sobrevive a las
   /// reconexiones y evita que la UI tenga que volver a suscribirse.
   final StreamController<EventoTiempoReal> _eventos =
       StreamController<EventoTiempoReal>.broadcast();
+
+  /// Señales de métricas, con la misma vida que [_eventos] (D-18.7).
+  final StreamController<EventoMetricas> _eventosMetricas =
+      StreamController<EventoMetricas>.broadcast();
 
   /// Avisos de reconexión exitosa, para forzar un refresco (D-12.9).
   final StreamController<void> _reconexiones =
@@ -72,6 +83,7 @@ class TiempoRealNotifier extends Notifier<EstadoCanal> {
 
   final Set<String> _lavaderos = <String>{};
   final Set<String> _agendas = <String>{};
+  final Set<String> _metricas = <String>{};
 
   /// Número de reintento consecutivo; vuelve a cero al conectar.
   int _intento = 0;
@@ -95,6 +107,9 @@ class TiempoRealNotifier extends Notifier<EstadoCanal> {
 
   /// Eventos ya mapeados que llegan por el canal (RB-2).
   Stream<EventoTiempoReal> get eventos => _eventos.stream;
+
+  /// Señales de invalidación de métricas (D-18.7).
+  Stream<EventoMetricas> get eventosMetricas => _eventosMetricas.stream;
 
   /// Se emite sólo cuando una conexión exitosa sigue a una caída.
   ///
@@ -153,6 +168,7 @@ class TiempoRealNotifier extends Notifier<EstadoCanal> {
     _cancelarEspera();
     _lavaderos.clear();
     _agendas.clear();
+    _metricas.clear();
     await _descartarCanal();
     state = EstadoCanal.desconectado;
   }
@@ -175,10 +191,20 @@ class TiempoRealNotifier extends Notifier<EstadoCanal> {
     }
   }
 
+  /// Se suscribe a las señales de métricas del lavadero (D-18.1).
+  Future<void> unirseAMetricas(String lavaderoId) async {
+    _metricas.add(lavaderoId);
+
+    if (state == EstadoCanal.conectado) {
+      await _canal?.unirseAMetricas(lavaderoId);
+    }
+  }
+
   /// Deja de escuchar un lavadero.
   Future<void> salirDe(String lavaderoId) async {
     _lavaderos.remove(lavaderoId);
     _agendas.remove(lavaderoId);
+    _metricas.remove(lavaderoId);
     await _canal?.salirDe(lavaderoId);
   }
 
@@ -224,6 +250,7 @@ class TiempoRealNotifier extends Notifier<EstadoCanal> {
     _canal = canal;
     _suscripcion = canal.estados.listen(_alCambiarEstado);
     _suscripcionEventos = canal.eventos.listen(_eventos.add);
+    _suscripcionMetricas = canal.eventosMetricas.listen(_eventosMetricas.add);
 
     _conectando = true;
 
@@ -253,6 +280,10 @@ class TiempoRealNotifier extends Notifier<EstadoCanal> {
 
     for (final lavaderoId in _agendas) {
       await canal.unirseAAgenda(lavaderoId);
+    }
+
+    for (final lavaderoId in _metricas) {
+      await canal.unirseAMetricas(lavaderoId);
     }
 
     state = EstadoCanal.conectado;
@@ -342,6 +373,10 @@ class TiempoRealNotifier extends Notifier<EstadoCanal> {
     _suscripcionEventos = null;
     await suscripcionEventos?.cancel();
 
+    final suscripcionMetricas = _suscripcionMetricas;
+    _suscripcionMetricas = null;
+    await suscripcionMetricas?.cancel();
+
     final canal = _canal;
     _canal = null;
 
@@ -355,6 +390,7 @@ class TiempoRealNotifier extends Notifier<EstadoCanal> {
     _cancelarEspera();
     unawaited(_descartarCanal());
     unawaited(_eventos.close());
+    unawaited(_eventosMetricas.close());
     unawaited(_reconexiones.close());
   }
 

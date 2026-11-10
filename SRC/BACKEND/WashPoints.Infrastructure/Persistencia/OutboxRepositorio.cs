@@ -19,6 +19,12 @@ public sealed class OutboxRepositorio : IOutbox
     /// <summary>Nombre del evento de agenda (D-04.5).</summary>
     private const string TipoEventoAgenda = "agenda_cambiada";
 
+    /// <summary>
+    /// Nombre del evento de métricas (slice-18, D-18.3). Es texto libre en la
+    /// columna <c>outbox.tipo</c>: no requiere migración (D-18.13).
+    /// </summary>
+    private const string TipoEventoMetricas = "metricas_cambiada";
+
     // Payload legible e inspeccionable: camelCase y enums en snake_case, para
     // que `outbox.payload` sea consistente con el contrato de §7.3 (D11).
     private static readonly JsonSerializerOptions OpcionesJson = new(JsonSerializerDefaults.Web)
@@ -40,6 +46,9 @@ public sealed class OutboxRepositorio : IOutbox
 
     public void Encolar(EventoAgenda evento) =>
         Agregar(TipoEventoAgenda, evento);
+
+    public void Encolar(EventoMetricas evento) =>
+        Agregar(TipoEventoMetricas, evento);
 
     private void Agregar<T>(string tipo, T evento)
     {

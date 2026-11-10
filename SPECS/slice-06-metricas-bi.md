@@ -66,9 +66,21 @@ Este slice:
 | **D-07.6 — Ocupación** | `minutosOcupados / minutosVentana`, recortando cada turno a la ventana; la ventana se informa en el DTO | Sin la ventana el porcentaje es incomparable; el recorte evita contar tiempo fuera del rango |
 | **D-07.7 — Inasistencias y cancelaciones** | Conteos (`noPresentados`, `cancelaciones`), sin tasa derivada | CU-09 no pide tasa; derivarla inventaría una regla |
 | **D-07.8 — Seguridad** | `.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)`; el `lavaderoId` sale del `{id}` de ruta, nunca del body | CA-8.5; slice-05 D-05.7 |
-| **D-07.9 — Tiempo real** | Se reutiliza el canal de agenda existente; sin hub, grupo ni evento nuevos | CA-8.3 sin duplicar infraestructura (slice-04 D-04.5) |
+| **D-07.9 — Tiempo real** | ~~Se reutiliza el canal de agenda existente; sin hub, grupo ni evento nuevos~~ **DEROGADA por el slice-18** (D-18.1/D-18.2/D-18.3): evento `metricasActualizadas` y grupo `metricas-{id}` propios | CA-8.3 sin duplicar infraestructura (slice-04 D-04.5) |
 | **D-07.10 — Errores** | `400 fecha_invalida` / `400 ventana_invalida` / `403` (slice-05) / `404 puesto_no_encontrado` / `500 metricas_no_disponibles`; día sin actividad ⇒ `200` con ceros | CA-8.4: la ausencia de datos no es un error |
 | **D-07.11 — Día local en la API** | El **endpoint** resuelve el día local con `ConversorHorario` y pasa `desdeUtc`/`hastaUtc` al servicio; `MetricasServicio` valida la ventana y calcula la tasa, sin conocer zonas horarias | `Application` no puede depender de `Infrastructure` (`ARCHITECTURE §2.1`); `ConversorHorario` vive en `Infrastructure` |
+
+> **Derogación de D-07.9 (slice-18, T-205).** El slice-06 dejó CA-8.3 cubierto
+> «reutilizando el canal de agenda». El slice-18 demostró que esa vía no alcanza:
+> el evento de agenda no cubre los cambios de capacidad (puestos) y obliga a
+> refrescar métricas en cada canje de comprobante, que no cambia ingresos ni
+> capacidad. La decisión vigente es
+> `SPECS/slice-18-metricas-tiempo-real.md` D-18.1/D-18.2/D-18.3: el backend
+> publica `metricasActualizadas` al grupo `metricas-{id}` con una señal de
+> invalidación `{ lavaderoId, fecha, generadoEn }`, el publicador hace fan-out de
+> las filas de outbox existentes y el panel debouncea 500 ms y refresca por REST.
+> El resto del slice-06 (D-07.1…D-07.8, D-07.10, D-07.11) sigue vigente y sin
+> cambios.
 
 ## 4. Estructura (nuevos/afectados)
 
@@ -304,7 +316,7 @@ Las pruebas de integración requieren Docker (Testcontainers `postgres:16-alpine
 | `OVERVIEW.md` §4.2 | Métricas de capacidad instalada e ingresos diarios | §1, CA-S6.1, CA-S6.2 |
 | `CU-09` flujo 2 | Puestos totales, activos y ocupados | CA-S6.1 |
 | `CU-09` flujo 3 | Señas y facturado, por separado | CA-S6.2, CA-S6.3 |
-| `CU-09` flujo 4 | Actualización en tiempo real | §2.1 (canal de agenda, D-07.9) |
+| `CU-09` flujo 4 | Actualización en tiempo real | Slice-18 (D-18.1…D-18.3); D-07.9 derogada |
 | `CU-09` A1 | Consulta de un día anterior | `?fecha=` (D-07.4) |
 | `CU-09` A2 | Lavadero sin pagos ⇒ ceros | CA-S6.4 |
 | `US-A08` CA-8.1…CA-8.5 | Capacidad, magnitudes, tiempo real, ceros, aislamiento | CA-S6.1…CA-S6.5 |

@@ -104,4 +104,41 @@ void main() {
     expect(estado.ocupacion, isEmpty);
     expect(estado.resumen.capacidad.puestosTotal, 4);
   });
+
+  test('un refresco fallido conserva los últimos valores', () async {
+    final repositorio = RepositorioMetricasFalso();
+    final contenedor = _contenedor(repositorio);
+    final antes = await contenedor.read(metricasProvider.future);
+
+    repositorio.errorResumen = const ApiException(
+      CodigoError.metricasNoDisponibles,
+      estado: 500,
+    );
+
+    await contenedor.read(metricasProvider.notifier).refrescar();
+
+    final despues = contenedor.read(metricasProvider);
+    expect(despues.hasError, isTrue);
+    expect(despues.hasValue, isTrue);
+    expect(despues.valueOrNull?.resumen, antes.resumen);
+    expect(despues.valueOrNull?.ocupacion, antes.ocupacion);
+  });
+
+  test('el error de la carga inicial no inventa datos previos', () async {
+    final contenedor = _contenedor(
+      RepositorioMetricasFalso(
+        errorResumen: const ApiException(
+          CodigoError.metricasNoDisponibles,
+          estado: 500,
+        ),
+      ),
+    );
+
+    await expectLater(
+      contenedor.read(metricasProvider.future),
+      throwsA(isA<ApiException>()),
+    );
+
+    expect(contenedor.read(metricasProvider).hasValue, isFalse);
+  });
 }

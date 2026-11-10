@@ -1,8 +1,8 @@
 # Catálogo de pruebas — Wash Points
 
-Referencia funcional de la suite del backend: **529 tests** (291 unitarios y 238 de integración),
-verificados en verde el 08/11/2026 sobre el árbol del slice-17. La suite Flutter suma **410 tests**
-(`flutter test`), verificados el 08/11/2026 sobre el mismo árbol con `flutter analyze` limpio.
+Referencia funcional de la suite del backend: **544 tests** (295 unitarios y 249 de integración),
+verificados en verde el 10/11/2026 sobre el árbol del slice-18. La suite Flutter suma **441 tests**
+(`flutter test`), verificados el 10/11/2026 sobre el mismo árbol con `flutter analyze` limpio.
 
 - **Propósito.** Que cualquier persona del equipo —sin leer código— entienda qué comportamiento
   del sistema está protegido por cada prueba y qué se rompe si esa prueba falla.
@@ -19,16 +19,16 @@ verificados en verde el 08/11/2026 sobre el árbol del slice-17. La suite Flutte
   09 = frontend; 10 = panel de administración; 11 = validación offline; 12 = sincronización en
   tiempo real; 13 = catálogo y onboarding; 14 = ciclo del cliente, cancelación y reembolsos;
   15 = pagos reales y ejecución de reembolsos; 16 = mapa, GPS y geocodificación;
-  17 = horarios de atención, reglas temporales y servicios por puesto.
+  17 = horarios de atención, reglas temporales y servicios por puesto; 18 = métricas en tiempo real.
 
-> **Cobertura del catálogo.** Las entradas detalladas cubren los slices 00–08 y el 17. Los tests de
+> **Cobertura del catálogo.** Las entradas detalladas cubren los slices 00–08, 17 y 18. Los tests de
 > los slices 09–16 están documentados en su spec (`SPECS/slice-09`…`slice-16`, §12 «Estado de
-> implementación») y todavía no se desglosan aquí caso por caso. El conteo de cabecera (529) sí
+> implementación») y todavía no se desglosan aquí caso por caso. El conteo de cabecera (544) sí
 > los incluye.
 
 ---
 
-## 1. Pruebas Unitarias (291 en total; 180 detalladas abajo)
+## 1. Pruebas Unitarias (295 en total; 184 detalladas abajo)
 
 Prueban una pieza aislada del sistema, sin base de datos ni red. Son las más rápidas y las que
 primero señalan que una regla del dominio cambió.
@@ -83,7 +83,7 @@ primero señalan que una regla del dominio cambió.
 - **`UnaHoraMalFormadaSeRechaza` (hora mal formada)** — *Slice 17.* Horas que no respetan `HH:mm` se
   rechazan en el servidor, sin depender de la validación del cliente.
 
-### `Catalogo/GestionPuestosServicioTest.cs` — Slice 17 (5 tests)
+### `Catalogo/GestionPuestosServicioTest.cs` — Slice 17/18 (9 tests)
 
 - **`AsignaLosTiposCompatiblesDelLavadero`** — *Slice 17.* El dueño puede declarar qué servicios atiende
   cada puesto, y esa restricción se guarda tal cual.
@@ -95,6 +95,14 @@ primero señalan que una regla del dominio cambió.
   evita cruzar catálogos entre comercios.
 - **`DeduplicaLosTiposRepetidos`** — *Slice 17.* Enviar el mismo tipo dos veces no duplica la fila ni
   rompe la clave compuesta de la tabla puente.
+- **`CrearUnPuestoEmiteUnAvisoDeMetricasSinFecha`** — *Slice 18.* Dar de alta un puesto avisa al panel
+  de métricas con `fecha` nula: la capacidad instalada cambió, no un turno de un día concreto.
+- **`ActivarUnPuestoEmiteUnAvisoDeMetricas`** — *Slice 18.* Reactivar un puesto sube `puestosActivos`, así
+  que el panel debe enterarse sin recargar la página.
+- **`DesactivarUnPuestoEmiteUnAvisoDeMetricas`** — *Slice 18.* Dar de baja un puesto baja `puestosActivos`;
+  el aviso mantiene la capacidad mostrada coherente con la realidad.
+- **`AsignarTiposNoEmiteAvisoDeMetricas`** — *Slice 18.* Cambiar qué servicios atiende un puesto no altera
+  capacidad ni ingresos: notificarlo sería ruido que provoca refrescos innecesarios.
 
 ### `Catalogo/PuestoTest.cs` — Slice 04 (4 tests)
 
@@ -446,7 +454,7 @@ primero señalan que una regla del dominio cambió.
 
 ---
 
-## 2. Pruebas de Integración (238 en total; 189 detalladas abajo)
+## 2. Pruebas de Integración (249 en total; 200 detalladas abajo)
 
 Levantan la API completa contra una base PostgreSQL real y ejercitan el sistema de punta a punta:
 petición, reglas de negocio, persistencia y respuesta.
@@ -679,6 +687,17 @@ petición, reglas de negocio, persistencia y respuesta.
 - **`RangoSemiabiertoDosAdyacentesNoSeSolapan`** — *Slice 00.* Dos turnos consecutivos (uno que termina
   cuando empieza el otro) no se consideran superpuestos.
 
+### `MetricasSignalRTest.cs` — Slice 18 (4 tests)
+
+- **`ElAdministradorRecibeMetricasActualizadasAlRegistrarUnaEspontanea`** — *Slice 18.* El panel del dueño
+  recibe la señal de métricas cuando entra un cliente sin turno, sin recargar la pantalla.
+- **`UnClienteNoPuedeUnirseAlCanalDeMetricas`** — *Slice 18.* Un conductor no puede suscribirse al canal
+  administrativo: las métricas del negocio no son información del cliente.
+- **`UnAdministradorAjenoNoPuedeUnirseAlCanalDeMetricas`** — *Slice 18.* Un dueño no puede espiar las
+  métricas de otro lavadero; la pertenencia se exige al unirse al grupo.
+- **`ElCanalDeDisponibilidadNoRecibeMetricas`** — *Slice 18.* Los avisos de métricas no se filtran al grupo
+  de disponibilidad: RB-2 mantiene su contrato intacto.
+
 ### `MetricasTest.cs` — Slice 06 (11 tests)
 
 - **`CapacidadReflejaLosPuestosReales`** — *Slice 06.* La capacidad informada es la cantidad de puestos que
@@ -756,6 +775,15 @@ petición, reglas de negocio, persistencia y respuesta.
 - **`SiLaTransaccionFallaNoQuedaFilaOutbox`** — *Slice 03.* Si la operación falla, no queda un aviso
   pendiente de un cambio que nunca ocurrió.
 
+### `OutboxMetricasTest.cs` — Slice 18 (3 tests)
+
+- **`UnCambioDeCapacidadSeEncolaConFechaNula`** — *Slice 18.* Crear, activar o desactivar un puesto deja en
+  la outbox un aviso sin fecha: la capacidad no pertenece a un día concreto.
+- **`UnCambioDeTurnoSeEncolaConLaFechaLocal`** — *Slice 18.* Un cambio de turno se encola con el día local
+  del lavadero, que es el que el panel tiene seleccionado.
+- **`ElPayloadNoLlevaImportesNiConteos`** — *Slice 18.* La señal no transporta finanzas ni PII: el panel
+  vuelve a pedir los números por REST, que sigue siendo la fuente de verdad.
+
 ### `OwnershipLavaderoTest.cs` — Slice 04 (5 tests)
 
 - **`AdminPropietarioPuedeOperarSuLavadero`** — *Slice 04.* El dueño opera su propio comercio sin
@@ -781,6 +809,17 @@ petición, reglas de negocio, persistencia y respuesta.
 - **`SinSesionDevuelve401`** — *Slice 05.* El comprobante no se entrega sin sesión.
 - **`ElRechazoEsIndistinguibleDeUnTurnoInexistente`** — *Slice 05.* La negativa no permite deducir si el
   turno existe: el comprobante es una credencial.
+
+### `PublicadorMetricasTest.cs` — Slice 18 (4 tests)
+
+- **`UnCambioDeTurnoEmiteMetricasConLaFechaLocalSinAgregarFilas`** — *Slice 18.* El publicador deriva el
+  aviso de métricas de la fila de turno que ya existía, con el día local, sin encolar una fila extra.
+- **`UnCambioDeCapacidadSeEmiteConFechaNula`** — *Slice 18.* Un cambio de puesto llega al panel como aviso
+  sin fecha, para que refresque la capacidad de cualquier día seleccionado.
+- **`UnFalloDelCanalDeMetricasNoImpideDisponibilidadNiAgenda`** — *Slice 18.* Si el canal administrativo
+  falla, los eventos de disponibilidad y agenda se publican igual: RB-2 no se degrada.
+- **`UnFalloDelCanalDeMetricasNoDejaElLoteSinMarcar`** — *Slice 18.* El fallo de métricas es *best-effort*:
+  la fila se marca publicada y el lote no se reintenta indefinidamente.
 
 ### `PublicadorSignalRTest.cs` — Slice 03 (3 tests)
 

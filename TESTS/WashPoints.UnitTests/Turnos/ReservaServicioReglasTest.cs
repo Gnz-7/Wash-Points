@@ -319,6 +319,10 @@ public sealed class ReservaServicioReglasTest
         public void Encolar(EventoAgenda evento)
         {
         }
+
+        public void Encolar(EventoMetricas evento)
+        {
+        }
     }
 
     private sealed class RelojFijo : TimeProvider

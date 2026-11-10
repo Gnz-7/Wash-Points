@@ -1,3 +1,4 @@
+import 'evento_metricas.dart';
 import 'evento_tiempo_real.dart';
 
 /// Estado de la conexión de tiempo real.
@@ -26,6 +27,12 @@ abstract interface class CanalTiempoReal {
   /// Eventos publicados por el hub.
   Stream<EventoTiempoReal> get eventos;
 
+  /// Señales de invalidación del panel de métricas (D-18.7).
+  ///
+  /// Van por un stream aparte del de [eventos] porque su contrato es distinto:
+  /// no llevan turno ni intervalo, sólo el lavadero y el día afectado.
+  Stream<EventoMetricas> get eventosMetricas;
+
   /// Abre la conexión.
   Future<void> conectar();
 
@@ -34,6 +41,9 @@ abstract interface class CanalTiempoReal {
 
   /// Se suscribe a los cambios de la agenda del lavadero.
   Future<void> unirseAAgenda(String lavaderoId);
+
+  /// Se suscribe a las señales de métricas del lavadero (D-18.1).
+  Future<void> unirseAMetricas(String lavaderoId);
 
   /// Deja de escuchar un lavadero.
   Future<void> salirDe(String lavaderoId);

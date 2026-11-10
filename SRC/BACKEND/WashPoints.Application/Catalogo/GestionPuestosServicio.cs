@@ -18,17 +18,20 @@ public sealed class GestionPuestosServicio
     private readonly IOcupacionRepositorio _ocupacion;
     private readonly IConsultaCatalogo _catalogo;
     private readonly TimeProvider _reloj;
+    private readonly IOutbox _outbox;
 
     public GestionPuestosServicio(
         IPuestoRepositorio puestos,
         IOcupacionRepositorio ocupacion,
         IConsultaCatalogo catalogo,
-        TimeProvider reloj)
+        TimeProvider reloj,
+        IOutbox outbox)
     {
         _puestos = puestos;
         _ocupacion = ocupacion;
         _catalogo = catalogo;
         _reloj = reloj;
+        _outbox = outbox;
     }
 
     public async Task<Puesto> CrearAsync(Guid lavaderoId, string nombre, CancellationToken ct)
@@ -37,6 +40,11 @@ public sealed class GestionPuestosServicio
         var puesto = Puesto.Crear(lavaderoId, nombre);
 
         await _puestos.AgregarAsync(puesto, ct);
+
+        // Cambia puestosTotal: el panel de métricas tiene que enterarse
+        // (slice-18, D-18.5). Se encola en la misma transacción del alta.
+        EncolarCambioDeCapacidad(lavaderoId);
+
         // El índice único se traduce a PuestoDuplicadoException en el repositorio.
         await _puestos.GuardarAsync(ct);
 
@@ -61,6 +69,7 @@ public sealed class GestionPuestosServicio
                 $"No existe el puesto {puestoId} en el lavadero {lavaderoId}.");
 
         puesto.Desactivar();
+        EncolarCambioDeCapacidad(lavaderoId);
         await _puestos.GuardarAsync(ct);
 
         return puesto;
@@ -108,8 +117,22 @@ public sealed class GestionPuestosServicio
                 $"No existe el puesto {puestoId} en el lavadero {lavaderoId}.");
 
         puesto.Activar();
+        EncolarCambioDeCapacidad(lavaderoId);
         await _puestos.GuardarAsync(ct);
 
         return puesto;
     }
+
+    /// <summary>
+    /// Avisa al panel de métricas que cambió la capacidad instalada (slice-18,
+    /// D-18.5). Va con <c>fecha: null</c>: <c>puestosTotal</c> y
+    /// <c>puestosActivos</c> son la foto actual del lavadero, no un agregado
+    /// histórico. <c>AsignarTiposAsync</c> no emite: no altera capacidad ni
+    /// ingresos.
+    /// </summary>
+    private void EncolarCambioDeCapacidad(Guid lavaderoId) =>
+        _outbox.Encolar(new EventoMetricas(
+            lavaderoId,
+            Fecha: null,
+            GeneradoEn: _reloj.GetUtcNow().UtcDateTime));
 }

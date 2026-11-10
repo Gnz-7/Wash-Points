@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:wash_points_app/core/tiempo_real/canal_tiempo_real.dart';
+import 'package:wash_points_app/core/tiempo_real/evento_metricas.dart';
 import 'package:wash_points_app/core/tiempo_real/evento_tiempo_real.dart';
 
 /// Canal de tiempo real para el arnés de pruebas (D-12.12).
@@ -25,6 +26,8 @@ class CanalTiempoRealFalso implements CanalTiempoReal {
 
   final StreamController<EventoTiempoReal> _eventos =
       StreamController<EventoTiempoReal>.broadcast();
+  final StreamController<EventoMetricas> _eventosMetricas =
+      StreamController<EventoMetricas>.broadcast();
   final StreamController<EstadoCanal> _estados =
       StreamController<EstadoCanal>.broadcast();
 
@@ -35,6 +38,7 @@ class CanalTiempoRealFalso implements CanalTiempoReal {
   /// Grupos a los que se unió el cliente, en orden.
   final List<String> unidosALavadero = <String>[];
   final List<String> unidosAAgenda = <String>[];
+  final List<String> unidosAMetricas = <String>[];
 
   /// Secuencia de llamadas recibidas: `conectar`, `unirse:<id>`, `snapshot:<id>`.
   final List<String> llamadas = <String>[];
@@ -50,6 +54,9 @@ class CanalTiempoRealFalso implements CanalTiempoReal {
 
   @override
   Stream<EventoTiempoReal> get eventos => _eventos.stream;
+
+  @override
+  Stream<EventoMetricas> get eventosMetricas => _eventosMetricas.stream;
 
   @override
   Stream<EstadoCanal> get estados => _estados.stream;
@@ -79,9 +86,16 @@ class CanalTiempoRealFalso implements CanalTiempoReal {
   }
 
   @override
+  Future<void> unirseAMetricas(String lavaderoId) async {
+    unidosAMetricas.add(lavaderoId);
+    llamadas.add('metricas:$lavaderoId');
+  }
+
+  @override
   Future<void> salirDe(String lavaderoId) async {
     unidosALavadero.remove(lavaderoId);
     unidosAAgenda.remove(lavaderoId);
+    unidosAMetricas.remove(lavaderoId);
   }
 
   @override
@@ -90,7 +104,9 @@ class CanalTiempoRealFalso implements CanalTiempoReal {
     _cambiar(EstadoCanal.desconectado);
     unidosALavadero.clear();
     unidosAAgenda.clear();
+    unidosAMetricas.clear();
     await _eventos.close();
+    await _eventosMetricas.close();
     await _estados.close();
   }
 
@@ -138,6 +154,9 @@ class CanalTiempoRealFalso implements CanalTiempoReal {
 
   /// Cambia el estado como lo haría el transporte.
   void emitirEstado(EstadoCanal estado) => _cambiar(estado);
+
+  /// Entrega una señal de métricas como si la hubiera publicado el hub.
+  void emitirMetricas(EventoMetricas evento) => _eventosMetricas.add(evento);
 
   /// Simula que el transporte se cayó sin que el cliente lo pidiera.
   void simularCaida() => _cambiar(EstadoCanal.desconectado);

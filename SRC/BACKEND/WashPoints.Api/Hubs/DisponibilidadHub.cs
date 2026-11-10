@@ -40,6 +40,13 @@ public sealed class DisponibilidadHub : Hub
     /// </summary>
     public static string GrupoAgendaDe(Guid lavaderoId) => $"agenda-{lavaderoId}";
 
+    /// <summary>
+    /// Grupo SignalR del panel de métricas del lavadero (slice-18, D-18.1).
+    /// Es administrativo, como el de agenda: nunca se publica al grupo de
+    /// disponibilidad para no filtrar ingresos ni ocupación a los conductores.
+    /// </summary>
+    public static string GrupoMetricasDe(Guid lavaderoId) => $"metricas-{lavaderoId}";
+
     /// <summary>Suscribe la conexión a los cambios de ocupación del lavadero.</summary>
     public Task UnirseALavadero(Guid lavaderoId) =>
         Groups.AddToGroupAsync(Context.ConnectionId, GrupoDe(lavaderoId));
@@ -56,6 +63,36 @@ public sealed class DisponibilidadHub : Hub
     /// </summary>
     public Task UnirseAAgenda(Guid lavaderoId)
     {
+        ExigirPropietario(lavaderoId);
+        return Groups.AddToGroupAsync(Context.ConnectionId, GrupoAgendaDe(lavaderoId));
+    }
+
+    /// <summary>Da de baja la conexión del grupo de agenda del lavadero.</summary>
+    public Task SalirDeAgenda(Guid lavaderoId) =>
+        Groups.RemoveFromGroupAsync(Context.ConnectionId, GrupoAgendaDe(lavaderoId));
+
+    /// <summary>
+    /// Suscribe la conexión al canal de métricas del lavadero (slice-18,
+    /// D-18.1). Misma regla de autorización que la agenda: sólo el
+    /// administrador dueño, porque el evento revela que hubo actividad
+    /// comercial en el local.
+    /// </summary>
+    public Task UnirseAMetricas(Guid lavaderoId)
+    {
+        ExigirPropietario(lavaderoId);
+        return Groups.AddToGroupAsync(Context.ConnectionId, GrupoMetricasDe(lavaderoId));
+    }
+
+    /// <summary>Da de baja la conexión del grupo de métricas del lavadero.</summary>
+    public Task SalirDeMetricas(Guid lavaderoId) =>
+        Groups.RemoveFromGroupAsync(Context.ConnectionId, GrupoMetricasDe(lavaderoId));
+
+    /// <summary>
+    /// Rechaza la conexión si no es el administrador dueño del lavadero
+    /// (D-05.7, D-18.1). Compartido por los canales administrativos.
+    /// </summary>
+    private void ExigirPropietario(Guid lavaderoId)
+    {
         var rol = Context.User?.FindFirst(ClaimsWashPoints.Rol)?.Value;
         var propio = Context.User?.FindFirst(ClaimsWashPoints.LavaderoId)?.Value;
 
@@ -65,13 +102,7 @@ public sealed class DisponibilidadHub : Hub
         {
             throw new HubException("no_es_propietario");
         }
-
-        return Groups.AddToGroupAsync(Context.ConnectionId, GrupoAgendaDe(lavaderoId));
     }
-
-    /// <summary>Da de baja la conexión del grupo de agenda del lavadero.</summary>
-    public Task SalirDeAgenda(Guid lavaderoId) =>
-        Groups.RemoveFromGroupAsync(Context.ConnectionId, GrupoAgendaDe(lavaderoId));
 
     /// <summary>
     /// Ocupación vigente del lavadero en el rango pedido. El cliente piensa en
