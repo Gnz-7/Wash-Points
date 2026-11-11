@@ -76,15 +76,15 @@ Las tres reglas tienen al menos una US con criterio de aceptación y punto de ve
 
 Estas ambigüedades vienen del SDD y **no se resuelven en requisitos**. Se referencian desde los CU afectados.
 
-> **Resuelta (slice-14).** La pregunta 1 quedó definida en `SPECS/slice-14-ciclo-cliente-cancelacion.md`
+> **Resuelta (slice-14, ejecutada en slice-15).** La pregunta 1 quedó definida en `SPECS/slice-14-ciclo-cliente-cancelacion.md`
 > (D-14.6): se reintegra el **100 %** de la seña si el cliente cancela con **120 minutos o más** de
 > anticipación al inicio del turno; fuera de plazo no hay reintegro. Ambos parámetros son
-> configurables por appsettings. La ejecución efectiva del reintegro contra la pasarela queda para
-> el slice-15.
+> configurables por appsettings. La ejecución efectiva del reintegro contra la pasarela la realiza
+> `WorkerReembolsos` desde el slice-15 (ver `DOCS/ARCHITECTURE.md` §7.2).
 
 | # | Pregunta | CU afectados | Referencia |
 |---|----------|--------------|------------|
-| 2 | Proveedor de mapas sin definir | CU-01 | ARCHITECTURE §7.2, §10.2 |
+| 2 | Proveedor de mapas: **MapTiler** (decidido en slice-16) | CU-01 | ARCHITECTURE §7.4, §10.2 |
 | 3 | Moneda y política de redondeo | CU-03, CU-09 | ARCHITECTURE §10.3 |
 | 4 | Ventana de canje offline: cuánto puede validar el admin sin red | CU-08 | ARCHITECTURE §10.4 |
 | 5 | Duración fija por tipo de lavado | CU-03, CU-06 | ARCHITECTURE §10.5 |

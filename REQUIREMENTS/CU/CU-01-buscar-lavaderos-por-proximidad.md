@@ -8,7 +8,7 @@
 | **Precondiciones** | El cliente está autenticado. Ha admitido su ubicación, o ha escrito una dirección de referencia. |
 | **Postcondiciones** | El cliente ve un mapa con los lavaderos disponibles ordenados por distancia, con información suficiente para decidir. |
 | **Reglas aplicadas** | Ninguna de RB-1, RB-2 ni RB-3 aplica directamente a este caso. |
-| **Preguntas abiertas** | Proveedor de mapas sin definir (ARCHITECTURE §7.2, §10.2). |
+| **Preguntas abiertas** | Proveedor de mapas: **MapTiler** (decidido en slice-16; ARCHITECTURE §7.4, §10.2). |
 
 ## Flujo principal
 
@@ -37,7 +37,7 @@ El sistema **no** debe mostrar un mapa vacío como si no hubiera lavaderos. La d
 ## Referencias
 
 - `OVERVIEW.md` §2.2 (Geolocalización), §4.1 (Buscador y Mapa interactivo)
-- `DOCS/ARCHITECTURE.md` §2 (stack, proveedor sin definir), §7.4 (el flujo de reserva no depende del proveedor)
+- `DOCS/ARCHITECTURE.md` §2 (stack, proveedor MapTiler desde slice-16), §7.4 (el flujo de reserva no depende del proveedor)
 
 ## US asociadas
 

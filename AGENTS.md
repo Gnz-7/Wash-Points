@@ -13,8 +13,8 @@ La fuente de verdad del producto es [`OVERVIEW.md`](./OVERVIEW.md). Este documen
 - **Módulos:**
   - **Cliente:** buscador + mapa interactivo por proximidad, disponibilidad en tiempo real, reserva de turnos, pago obligatorio de seña, emisión de comprobante digital (QR/texto).
   - **Administración:** gestión de puestos de lavado, agenda digital de turnos, registro de demanda espontánea, validación de arribo por QR/texto, métricas y BI (capacidad instalada e ingresos diarios).
-- **Integraciones:** pasarela de pagos **Mercado Pago** (cobro de la seña) y un proveedor de mapas/geolocalización **a definir**.
-- **Stack tecnológico:** definido en [`DOCS/ARCHITECTURE.md`](./DOCS/ARCHITECTURE.md) §2. Resumen: backend ASP.NET Core (C#) con EF Core + Npgsql sobre PostgreSQL; frontend Flutter (un solo cliente con login de administrador); tiempo real vía SignalR; pagos vía Mercado Pago SDK .NET; despliegue con Docker/docker-compose. El proveedor de mapas sigue **sin definir**: vive detrás del puerto `IGeocodificador` con una implementación stub. Antes de escribir la primera línea de integración con cualquiera de estas librerías, validar contra la documentación vigente con Context7 (ver §5).
+- **Integraciones:** pasarela de pagos **Mercado Pago** (cobro de la seña) y **MapTiler** para mapas y geocodificación (decidido en el slice-16, ver `DOCS/ARCHITECTURE.md` §7.4).
+- **Stack tecnológico:** definido en [`DOCS/ARCHITECTURE.md`](./DOCS/ARCHITECTURE.md) §2. Resumen: backend ASP.NET Core (C#) con EF Core + Npgsql sobre PostgreSQL; frontend Flutter (un solo cliente con login de administrador); tiempo real vía SignalR; pagos vía Mercado Pago SDK .NET; mapas con `flutter_map` + MapTiler; despliegue con Docker/docker-compose. El proveedor de mapas es **MapTiler**: la geocodificación va server-side con `Mapas:ApiKey` detrás del puerto `IGeocodificador` (stub como fallback sin key) y las teselas se inyectan en el build con una key pública restringida; sin key, sólo en Development se usan teselas públicas de OSM. Antes de escribir la primera línea de integración con cualquiera de estas librerías, validar contra la documentación vigente con Context7 (ver §5).
 
 ### Reglas de negocio inviolables
 
@@ -57,7 +57,7 @@ Cada rol declara su **ámbito**, sus **entradas**, sus **restricciones** y su **
 
 ### 2.5 `geo` — Geolocalización y Mapas
 - **Ámbito:** búsqueda por proximidad, selección de lavadero.
-- **Restricciones:** el proveedor está sin definir; la implementación debe vivir detrás de un puerto/interfaz intercambiable. Cachear y rastrear claves de API con presupuesto definido.
+- **Restricciones:** el proveedor es **MapTiler** (slice-16) y vive detrás del puerto/interfaz `IGeocodificador`; la implementación debe seguir siendo intercambiable. Cachear y rastrear claves de API con presupuesto definido; la key de geocodificación es server-side (`Mapas:ApiKey`) y la de teselas es pública y restringida por package/bundle y cuota.
 - **Cierra cuando:** cambiar de proveedor no requiere tocar el flujo de reserva.
 
 ### 2.6 `qa` — Calidad y Verificación
@@ -273,6 +273,10 @@ opencode run --standalone --print-logs "ok" 2>&1 | Select-String -Pattern 'loadi
 | Skills Context7 del proyecto | `.agents/skills/context7-cli/` | `devops` |
 | Paquete Superpowers | `~/.config/opencode/node_modules/superpowers` | `devops` |
 | Regla persistente de Context7 | bloque `<!-- context7 -->` en `AGENTS.md` | `devops` (no editar a mano; la gestiona `ctx7 setup`) |
+| Índice de slices | `SPECS/README.md` | `architect` |
+| Diagramas | `DOCS/DIAGRAMAS.md` | `architect` |
+| Matriz de trazabilidad | `DOCS/TRAZABILIDAD.md` | `analyst` + `qa` |
+| Artefactos locales (gitignored) | `.postman/`, `postman/`, `.superpowers/sdd/` | `devops`; no forman parte del producto |
 
 ### 5.5 Comandos de verificación (T-08)
 

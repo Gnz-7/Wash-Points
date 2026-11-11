@@ -8,7 +8,7 @@
 | Campo | Valor |
 |-------|-------|
 | **Rol ejecutor** | `backend` (AGENTS.md §2.2) con apoyo de `payments` (AGENTS.md §2.4) |
-| **Estado** | Implementado — verificado en verde en el commit `8a3dbb5` (2026-11-06) |
+| **Estado** | Implementado y verificado en la suite vigente (slice-19) |
 | **Objetivo** | Hacer verificable RB-1 de punta a punta: reserva → seña → confirmación **solo por webhook verificado**, con bloqueo preventivo del intervalo mientas el turno está `pendiente_pago` vigente |
 | **Criterio de cierre** | Los criterios CA-S1.1 a CA-S1.11 verificados con salida adjunta; ningún criterio se da por cumplido sin ejecución |
 

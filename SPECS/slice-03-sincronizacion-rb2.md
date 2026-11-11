@@ -6,7 +6,7 @@
 | Campo | Valor |
 |-------|-------|
 | **Rol ejecutor** | `backend` (§2.2) + `qa` (§2.6); `architect` para T-33 |
-| **Estado** | Aprobado — listo para implementar (inline, tarea por tarea) |
+| **Estado** | Implementado y verificado (corrección retroactiva del slice-19; ver `DOCS/CATALOGO_TESTS.md`) |
 | **Objetivo** | Hacer RB-2 observable de punta a punta: la demanda espontánea escribe la misma tabla que las reservas y todo cambio de ocupación se publica por `outbox`→SignalR sin recargar. |
 | **Criterio de cierre** | CA-S3.1…CA-S3.8 con salida adjunta; suite completa (slice-00…03) en verde. |
 
@@ -100,11 +100,11 @@ TESTS/
 
 ## 5. Plan de tareas (TDD: rojo → verde → refactor)
 
-Cada tarea tiene un test que debe **fallar primero**. T-33 es el delta de diseño; T-34 la migración. El detalle paso a paso está en `SPECS/slice-03-plan-implementacion.md`.
+Cada tarea tiene un test que debe **fallar primero**. T-33 es el delta de diseño; T-34 la migración. El detalle paso a paso está en `SPECS/slice-03b-plan-implementacion.md`.
 
 ### T-33 · Diseño: outbox, demanda espontánea y tiempo real
 
-Actualizar `DOCS/ARCHITECTURE.MD`: §2.2 (outbox/tiempo real como parte del módulo Ocupacion), §3.1/§4.2 (estado inicial espontánea `en_curso`, outbox en la misma transacción), §5 (arista `— → en_curso` y corrección de la fila `— → pendiente_pago`), §6 (regresión RB-2 con espontánea + SignalR), §7.3 (grupo `lavadero-{id}`, evento y snapshot).
+Actualizar `DOCS/ARCHITECTURE.md`: §2.2 (outbox/tiempo real como parte del módulo Ocupacion), §3.1/§4.2 (estado inicial espontánea `en_curso`, outbox en la misma transacción), §5 (arista `— → en_curso` y corrección de la fila `— → pendiente_pago`), §6 (regresión RB-2 con espontánea + SignalR), §7.3 (grupo `lavadero-{id}`, evento y snapshot).
 
 - **Verificación**: el documento refleja que la espontánea nace `en_curso`, que el `outbox` se escribe en el mismo commit y que el Hub publica por grupo.
 

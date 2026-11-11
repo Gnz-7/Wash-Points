@@ -8,7 +8,7 @@
 | Campo | Valor |
 |-------|-------|
 | **Rol ejecutor** | `backend` (§2.2) + `qa` (§2.6); `architect` para T-40 |
-| **Estado** | Aprobado — listo para implementar (inline, tarea por tarea) |
+| **Estado** | Implementado y verificado (corrección retroactiva del slice-19; ver `DOCS/CATALOGO_TESTS.md`) |
 | **Objetivo** | Cerrar el ciclo de vida del turno en el local (agenda, cierre, cancelación y `no_presentado`) y formalizar la gestión de puestos de lavado, publicando **todo** cambio de estado por `outbox`→SignalR en el mismo commit. |
 | **Criterio de cierre** | CA-S4.1…CA-S4.16 con salida adjunta; suite completa (slice-00…04) en verde, dos corridas consecutivas. |
 

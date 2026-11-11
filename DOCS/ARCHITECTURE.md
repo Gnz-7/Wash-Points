@@ -13,7 +13,9 @@ Wash Points centraliza la reserva de turnos en lavaderos de autos. Dos perfiles:
 - **Cliente (conductor)**: busca lavaderos por proximidad en mapa, ve disponibilidad en tiempo real, reserva un turno, paga una seña obligatoria y recibe un comprobante digital QR/texto.
 - **Administrador (dueño)**: configura puestos de lavado, ve la agenda, registra demanda espontánea, valida el arribo contra el comprobante y consulta métricas de capacidad instalada e ingresos diarios.
 
-Fuera de alcance de este documento: definición del proveedor de mapas (ver §7.2), políticas de reembolso (ver §10.1) y el diseño visual de las pantallas Flutter.
+Fuera de alcance de este documento: el diseño visual de las pantallas Flutter. El proveedor de mapas quedó decidido en el slice-16 (§7.4) y la política de reembolso en el slice-14 (§10.1).
+
+Documentos de apoyo: el índice de slices está en [`SPECS/README.md`](../SPECS/README.md) y los diagramas de contexto, contenedores, secuencias y despliegue en [`DOCS/DIAGRAMAS.md`](./DIAGRAMAS.md) (D1–D8).
 
 ## 2. Stack tecnológico (decidido)
 
@@ -25,8 +27,10 @@ Fuera de alcance de este documento: definición del proveedor de mapas (ver §7.
 | Tiempo real | SignalR (Hub + grupos por lavadero) | Sobre el mismo proceso HTTP. |
 | Pagos | Mercado Pago SDK .NET | `MercadoPagoConfig`, `PreferenceClient`, `WebhookSignatureValidator`. |
 | Frontend | Flutter (Android + iOS) | Un solo cliente, con login de administrador (§7.1). |
-| Mapas | **Sin definir** | Puerto `IGeocodificador` + implementación stub (§7.2). |
-| Despliegue | Docker / docker-compose | Servicios `api` y `postgres` para desarrollo y despliegue. |
+| Mapas | **MapTiler** (teselas + geocodificación) | `GeocodificadorMapTiler` detrás del puerto `IGeocodificador`; teselas con key pública restringida en el build (§7.4). |
+| Despliegue | Docker / docker-compose | Servicios `api` y `postgres` para desarrollo y despliegue (D7 en [`DIAGRAMAS.md`](./DIAGRAMAS.md)). |
+
+Contexto del sistema: D1; contenedores: D2. Ambos en [`DOCS/DIAGRAMAS.md`](./DIAGRAMAS.md).
 
 ### 2.1 Estructura del backend
 
@@ -111,8 +115,8 @@ Tabla append-only `eventos_dominio` (`turno_creado`, `turno_confirmado`, `turno_
 ```sql
 CREATE EXTENSION IF NOT EXISTS btree_gist;
 
--- MÍNIMO PARA RESOLVER LAS FK DE ESTE SLICE. No son el esquema definitivo:
--- ver §10.7 (catálogo sin definir). El módulo Catalogo (§2.2) las completa.
+-- MÍNIMO PARA RESOLVER LAS FK DE ESTE SLICE. El catálogo quedó ampliado por
+-- los slices 10 y 17; ver §10.7 (cerrada para lo que bloqueaba un caso de uso).
 CREATE TABLE lavaderos (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   nombre text NOT NULL,
@@ -287,7 +291,7 @@ CREATE TABLE outbox (
 );
 ```
 
-> El invariante "un comprobante no se canjea dos veces" no se expresa como `CHECK` sino por procedimiento: `usado_at IS NULL` es la precondición de la transición `confirmado → en_curso`, y esa transición se ejecuta dentro de una transacción que re-lee la fila. Un `CHECK` no serviría porque no puede leer el estado concurrente. El canje offline se materializa con `validado_offline = true` y se reconcilia contra el servidor al reconectar; el comportamiento exacto de esa reconciliación depende de la ventana de canje abierta (§10.4).
+> El invariante "un comprobante no se canjea dos veces" no se expresa como `CHECK` sino por procedimiento: `usado_at IS NULL` es la precondición de la transición `confirmado → en_curso`, y esa transición se ejecuta dentro de una transacción que re-lee la fila. Un `CHECK` no serviría porque no puede leer el estado concurrente. El canje offline se materializa con `validado_offline = true` y se reconcilia contra el servidor al reconectar; el comportamiento exacto de esa reconciliación depende de la ventana de canje abierta (§10.4). El flujo completo, de la caché de hashes a la reconciliación, está en D8 de [`DIAGRAMAS.md`](./DIAGRAMAS.md).
 >
 > El token nunca se persiste en claro: `hash` (SHA-256) sirve para localizar y canjear, y `token_cifrado` (AES-GCM) para re-servir el comprobante al cliente. El par separa el secreto de búsqueda del secreto recuperable: comprometer uno no expone el otro (slice-02, §4.2).
 
@@ -386,6 +390,8 @@ public interface IBusquedaLavaderos
 ```
 
 > **Separación decidida en slice-07 (D-08.3/D-08.4).** La búsqueda por proximidad no pasa por un proveedor externo: la resuelve `ConsultaBusquedaLavaderos` con Haversine sobre `lavaderos.latitud`/`longitud`. `IGeocodificador` queda acotado a **texto → coordenadas**; su stub lanza `ProveedorMapasNoConfiguradoException` (⇒ `503 proveedor_mapas_no_configurado`) y devuelve `null` cuando el proveedor no encuentra la dirección.
+>
+> **Implementación vigente (slice-16).** El puerto lo implementa `GeocodificadorMapTiler`, que se registra en DI **sólo** cuando existe `Mapas:ApiKey`. Normaliza la dirección, cachea 100 entradas por 1 h y usa un timeout de 4 s; el stub queda como fallback cuando falta la key. El detalle está en §7.4.
 
 `ResultadoVerificacionPago` es un discriminante explícito: `Aprobado`, `Pendiente`, `Rechazado`. No se modela como booleano porque los tres caminos producen efectos distintos en la máquina de estados.
 
@@ -408,6 +414,8 @@ El único cliente Flutter cubre cliente y administrador, differentiated por rol 
 - **Webhook de reembolsos**: los eventos de reintegro son una **señal**, no una fuente de verdad. Sólo adelantan el próximo intento del reembolso pendiente (`SenalarVencimiento`); el monto y el estado salen siempre de la consulta a la pasarela (D-15.6). Duplicados y eventos fuera de orden responden `200` sin efectos.
 - **Configuración**: `Pagos:AccessToken`, `Pagos:WebhookSecret`, `Pagos:UrlNotificacion` y `Pagos:UrlRetorno` por entorno. En **Production** faltar cualquiera impide arrancar (fail-fast, D-15.8); en Development la API arranca con `PasarelaPagosNoConfigurada` (503 `pasarela_no_configurada`).
 
+Flujos: la reserva con seña (preferencia → webhook verificado → confirmación → outbox) está en D3, y la ejecución de reembolsos en D4. Ambos en [`DIAGRAMAS.md`](./DIAGRAMAS.md).
+
 ### 7.3 Tiempo real (SignalR)
 
 Un solo Hub (`DisponibilidadHub`, ruta `/hubs/disponibilidad`) con **un grupo por lavadero y por tipo de suscripción**. Todos los grupos se derivan del `lavaderoId` y todos exigen la misma autorización: rol `administrador` y claim `LavaderoId` igual al de la ruta (si no, `HubException("no_es_propietario")`).
@@ -420,12 +428,12 @@ Un solo Hub (`DisponibilidadHub`, ruta `/hubs/disponibilidad`) con **un grupo po
 
 - `SalirDe(lavaderoId)` del puerto Flutter invoca las tres salidas: un socket que se va no deja grupos huérfanos.
 - Los eventos se publican desde la outbox: un worker lee las filas no publicadas (orden `creado_en`), las envía al grupo y marca `publicado_en` (entrega *at-least-once*).
-- **Fan-out y aislamiento (slice-18).** El publicador deriva `metricasActualizadas` de las filas `ocupacion_cambiada` y `agenda_cambiada` que ya emite, y agrega el tipo `metricas_cambiada` para los cambios de capacidad. La pata de métricas va en su propio `try/catch` con log de advertencia: si falla, **no** impide marcar la fila ni publicar los eventos primarios. Es *best-effort* a propósito; el dato sigue disponible por REST (§7.6).
+- **Fan-out y aislamiento (slice-18).** El publicador deriva `metricasActualizadas` de las filas `ocupacion_cambiada` y `agenda_cambiada` que ya emite, y agrega el tipo `metricas_cambiada` para los cambios de capacidad. La pata de métricas va en su propio `try/catch` con log de advertencia: si falla, **no** impide marcar la fila ni publicar los eventos primarios. Es *best-effort* a propósito; el dato sigue disponible por REST (§7.6). El recorrido completo del fan-out a los tres grupos está en D5 de [`DIAGRAMAS.md`](./DIAGRAMAS.md).
 - El cliente usa reconexión automática. Al reconectar, **re-suscribe y pide un snapshot completo** de disponibilidad mediante `SolicitarSnapshot(lavaderoId)`, y re-une los grupos de agenda y métricas que tenía activos. Es un requisito de cierre del rol `frontend`: si la conexión en tiempo real se pierde, la UI debe degradar con claridad y nunca mostrar disponibilidad inventada.
 
 ### 7.4 Mapas y geolocalización
 
-**Búsqueda por proximidad (slice-07, D-08.2…D-08.4).** La búsqueda por latitud/longitud **no** depende de un proveedor externo: se resuelve en la base local con Haversine en SQL directo sobre `lavaderos.latitud`/`lavaderos.longitud` (radio terrestre 6 371 000 m, sin PostGIS). `IGeocodificador` queda declarado con una única responsabilidad —convertir una dirección escrita en coordenadas— y su implementación stub devuelve un error explícito "proveedor no configurado" (`503 proveedor_mapas_no_configurado`), nunca un resultado vacío. Ningún módulo depende de un proveedor concreto: cuando se decida, se agrega una implementación sin tocar el flujo de reserva. Las claves de API van solo por variables de entorno.
+**Búsqueda por proximidad (slice-07, D-08.2…D-08.4).** La búsqueda por latitud/longitud **no** depende de un proveedor externo: se resuelve en la base local con Haversine en SQL directo sobre `lavaderos.latitud`/`lavaderos.longitud` (radio terrestre 6 371 000 m, sin PostGIS). `IGeocodificador` queda declarado con una única responsabilidad —convertir una dirección escrita en coordenadas— y su implementación stub devuelve un error explícito "proveedor no configurado" (`503 proveedor_mapas_no_configurado`), nunca un resultado vacío. Ningún módulo depende de un proveedor concreto: el slice-16 agregó la implementación MapTiler sin tocar el flujo de reserva. Las claves de API van solo por variables de entorno.
 
 **Proveedor y mapa (slice-16, D-16.1…D-16.7).** El proveedor es **MapTiler**, tanto para teselas como para geocodificación.
 
@@ -443,7 +451,7 @@ Un solo Hub (`DisponibilidadHub`, ruta `/hubs/disponibilidad`) con **un grupo po
 - **`motivo`** ∈ `ocupado` | `anticipacion` | `null`. Un slot no disponible viaja igual, con `puestosLibres` y su motivo, para que el cliente lo vea deshabilitado en vez de hacerlo desaparecer. `anticipacion` aplica si el inicio cae dentro de `Agenda:AnticipacionMinimaMinutos` (5 min); `ocupado` si ningún puesto activo y compatible queda libre.
 - **`puestosLibres`** cuenta los puestos activos que atienden el tipo (sin filas en `puestos_tipos_lavado` = todos) y cuyo intervalo no colisiona con un turno vigente. La ocupación se lee de `turnos` con `IOcupacionRepositorio`, no de `IDisponibilidadConsulta`: esta última excluye `pendiente_pago` y D-17.9 exige considerarlo vigente mientras `expira_en > now()` (RB-2).
 - **Horizonte:** `fecha` fuera de `[hoy, hoy + Agenda:HorizonteMaximoDias]` ⇒ `422 fuera_de_horizonte`. Un `fecha` malformado o un `tipoLavadoId` no-UUID ⇒ `400`; lavadero o tipo inexistente/inactivo ⇒ `404`.
-- **Generación de la grilla (D-17.9):** desde la apertura de cada franja se avanza `DuracionMinutos`; un slot se descarta si su fin excede el cierre. Con duraciones que no dividen la franja (45 min) el remanente queda sin oferta, y eso es aceptado.
+- **Generación de la grilla (D-17.9):** desde la apertura de cada franja se avanza `DuracionMinutos`; un slot se descarta si su fin excede el cierre. Con duraciones que no dividen la franja el remanente queda sin oferta, y eso es aceptado. Ejemplo: franja 08:00–12:00 con `DuracionMinutos = 45` ofrece 08:00, 08:45, 09:30, 10:15 y 11:00; el candidato 11:45 terminaría a las 12:30 y se descarta, de modo que el tramo 11:45–12:00 queda sin oferta. El ejemplo numérico que circuló en la spec del slice-17 daba por ofertado ese último slot y era incorrecto: esta es la formulación vigente. El flujo de consulta y revalidación de la reserva está en D6 de [`DIAGRAMAS.md`](./DIAGRAMAS.md).
 
 La reserva (`POST /api/lavaderos/{id}/turnos`) revalida todo en el servidor **antes** de insertar el turno y de crear la preferencia de Mercado Pago: pertenencia de puesto y tipo al lavadero de la ruta, anticipación, horizonte, rango dentro de una franja y compatibilidad puesto/tipo. Los rechazos son `422` (`anticipacion_insuficiente`, `fuera_de_horizonte`, `fuera_de_horario_atencion`, `puesto_incompatible`) y `404` (`puesto_no_encontrado`, `tipo_lavado_no_encontrado`); el `409 slot_ya_ocupado` queda reservado a la carrera en el `INSERT`. Una reserva inválida nunca crea una preferencia de pago (RB-1).
 
@@ -457,6 +465,8 @@ Cierra **CA-8.3** («las métricas se actualizan en tiempo real»), que el slice
 - **Cliente.** `PantallaMetricas` es `ConsumerStatefulWidget`: se une a `metricas-{id}`, debouncea 500 ms las ráfagas, filtra por `lavaderoId` y por fecha (un evento sin fecha aplica a cualquier día) y mantiene **un solo refresco en vuelo** con coalescencia. Además refresca con el polling de respaldo de 30 s, que corre **siempre** —también con el canal conectado— porque la foto «ahora» (puestos ocupados, tasa de ocupación) envejece sin escritura y ningún evento la corrige (D-18.6, D-18.8).
 - **Frescura visible.** La cabecera muestra un indicador de canal (`indicador_tiempo_real`), un botón de refresco manual (`boton_refrescar_metricas`) y, si un refresco falla, el aviso `aviso_desactualizado` conservando los últimos datos en pantalla en lugar de reemplazarlos por un error (D-18.10, D-18.11).
 - **Degradación.** Sin sesión no se abre socket y el indicador dice «Sin conexión»; la pantalla sigue funcionando por polling y REST. Si el hub nunca responde, la vista no se bloquea (CA-18.21).
+
+El recorrido del evento primario y de la pata *best-effort* de métricas está en D5 de [`DIAGRAMAS.md`](./DIAGRAMAS.md).
 
 ## 8. Seguridad
 
@@ -481,15 +491,29 @@ Criterio de cierre del rol `qa`: si alguien elimina la seña obligatoria, la sin
 
 ## 10. Preguntas abiertas
 
-Las ambigüedades 1 a 5 están en `OVERVIEW.md` y **no se resuelven por decisión técnica**: requieren al responsable del producto. La 4 quedó **decidida** por el slice-11 y la 6 también, y se documentan aquí porque condicionan el modelado de datos de §4. La 7 es de modelado de datos puro, sin componente de producto, y le corresponde a `architect`.
+Las ambigüedades de producto están en `OVERVIEW.md` y **no se resuelven por decisión técnica**: requieren al responsable del producto. Las preguntas de producto se numeran §10.1–§10.5; las decisiones técnicas de modelado, §10.6–§10.8. Varias quedaron **decididas** y se documentan aquí porque condicionan el modelado de datos de §4.
 
-1. **Cancelación y reembolso (decidida por slice-14; ejecutada en slice-15).** `OVERVIEW.md` no define qué ocurre si el cliente cancela después de pagar la seña. La política quedó fijada en `SPECS/slice-14-ciclo-cliente-cancelacion.md` (D-14.6): se reintegra el **100 %** de la seña si el cliente cancela con **120 minutos o más** de anticipación al inicio del turno (borde inclusivo); fuera de plazo no hay reintegro. Ambos parámetros son configurables (`Reembolsos:AnticipacionMinimaMinutos`, `Reembolsos:PorcentajeReintegrable`). El slice-14 **registra** el reintegro (`reembolsos` en `pendiente`/`no_aplica`); el slice-15 lo **ejecuta** contra Mercado Pago.
-2. **Proveedor de mapas (decidida por slice-16).** **MapTiler** para teselas y geocodificación. El backend usa `Mapas:ApiKey` y `Mapas:UrlBase`; el cliente recibe la key de teselas por `--dart-define=MAPS_API_KEY` (pública, restringida por package/bundle y cuota). El puerto `IGeocodificador` se mantiene: cambiar de proveedor no toca el flujo de reserva (CA-7.5). Sin key, la geocodificación responde `503 proveedor_mapas_no_configurado` y el mapa no se muestra; la búsqueda por coordenadas sigue funcionando.
-3. **Moneda y política de redondeo.** El modelo guarda `numeric` sin fijar moneda. `OVERVIEW.md` no la especifica.
+### 10.1 Cancelación y reembolso (decidida)
 
-   > **Decisión de slice-06 (métricas).** Las métricas exponen **ARS** y redondean a **2 decimales** (half-up) al presentar importes. No hay migración de esquema: las señas se derivan de `turnos.precio_sena` (turnos con pago `approved` cuyo `procesado_en` cae en el día local) y el facturado de `tipos_lavado.precio_total` (turnos atendidos del día). El DTO declara `moneda: "ARS"`. La pregunta sigue **abierta** para el resto del sistema: no hay soporte multi-moneda.
-4. **Ventana de canje offline.** **Decidida por el slice-11 (D-11.1, CA-S11.7):** la ventana es el **día local del lavadero** (`yyyy-MM-dd` en `America/Argentina/Buenos_Aires`), el mismo día que consulta `GET /api/lavaderos/{id}/comprobantes/vigentes`. La caché de hashes se invalida por fecha, no por TTL: si la fecha local del teléfono no coincide con la de la caché, el modo offline se deshabilita y el panel lo informa, en vez de validar contra una foto vieja. Un canje fuera de esa ventana no se registra localmente y, si se registrara, se rechazaría al reconciliar.
-5. **Duración por tipo de lavado.** El modelo asume duraciones fijas declaradas en `tipos_lavado` (consecuencia directa de elegir la alternativa A). Si el negocio necesita duraciones variables, hay que revisar esta decisión.
+`OVERVIEW.md` no define qué ocurre si el cliente cancela después de pagar la seña. La política quedó fijada en `SPECS/slice-14-ciclo-cliente-cancelacion.md` (D-14.6): se reintegra el **100 %** de la seña si el cliente cancela con **120 minutos o más** de anticipación al inicio del turno (borde inclusivo); fuera de plazo no hay reintegro. Ambos parámetros son configurables (`Reembolsos:AnticipacionMinimaMinutos`, `Reembolsos:PorcentajeReintegrable`). El slice-14 **registra** el reintegro (`reembolsos` en `pendiente`/`no_aplica`); el slice-15 lo **ejecuta** contra Mercado Pago con `WorkerReembolsos`.
+
+### 10.2 Proveedor de mapas (decidida)
+
+**MapTiler** para teselas y geocodificación. El backend usa `Mapas:ApiKey` y `Mapas:UrlBase`; el cliente recibe la key de teselas por `--dart-define=MAPS_API_KEY` (pública, restringida por package/bundle y cuota). El puerto `IGeocodificador` se mantiene: cambiar de proveedor no toca el flujo de reserva (CA-7.5). Sin key, la geocodificación responde `503 proveedor_mapas_no_configurado` y el mapa no se muestra; la búsqueda por coordenadas sigue funcionando. Detalle en §7.4.
+
+### 10.3 Moneda y política de redondeo (abierta)
+
+El modelo guarda `numeric` sin fijar moneda. `OVERVIEW.md` no la especifica.
+
+> **Decisión de slice-06 (métricas).** Las métricas exponen **ARS** y redondean a **2 decimales** (half-up) al presentar importes. No hay migración de esquema: las señas se derivan de `turnos.precio_sena` (turnos con pago `approved` cuyo `procesado_en` cae en el día local) y el facturado de `tipos_lavado.precio_total` (turnos atendidos del día). El DTO declara `moneda: "ARS"`. La pregunta sigue **abierta** para el resto del sistema: no hay soporte multi-moneda.
+
+### 10.4 Ventana de canje offline (decidida)
+
+Decidida por el slice-11 (D-11.1, CA-S11.7). La ventana es el **día local del lavadero** (`yyyy-MM-dd` en `America/Argentina/Buenos_Aires`), el mismo día que consulta `GET /api/lavaderos/{id}/comprobantes/vigentes`. La caché de hashes se invalida por fecha, no por TTL: si la fecha local del teléfono no coincide con la de la caché, el modo offline se deshabilita y el panel lo informa, en vez de validar contra una foto vieja. Un canje fuera de esa ventana no se registra localmente y, si se registrara, se rechazaría al reconciliar. El flujo completo está en D8 de [`DIAGRAMAS.md`](./DIAGRAMAS.md).
+
+### 10.5 Duración por tipo de lavado (abierta)
+
+El modelo asume duraciones fijas declaradas en `tipos_lavado` (consecuencia directa de elegir la alternativa A). Si el negocio necesita duraciones variables, hay que revisar esta decisión.
 
 ### 10.6 Huso horario (decidida)
 

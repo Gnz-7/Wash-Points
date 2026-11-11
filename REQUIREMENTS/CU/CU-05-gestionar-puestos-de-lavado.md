@@ -31,7 +31,7 @@
 | `puesto_con_turnos_activos` | Se intenta desactivar un puesto con turnos confirmados en el futuro. | "Ese puesto tiene turnos reservados. Desactivalo igual solo si querés cancelar esos turnos." La confirmación es explícita. |
 | `no_es_propietario` | El administrador intenta modificar un lavadero ajeno. | Sin efecto. La autorización se resuelve en el servidor. |
 
-Desactivar un puesto **no** libera en silencio los turnos ya pagados. Si se acepta la desactivación con turnos futuros, el sistema debe pedir confirmación explícita y tratar cada turno afectado según la política de cancelación pendiente (ARCHITECTURE §10.1).
+Desactivar un puesto **no** libera en silencio los turnos ya pagados. Si se acepta la desactivación con turnos futuros, el sistema debe pedir confirmación explícita y tratar cada turno afectado según la política de cancelación decidida en el slice-14 (ARCHITECTURE §10.1).
 
 ## Referencias
 

@@ -21,14 +21,15 @@ verificados en verde el 10/11/2026 sobre el árbol del slice-18. La suite Flutte
   15 = pagos reales y ejecución de reembolsos; 16 = mapa, GPS y geocodificación;
   17 = horarios de atención, reglas temporales y servicios por puesto; 18 = métricas en tiempo real.
 
-> **Cobertura del catálogo.** Las entradas detalladas cubren los slices 00–08, 17 y 18. Los tests de
-> los slices 09–16 están documentados en su spec (`SPECS/slice-09`…`slice-16`, §12 «Estado de
-> implementación») y todavía no se desglosan aquí caso por caso. El conteo de cabecera (544) sí
-> los incluye.
+> **Cobertura del catálogo.** Todas las pruebas del backend están desglosadas caso por caso: los
+> 295 tests unitarios y los 249 de integración. El slice-19 (T-213) reconcilió este documento con
+> la salida real de `dotnet test --list-tests`, agregó los grupos de los slices 13 a 16 que faltaban
+> y corrigió cinco conteos que no coincidían con la suite. Las teorías se listan expandidas, de modo
+> que la suma de los grupos coincide exactamente con la cabecera.
 
 ---
 
-## 1. Pruebas Unitarias (295 en total; 184 detalladas abajo)
+## 1. Pruebas Unitarias (295 en total; 295 detalladas abajo)
 
 Prueban una pieza aislada del sistema, sin base de datos ni red. Son las más rápidas y las que
 primero señalan que una regla del dominio cambió.
@@ -55,8 +56,10 @@ primero señalan que una regla del dominio cambió.
   inválido y no llega a evaluarse contra el horario.
 - **`DevuelveLasFranjasDelDiaIndicado`** — *Slice 17.* El calendario filtra por día de la semana y
   devuelve sólo las franjas de ese día, ordenadas para poder evaluarlas.
-- **`NoSePuedeCrearUnaFranjaConUnDiaFueraDeRango` (día inválido)** — *Slice 17.* Una franja sólo admite
-  los días 1 (lunes) a 7 (domingo); cualquier otro valor es un error de programación y no se persiste.
+- **`NoSePuedeCrearUnaFranjaConUnDiaFueraDeRango` (dia: 0)** — *Slice 17.* Una franja sólo admite los
+  días 1 (lunes) a 7 (domingo): el día 0 es un error de programación y no se persiste.
+- **`NoSePuedeCrearUnaFranjaConUnDiaFueraDeRango` (dia: 8)** — *Slice 17.* El día 8 también queda fuera
+  del rango válido y la franja se rechaza sin llegar a la base.
 - **`NoSePuedeCrearUnaFranjaQueCierraAntesDeAbrir`** — *Slice 17.* Una franja con cierre anterior a la
   apertura es inválida: no representa ningún intervalo de atención.
 - **`UnaFranjaNuevaNaceActiva`** — *Slice 17.* Toda franja creada queda vigente sin pasos extra, para que
@@ -72,16 +75,21 @@ primero señalan que una regla del dominio cambió.
   entera de forma atómica: no puede quedar media configuración aplicada si algo falla.
 - **`UnaListaVaciaDejaElLavaderoCerrado`** — *Slice 17.* Guardar sin franjas deja el lavadero cerrado y
   sin turnos reservables; es una acción válida y explícita, no un error.
-- **`UnDiaFueraDeRangoEsFranjaInvalida` (día inválido)** — *Slice 17.* El servicio rechaza días fuera de
-  1..7 con `franja_invalida` antes de tocar la base.
+- **`UnDiaFueraDeRangoEsFranjaInvalida` (dia: 0)** — *Slice 17.* El servicio rechaza el día 0 con
+  `franja_invalida` antes de tocar la base.
+- **`UnDiaFueraDeRangoEsFranjaInvalida` (dia: 8)** — *Slice 17.* El día 8 se rechaza con el mismo código
+  de error.
 - **`LaAperturaDebeSerAnteriorAlCierre`** — *Slice 17.* Una franja que cierra antes de abrir se rechaza:
   el panel no puede guardar un horario sin sentido.
 - **`LasFranjasSuperpuestasDelMismoDiaSeRechazan`** — *Slice 17.* Dos franjas del mismo día que se pisan
   se rechazan, porque harían ambiguo el cálculo de cupo.
 - **`MasDeSeisFranjasPorDiaSeRechaza`** — *Slice 17.* Se limita a seis franjas por día: más cortes
   convierten la grilla en algo inmanejable y suelen ser un error de carga.
-- **`UnaHoraMalFormadaSeRechaza` (hora mal formada)** — *Slice 17.* Horas que no respetan `HH:mm` se
-  rechazan en el servidor, sin depender de la validación del cliente.
+- **`UnaHoraMalFormadaSeRechaza` (hora: "8:00")** — *Slice 17.* Una hora sin el cero inicial no respeta
+  `HH:mm` y se rechaza en el servidor.
+- **`UnaHoraMalFormadaSeRechaza` (hora: "ocho")** — *Slice 17.* Una hora escrita con letras se rechaza.
+- **`UnaHoraMalFormadaSeRechaza` (hora: "")** — *Slice 17.* Una hora vacía se rechaza: la validación no
+  depende de lo que haga el cliente.
 
 ### `Catalogo/GestionPuestosServicioTest.cs` — Slice 17/18 (9 tests)
 
@@ -103,6 +111,36 @@ primero señalan que una regla del dominio cambió.
   el aviso mantiene la capacidad mostrada coherente con la realidad.
 - **`AsignarTiposNoEmiteAvisoDeMetricas`** — *Slice 18.* Cambiar qué servicios atiende un puesto no altera
   capacidad ni ingresos: notificarlo sería ruido que provoca refrescos innecesarios.
+
+### `Catalogo/GestionTiposLavadoServicioTest.cs` — Slice 13 (14 tests)
+
+- **`CrearAgregaYGuarda`** — *Slice 13.* Un tipo de lavado nuevo se agrega al repositorio y se
+  persiste: es el alta del catálogo que después usa el cliente para reservar.
+- **`CrearConSenaEnCeroNoLlegaAPersistir`** — *Slice 13.* Una seña en cero se rechaza antes de
+  guardar, porque sin seña no hay reserva válida (RB-1).
+- **`CrearPropagaElNombreDuplicado`** — *Slice 13.* Un nombre repetido en el mismo lavadero se
+  informa como conflicto y no crea un segundo tipo.
+- **`ListarDelegaEnElRepositorio`** — *Slice 13.* El listado devuelve lo que el repositorio entrega,
+  sin filtrar ni reordenar en el servicio.
+- **`EditarCambiaLosDatosYGuarda`** — *Slice 13.* Editar nombre, duración y precios actualiza el
+  tipo y persiste el cambio.
+- **`EditarUnTipoInexistenteLanzaNoEncontrado`** — *Slice 13.* Editar un id desconocido responde
+  «no encontrado» y no crea nada.
+- **`EditarUnTipoDeOtroLavaderoLanzaNoEncontrado`** — *Slice 13.* Un administrador no puede editar
+  el catálogo de otro lavadero: el tipo ajeno se trata como inexistente.
+- **`EditarConDatosInvalidosNoGuarda`** — *Slice 13.* Una edición inválida no deja cambios parciales
+  ni llega al repositorio.
+- **`DesactivarConTurnosVigentesLanzaConflicto`** — *Slice 13.* Desactivar un tipo con turnos
+  vigentes se rechaza con conflicto: no se puede dejar sin servicio una reserva ya vendida.
+- **`DesactivarSinTurnosVigentesLoDejaInactivo`** — *Slice 13.* Sin turnos vigentes, desactivar
+  apaga el tipo y lo saca de la oferta.
+- **`DesactivarConsultaLaVigenciaConElRelojYElTipoCorrectos`** — *Slice 13.* La comprobación de
+  vigencia usa el reloj inyectado y el id del tipo que se está desactivando.
+- **`DesactivarUnTipoInexistenteLanzaNoEncontradoAntesDeConsultarVigencia`** — *Slice 13.* Con un id
+  desconocido se responde «no encontrado» sin consultar turnos.
+- **`ActivarLoReactiva`** — *Slice 13.* Activar un tipo inactivo lo devuelve a la oferta.
+- **`ActivarUnTipoInexistenteLanzaNoEncontrado`** — *Slice 13.* Activar un id desconocido responde
+  «no encontrado».
 
 ### `Catalogo/PuestoTest.cs` — Slice 04 (4 tests)
 
@@ -144,6 +182,31 @@ primero señalan que una regla del dominio cambió.
   encontrado».
 - **`UnTipoDeOtroLavaderoSeTrataComoInexistente`** — *Slice 17.* Pedir la grilla con un servicio de otro
   comercio responde «no encontrado», sin filtrar datos ajenos.
+
+### `Catalogo/TipoLavadoTest.cs` — Slice 13 (16 tests)
+
+- **`NaceActivo`** — *Slice 13.* Un tipo de lavado recién creado queda disponible para reservar.
+- **`DesactivarLoDejaInactivo`** — *Slice 13.* Desactivar el tipo lo retira de la oferta.
+- **`ActivarLoReactiva`** — *Slice 13.* Activar un tipo inactivo lo devuelve a la oferta.
+- **`OperacionesDeEstadoSonIdempotentes`** — *Slice 13.* Activar dos veces o desactivar dos veces no
+  cambia el resultado: el estado final es el mismo.
+- **`EditarCambiaNombreDuracionYPrecios`** — *Slice 13.* La edición reemplaza nombre, duración y
+  ambos precios en una sola operación.
+- **`EditarRecortaEspaciosDelNombre`** — *Slice 13.* El nombre se normaliza quitando espacios
+  sobrantes antes de guardarse.
+- **`EditarNoTocaElEstado`** — *Slice 13.* Editar los datos de un tipo no lo activa ni lo desactiva.
+- **`CrearRechazaSenaEnCero`** — *Slice 13.* Una seña en cero se rechaza al crear (RB-1).
+- **`CrearRechazaSenaMayorAlPrecioTotal`** — *Slice 13.* La seña no puede superar el precio total
+  del servicio.
+- **`CrearRechazaDuracionNoPositiva`** — *Slice 13.* Una duración de cero o negativa se rechaza.
+- **`CrearRechazaNombreVacio`** — *Slice 13.* Un nombre vacío o en blanco se rechaza.
+- **`EditarRechazaNombreVacio`** — *Slice 13.* La misma validación aplica al editar.
+- **`EditarRechazaDuracionNoPositiva`** — *Slice 13.* La misma validación de duración aplica al editar.
+- **`EditarRechazaSenaEnCero`** — *Slice 13.* La misma validación de seña aplica al editar.
+- **`EditarRechazaSenaMayorAlPrecioTotal`** — *Slice 13.* La misma relación seña/precio se exige al
+  editar.
+- **`UnEditarRechazadoNoDejaCambiosParciales`** — *Slice 13.* Si la edición falla, el objeto conserva
+  todos sus valores anteriores.
 
 ### `Comprobantes/CifradorComprobanteTest.cs` — Slice 02 (4 tests)
 
@@ -187,18 +250,18 @@ primero señalan que una regla del dominio cambió.
   compartir código, y el código debe ser imposible de adivinar.
 - **`QrYCodigoDeRespaldo_DecodificanAlMismoTokenCanonico`** — *Slice 02.* Escanear el QR o dictar el
   código de respaldo debe validar el mismo turno: son dos puertas al mismo comprobante.
-- **`UnCodigoDeRespaldoInvalido_LanzaInvalido` (código `"!!!!"`)** — *Slice 02.* Un texto que no es un
+- **`UnCodigoDeRespaldoInvalido_LanzaInvalido` (codigo: "!!!!")** — *Slice 02.* Un texto que no es un
   código de respaldo se rechaza en vez de intentar adivinar.
-- **`UnCodigoDeRespaldoInvalido_LanzaInvalido` (código vacío)** — *Slice 02.* El campo vacío se rechaza:
-  no existe un comprobante "vacío" que pueda validar un turno.
-- **`UnCodigoDeRespaldoInvalido_LanzaInvalido` (código `"ABCDU123"`)** — *Slice 02.* Un código con
+- **`UnCodigoDeRespaldoInvalido_LanzaInvalido` (codigo: "")** — *Slice 02.* El campo vacío se rechaza: no
+  existe un comprobante "vacío" que pueda validar un turno.
+- **`UnCodigoDeRespaldoInvalido_LanzaInvalido` (codigo: "ABCDU123")** — *Slice 02.* Un código con
   caracteres que no pertenecen al alfabeto del comprobante se rechaza.
-- **`UnPayloadQrDesconocido_LanzaInvalido` (payload vacío)** — *Slice 02.* Un QR sin contenido no
-  identifica ningún turno y no debe validarse.
-- **`UnPayloadQrDesconocido_LanzaInvalido` (payload de otro sitio)** — *Slice 02.* Un QR de otro
-  servicio no puede colarse como comprobante de Wash Points.
-- **`UnPayloadQrDesconocido_LanzaInvalido` (payload sin formato)** — *Slice 02.* Un texto cualquiera
+- **`UnPayloadQrDesconocido_LanzaInvalido` (payload: "")** — *Slice 02.* Un QR sin contenido no identifica
+  ningún turno y no debe validarse.
+- **`UnPayloadQrDesconocido_LanzaInvalido` (payload: "no-es-un-qr")** — *Slice 02.* Un texto cualquiera
   escaneado por error no se interpreta como comprobante válido.
+- **`UnPayloadQrDesconocido_LanzaInvalido` (payload: "https://otro.example/comprobante/abc")** —
+  *Slice 02.* Un QR de otro servicio no puede colarse como comprobante de Wash Points.
 
 ### `Comprobantes/MaquinaEstadosComprobanteTest.cs` — Slice 02 (7 tests)
 
@@ -260,6 +323,25 @@ primero señalan que una regla del dominio cambió.
 - **`UnRadioMenorAlMinimoSeRechaza`** — *Slice 07.* Un radio prácticamente nulo se rechaza porque no
   describe una búsqueda útil.
 
+### `Geo/GeocodificadorMapTilerTest.cs` — Slice 16 (8 tests)
+
+- **`DevuelveLasCoordenadasDelPrimerResultado`** — *Slice 16.* La geocodificación toma latitud y
+  longitud del primer resultado del proveedor: es lo que el buscador por dirección necesita.
+- **`SinResultadosDevuelveNull`** — *Slice 16.* Una dirección sin coincidencias se representa como
+  «no encontrada» (`null`), nunca como coordenada inventada.
+- **`Un404DelProveedorSignificaDireccionNoEncontrada`** — *Slice 16.* El 404 del proveedor se
+  traduce a dirección inexistente, distinto de un fallo del servicio.
+- **`UnErrorDelProveedorSeTraduceANoDisponible`** — *Slice 16.* Un 5xx del proveedor se informa como
+  «no disponible» y no como mercado vacío (CA-7.4).
+- **`UnFalloDeRedSeTraduceANoDisponible`** — *Slice 16.* Un timeout o corte de red tampoco se
+  confunde con «sin resultados».
+- **`SinApiKeyFallaComoNoConfiguradoSinLlamarAlProveedor`** — *Slice 16.* Sin `Mapas:ApiKey` la
+  llamada falla como «proveedor no configurado» y no sale a la red.
+- **`NormalizaLaDireccionParaReutilizarLaCache`** — *Slice 16.* Minúsculas, sin puntuación y con
+  espacios colapsados: dos formas de escribir la misma dirección comparten entrada de caché.
+- **`LaUrlIncluyeLaDireccionLaKeyYElIdioma`** — *Slice 16.* La URL construida lleva la dirección
+  codificada, la key y el idioma esperado.
+
 ### `Metricas/MetricasServicioTest.cs` — Slice 06 (4 tests)
 
 - **`LasTresMagnitudesNoSeSuman`** — *Slice 06.* Turnos, ingresos y ocupación son dimensiones distintas:
@@ -271,7 +353,53 @@ primero señalan que una regla del dominio cambió.
 - **`UnDiaSinActividadDevuelveCeros`** — *Slice 06.* Un día sin movimientos devuelve ceros explícitos,
   que es distinto de un error de cálculo.
 
-### `Pagos/WebhookSignatureValidatorTest.cs` — Slice 01 (8 tests)
+### `Pagos/OpcionesMercadoPagoTest.cs` — Slice 15 (4 tests)
+
+- **`SinClavesDevuelveLasTresObligatorias`** — *Slice 15.* Sin configuración, el validador informa
+  que faltan `AccessToken`, `WebhookSecret` y `UrlNotificacion`: son las tres claves sin las que no
+  se puede cobrar ni verificar un pago.
+- **`ConLasTresClavesNoFaltaNada`** — *Slice 15.* Con las tres presentes no hay faltantes.
+- **`LasClavesEnBlancoCuentanComoFaltantes`** — *Slice 15.* Una clave vacía o con espacios equivale
+  a ausente: evita arrancar con un cobro que siempre fallaría.
+- **`UrlRetornoTieneUnValorPorDefecto`** — *Slice 15.* `UrlRetorno` es opcional y trae un valor por
+  defecto, así que su ausencia no bloquea el arranque.
+
+### `Pagos/PasarelaPagosMercadoPagoTest.cs` — Slice 15 (12 tests)
+
+- **`CrearPreferenciaEnviaTodosLosCamposDelContrato`** — *Slice 15.* La preferencia viaja con item en
+  ARS, `external_reference`, `notification_url`, `back_urls`, `auto_return` y la clave de
+  idempotencia `turno-{turnoId}`.
+- **`CrearPreferenciaConErrorDeLaApiFallaComoPasarelaNoDisponible`** — *Slice 15.* Un error del
+  proveedor se traduce a «pasarela no disponible», no a una excepción cruda.
+- **`VerificarPagoAprobadoDevuelveElTurnoYElPago`** — *Slice 15.* Un pago aprobado se devuelve con su
+  turno, que es lo que habilita la confirmación (RB-1).
+- **`VerificarPagoRechazadoDevuelveRechazado`** — *Slice 15.* Un pago rechazado se informa como tal
+  y no confirma nada.
+- **`VerificarPagoConIdQueNoEsPaymentIdNoLlamaALaApi`** — *Slice 15.* Un id con formato inválido se
+  rechaza sin llamar al proveedor: el webhook no puede forzar consultas arbitrarias.
+- **`BuscarPagoPorTurnoConsultaPorExternalReference`** — *Slice 15.* El respaldo busca por
+  `external_reference` (el turno), no por el id de preferencia.
+- **`BuscarPagoSinResultadosDevuelvePendienteSinPago`** — *Slice 15.* Sin resultados el turno sigue
+  pendiente y sin pago asociado.
+- **`ReembolsoTotalNoEnviaMontoYUsaLaClaveDeIdempotencia`** — *Slice 15.* El reintegro total va sin
+  body y con `X-Idempotency-Key: reembolso-{reembolsoId}`.
+- **`ReembolsoParcialEnviaElMonto`** — *Slice 15.* El reintegro parcial envía el importe pedido.
+- **`ReembolsoMayorAlPagoSeRechazaSinLlamarAlReintegro`** — *Slice 15.* No se puede reintegrar más de
+  lo cobrado: se valida antes de salir a la red.
+- **`ReembolsoConError500EsReintentable`** — *Slice 15.* Un 5xx se clasifica como reintentable, para
+  que el worker vuelva a intentarlo con backoff.
+- **`ConsultarReembolsoDevuelveElEstadoDeLaPasarela`** — *Slice 15.* La consulta de reconciliación
+  devuelve el estado real del reintegro a partir de `mp_refund_id`.
+
+### `Pagos/ValidadorConfiguracionPagosTest.cs` — Slice 15 (3 tests)
+
+- **`EnProduccionSinClavesNoPermiteArrancar`** — *Slice 15.* En Production, faltar claves impide
+  arrancar: fail-fast antes que aceptar reservas que no se pueden cobrar (RB-1).
+- **`EnProduccionConClavesArranca`** — *Slice 15.* Con las tres claves la configuración es válida.
+- **`EnDesarrolloPermiteArrancarSinClaves`** — *Slice 15.* En Development se permite arrancar sin
+  claves y la reserva responde 503 `pasarela_no_configurada`.
+
+### `Pagos/WebhookSignatureValidatorTest.cs` — Slice 01 (10 tests)
 
 - **`FirmaConOtroDataIdEsRechazada`** — *Slice 01.* La firma está atada al pago notificado: reutilizarla
   con otro identificador no sirve.
@@ -289,8 +417,88 @@ primero señalan que una regla del dominio cambió.
   sin intentar interpretarlo.
 - **`SinHeaderDeFirmaEsRechazada`** — *Slice 01.* Una notificación sin firma no se procesa: es la
   garantía de que el turno solo se confirma por un aviso verificado.
+- **`SinSecretoTodaFirmaEsRechazada`** — *Slice 01.* Sin `Pagos:WebhookSecret` no hay secreto de
+  respaldo: cualquier firma presentada se rechaza.
+- **`SecretoEnBlancoTambienRechazaTodaFirma`** — *Slice 01.* Un secreto en blanco equivale a ausente y
+  tampoco valida ninguna firma.
 
-### `Registro/RegistroServicioTest.cs` — Slice 08 (12 tests)
+### `Reembolsos/CancelacionClienteServicioTest.cs` — Slice 14 (9 tests)
+
+- **`UnTurnoConfirmadoEnPlazoSeCancelaYGeneraUnReembolsoPendiente`** — *Slice 14.* Cancelar con la
+  anticipación mínima cancela el turno y registra un reembolso en `pendiente` (RB-1).
+- **`UnTurnoPendienteDePagoSeCancelaSinReintegro`** — *Slice 14.* Si todavía no se pagó la seña no
+  hay nada que reintegrar: se cancela con reembolso `no_aplica`.
+- **`UnTurnoFueraDePlazoSeCancelaSinReintegro`** — *Slice 14.* Fuera de la ventana el turno se
+  cancela, pero la seña no se devuelve.
+- **`UnTurnoDeOtroClienteSeTrataComoInexistente`** — *Slice 14.* Un turno ajeno responde «no
+  encontrado»: no se revela su existencia.
+- **`UnTurnoInexistenteSeTrataComoInexistente`** — *Slice 14.* Un id desconocido da la misma
+  respuesta, sin distinguir el caso.
+- **`UnaIdentidadSinClienteNoPuedeCancelar`** — *Slice 14.* Una sesión sin cliente vinculado no puede
+  cancelar: el ownership sale del claim `clienteId`.
+- **`UnTurnoEnCursoNoSePuedeCancelar`** — *Slice 14.* Un turno ya iniciado no es cancelable.
+- **`UnaSegundaCancelacionEsInvalidaYNoDuplicaElReembolso`** — *Slice 14.* La segunda cancelación se
+  rechaza y no crea un segundo reembolso.
+- **`LaCancelacionEncolaLosEventosDeOcupacionYDeAgenda`** — *Slice 14.* Cancelar encola
+  `ocupacion_cambiada` y `agenda_cambiada` en la misma transacción (RB-2).
+
+### `Reembolsos/PoliticaReembolsoTest.cs` — Slice 14 (14 tests)
+
+- **`EnPlazoLaSenaSeReintegraCompleta`** — *Slice 14.* Con la anticipación configurada la seña se
+  devuelve entera.
+- **`ElLimiteDelPlazoSeIncluye`** — *Slice 14.* Justo en el límite de 120 minutos todavía hay
+  reintegro: el borde es inclusivo.
+- **`UnMinutoAntesDelLimiteYaNoHayReintegro`** — *Slice 14.* Un minuto menos ya queda fuera de plazo.
+- **`CancelarDespuesDelInicioTampocoReintegra`** — *Slice 14.* Cancelar con el turno ya empezado no
+  reintegra.
+- **`UnTurnoSinPagoNoGeneraReintegro`** — *Slice 14.* Sin pago aprobado no hay seña que devolver.
+- **`ElPorcentajeReintegrableSeAplicaSobreLaSena(porcentaje: 50, esperado: 500)`** — *Slice 14.* Con
+  el 50 % configurado, una seña de 1000 genera un reintegro de 500.
+- **`ElPorcentajeReintegrableSeAplicaSobreLaSena(porcentaje: 100, esperado: 1000)`** — *Slice 14.* Con
+  el 100 % se reintegra la seña completa.
+- **`ElPorcentajeReintegrableSeAplicaSobreLaSena(porcentaje: 33, esperado: 330)`** — *Slice 14.* Un
+  porcentaje no redondo se aplica y se redondea a dos decimales.
+- **`UnPorcentajeCeroNoGeneraReintegro`** — *Slice 14.* Un 0 % deja el reembolso en cero.
+- **`ElMontoSeRedondeaADosDecimales`** — *Slice 14.* El importe se redondea a dos decimales (half-up)
+  al calcularse.
+- **`UnPorcentajeFueraDeRangoEsInvalido(porcentaje: -1)`** — *Slice 14.* Un porcentaje negativo es
+  inválido.
+- **`UnPorcentajeFueraDeRangoEsInvalido(porcentaje: 101)`** — *Slice 14.* Un porcentaje mayor a 100 es
+  inválido.
+- **`UnaAnticipacionNegativaEsInvalida`** — *Slice 14.* Una anticipación negativa es inválida.
+- **`LosValoresPorDefectoSonLosAcordados`** — *Slice 14.* Los valores por defecto son 120 minutos y
+  100 %, los acordados en D-14.6.
+
+### `Reembolsos/ProcesarReembolsosServicioTest.cs` — Slice 15 (9 tests)
+
+- **`UnReintegroAprobadoQuedaProcesadoConSuId`** — *Slice 15.* Un reintegro aprobado pasa a
+  `procesado` y guarda el id del proveedor.
+- **`UnReintegroPendienteProgramaElPrimerBackoff`** — *Slice 15.* Si el proveedor lo deja pendiente,
+  se programa el primer reintento (1 min).
+- **`UnRechazoDefinitivoMarcaFallidoSinReintento`** — *Slice 15.* Un rechazo definitivo cierra en
+  `fallido` sin volver a la cola.
+- **`UnRechazoReintentableVuelveALaCola`** — *Slice 15.* Un rechazo reintentable vuelve a la cola con
+  su próximo intento.
+- **`AlAgotarLosIntentosElReembolsoQuedaFallido`** — *Slice 15.* Tras cinco intentos el reembolso
+  queda `fallido`.
+- **`UnTurnoSinPagoAprobadoNoLlamaALaPasarela`** — *Slice 15.* Sin pago aprobado no se llama al
+  proveedor.
+- **`UnErrorDeRedProgramaElReintento`** — *Slice 15.* Un corte de red se trata como reintentable.
+- **`UnReintegroYaSolicitadoSeReconciliaEnVezDePedirseDeNuevo`** — *Slice 15.* Si el reintegro ya se
+  había pedido, se consulta su estado en vez de volver a solicitarlo (D-15.5).
+- **`UnLoteVacioNoHaceNada`** — *Slice 15.* Sin pendientes vencidos el tick no hace nada.
+
+### `Reembolsos/ReembolsoTest.cs` — Slice 14 (5 tests)
+
+- **`RegistrarGuardaElTurnoElMontoYElMotivo`** — *Slice 14.* El reembolso registra turno, importe y
+  motivo.
+- **`UnReembolsoNaceSinProcesar`** — *Slice 14.* Nace en estado pendiente, listo para el worker.
+- **`UnReembolsoQueNoAplicaGuardaMontoCero`** — *Slice 14.* Cuando la política no aplica, el importe
+  es cero explícito.
+- **`UnMontoNegativoEsInvalido`** — *Slice 14.* Un importe negativo se rechaza.
+- **`UnReembolsoSinTurnoEsInvalido`** — *Slice 14.* Un reembolso sin turno se rechaza.
+
+### `Registro/RegistroServicioTest.cs` — Slice 08 (15 tests)
 
 - **`ElAdministradorQuedaVinculadoASuLavadero`** — *Slice 08.* La cuenta de administrador queda atada al
   lavadero que se crea con ella, y nunca a un cliente de negocio.
@@ -317,6 +525,12 @@ primero señalan que una regla del dominio cambió.
 - **`ElAltaDelAdministradorSiembraHorariosDeLunesASabado`** — *Slice 17.* Al crear el lavadero se siembran
   las seis franjas de lunes a sábado 08:00–20:00 en la misma transacción: el comercio nace operativo y
   no depende de que alguien configure horarios para recibir su primer turno.
+- **`ElAltaDelAdministradorSiembraUnPuestoYLosDosTipos`** — *Slice 13.* El alta siembra «Puesto 1» y los
+  dos tipos de lavado por defecto en la misma transacción del registro.
+- **`ElOnboardingUsaLosPreciosConfigurados`** — *Slice 13.* Los importes sembrados salen de
+  `Catalogo:PreciosPorDefecto`, no de valores incrustados en el código.
+- **`ElAltaDeUnClienteNoSiembraCatalogo`** — *Slice 13.* Registrar un cliente no crea puestos ni tipos:
+  el catálogo pertenece al lavadero, no a la cuenta.
 
 ### `Seguridad/EmisorTokenTest.cs` — Slice 05 (6 tests)
 
@@ -346,6 +560,33 @@ primero señalan que una regla del dominio cambió.
 - **`VerificarRechazaUnHashMalformado`** — *Slice 05.* Un registro de contraseña corrupto no habilita el
   acceso: falla cerrado.
 - **`VerificarRechazaUnHashVacio`** — *Slice 05.* Un usuario sin contraseña guardada no puede entrar.
+
+### `Turnos/CancelacionTurnoTest.cs` — Slice 14 (12 tests)
+
+- **`UnTurnoQueNoSeCanceloNoTieneAutorDeCancelacion`** — *Slice 14.* Un turno vigente no tiene
+  `canceladoPor`: la autoría sólo existe cuando hubo cancelación.
+- **`ElClientePuedeCancelarYQuedaRegistradaLaAutoria(desde: PendientePago)`** — *Slice 14.* Desde
+  `pendiente_pago` el cliente puede cancelar y queda registrado como autor.
+- **`ElClientePuedeCancelarYQuedaRegistradaLaAutoria(desde: Confirmado)`** — *Slice 14.* Desde
+  `confirmado` también, con la misma autoría.
+- **`ElAdministradorPuedeCancelarYQuedaRegistradaLaAutoria(desde: PendientePago)`** — *Slice 14.* El
+  administrador cancela desde `pendiente_pago` y queda como autor.
+- **`ElAdministradorPuedeCancelarYQuedaRegistradaLaAutoria(desde: Confirmado)`** — *Slice 14.* Ídem
+  desde `confirmado`.
+- **`DesdeUnEstadoNoCancelableLaTransicionEsInvalida(desde: EnCurso)`** — *Slice 14.* Un turno en
+  curso no se cancela.
+- **`DesdeUnEstadoNoCancelableLaTransicionEsInvalida(desde: Finalizado)`** — *Slice 14.* Un turno
+  finalizado tampoco.
+- **`DesdeUnEstadoNoCancelableLaTransicionEsInvalida(desde: Cancelado)`** — *Slice 14.* Cancelar dos
+  veces es inválido.
+- **`DesdeUnEstadoNoCancelableLaTransicionEsInvalida(desde: NoPresentado)`** — *Slice 14.* Un turno
+  `no_presentado` ya está cerrado.
+- **`DesdeUnEstadoNoCancelableLaTransicionEsInvalida(desde: Expirado)`** — *Slice 14.* Un turno
+  expirado no se cancela.
+- **`CancelarCierraElTurnoConLaHoraDelCierre`** — *Slice 14.* La cancelación sella el turno con la
+  hora del cierre.
+- **`CancelarPorAdministradorNoPisaLaAutoriaDelCliente`** — *Slice 14.* Si el cliente ya había
+  cancelado, una acción del administrador no reescribe la autoría.
 
 ### `Turnos/MaquinaEstadosTurnoTest.cs` — Slice 00 (40 tests)
 
@@ -386,48 +627,48 @@ primero señalan que una regla del dominio cambió.
 - **`OcupaPuestoCoincideConElPredicadoDelExclude` (estado: PendientePago, ocupa: False)** — *Slice 00.* El
   turno pendiente de pago no se cuenta como ocupación en esa regla, pero sí se protege por su plazo
   vigente: la distinción evita que el impago bloquee el puesto para siempre.
-- **`TransicionesPermitidasPorLaTablaDeArquitectura` (PendientePago → Confirmado)** — *Slice 00.* Un turno
+- **`TransicionesPermitidasPorLaTablaDeArquitectura` (desde: PendientePago, hacia: Confirmado)** — *Slice 00.* Un turno
   pagado pasa a confirmado: es la única puerta de confirmación.
-- **`TransicionesPermitidasPorLaTablaDeArquitectura` (PendientePago → Cancelado)** — *Slice 00.* Un turno
+- **`TransicionesPermitidasPorLaTablaDeArquitectura` (desde: PendientePago, hacia: Cancelado)** — *Slice 00.* Un turno
   impago puede cancelarse, liberando el puesto.
-- **`TransicionesPermitidasPorLaTablaDeArquitectura` (PendientePago → Expirado)** — *Slice 00.* Un turno
+- **`TransicionesPermitidasPorLaTablaDeArquitectura` (desde: PendientePago, hacia: Expirado)** — *Slice 00.* Un turno
   impago puede vencer cuando se agota el plazo de pago.
-- **`TransicionesPermitidasPorLaTablaDeArquitectura` (Confirmado → EnCurso)** — *Slice 00.* Un turno
+- **`TransicionesPermitidasPorLaTablaDeArquitectura` (desde: Confirmado, hacia: EnCurso)** — *Slice 00.* Un turno
   confirmado pasa a atención cuando el cliente se presenta y se valida su comprobante.
-- **`TransicionesPermitidasPorLaTablaDeArquitectura` (Confirmado → Cancelado)** — *Slice 00.* Un turno
+- **`TransicionesPermitidasPorLaTablaDeArquitectura` (desde: Confirmado, hacia: Cancelado)** — *Slice 00.* Un turno
   confirmado puede cancelarse.
-- **`TransicionesPermitidasPorLaTablaDeArquitectura` (Confirmado → NoPresentado)** — *Slice 00.* Un turno
+- **`TransicionesPermitidasPorLaTablaDeArquitectura` (desde: Confirmado, hacia: NoPresentado)** — *Slice 00.* Un turno
   confirmado cuyo cliente no llega se marca como ausente.
-- **`TransicionesPermitidasPorLaTablaDeArquitectura` (EnCurso → Finalizado)** — *Slice 00.* Un turno en
+- **`TransicionesPermitidasPorLaTablaDeArquitectura` (desde: EnCurso, hacia: Finalizado)** — *Slice 00.* Un turno en
   atención termina cuando el lavado está listo.
-- **`TransicionesRechazadas` (PendientePago → EnCurso)** — *Slice 00.* No se puede atender un turno sin
+- **`TransicionesRechazadas` (desde: PendientePago, hacia: EnCurso)** — *Slice 00.* No se puede atender un turno sin
   seña pagada: la regla de pago previo no se saltea ni en el mostrador.
-- **`TransicionesRechazadas` (PendientePago → Finalizado)** — *Slice 00.* No se puede dar por terminado un
+- **`TransicionesRechazadas` (desde: PendientePago, hacia: Finalizado)** — *Slice 00.* No se puede dar por terminado un
   turno que nunca se inició.
-- **`TransicionesRechazadas` (PendientePago → NoPresentado)** — *Slice 00.* La ausencia solo aplica a turnos
+- **`TransicionesRechazadas` (desde: PendientePago, hacia: NoPresentado)** — *Slice 00.* La ausencia solo aplica a turnos
   ya confirmados; el impago tiene su propio final.
-- **`TransicionesRechazadas` (Confirmado → Finalizado)** — *Slice 00.* No se puede cerrar un turno que nunca
+- **`TransicionesRechazadas` (desde: Confirmado, hacia: Finalizado)** — *Slice 00.* No se puede cerrar un turno que nunca
   empezó a atenderse.
-- **`TransicionesRechazadas` (Confirmado → PendientePago)** — *Slice 00.* Un turno confirmado no vuelve a
+- **`TransicionesRechazadas` (desde: Confirmado, hacia: PendientePago)** — *Slice 00.* Un turno confirmado no vuelve a
   quedar esperando pago.
-- **`TransicionesRechazadas` (EnCurso → Cancelado)** — *Slice 00.* Una vez que el auto se está lavando, el
+- **`TransicionesRechazadas` (desde: EnCurso, hacia: Cancelado)** — *Slice 00.* Una vez que el auto se está lavando, el
   turno no se cancela: se finaliza.
-- **`TransicionesRechazadas` (EnCurso → PendientePago)** — *Slice 00.* Un turno en atención no retrocede a
+- **`TransicionesRechazadas` (desde: EnCurso, hacia: PendientePago)** — *Slice 00.* Un turno en atención no retrocede a
   la espera de pago.
-- **`TransicionesRechazadas` (Cancelado → Confirmado)** — *Slice 00.* Un turno cancelado no se reactiva.
-- **`TransicionesRechazadas` (Cancelado → EnCurso)** — *Slice 00.* Un turno cancelado no puede pasar a
+- **`TransicionesRechazadas` (desde: Cancelado, hacia: Confirmado)** — *Slice 00.* Un turno cancelado no se reactiva.
+- **`TransicionesRechazadas` (desde: Cancelado, hacia: EnCurso)** — *Slice 00.* Un turno cancelado no puede pasar a
   atención.
-- **`TransicionesRechazadas` (Expirado → Cancelado)** — *Slice 00.* Un turno vencido ya tiene su final y no
+- **`TransicionesRechazadas` (desde: Expirado, hacia: Cancelado)** — *Slice 00.* Un turno vencido ya tiene su final y no
   se reclasifica.
-- **`TransicionesRechazadas` (Expirado → Confirmado)** — *Slice 00.* Un pago que llega tarde no revive un
+- **`TransicionesRechazadas` (desde: Expirado, hacia: Confirmado)** — *Slice 00.* Un pago que llega tarde no revive un
   turno vencido.
-- **`TransicionesRechazadas` (Expirado → EnCurso)** — *Slice 00.* Un turno vencido no puede pasar a
+- **`TransicionesRechazadas` (desde: Expirado, hacia: EnCurso)** — *Slice 00.* Un turno vencido no puede pasar a
   atención.
-- **`TransicionesRechazadas` (Finalizado → Confirmado)** — *Slice 00.* Un turno terminado no vuelve atrás.
-- **`TransicionesRechazadas` (Finalizado → EnCurso)** — *Slice 00.* Un turno terminado no se reabre.
-- **`TransicionesRechazadas` (NoPresentado → Confirmado)** — *Slice 00.* Una ausencia registrada no se
+- **`TransicionesRechazadas` (desde: Finalizado, hacia: Confirmado)** — *Slice 00.* Un turno terminado no vuelve atrás.
+- **`TransicionesRechazadas` (desde: Finalizado, hacia: EnCurso)** — *Slice 00.* Un turno terminado no se reabre.
+- **`TransicionesRechazadas` (desde: NoPresentado, hacia: Confirmado)** — *Slice 00.* Una ausencia registrada no se
   convierte en confirmación.
-- **`TransicionesRechazadas` (NoPresentado → EnCurso)** — *Slice 00.* Una ausencia registrada no puede
+- **`TransicionesRechazadas` (desde: NoPresentado, hacia: EnCurso)** — *Slice 00.* Una ausencia registrada no puede
   pasar a atención.
 
 ### `Turnos/ReservaServicioReglasTest.cs` — Slice 17 (10 tests)
@@ -454,7 +695,7 @@ primero señalan que una regla del dominio cambió.
 
 ---
 
-## 2. Pruebas de Integración (249 en total; 200 detalladas abajo)
+## 2. Pruebas de Integración (249 en total; 249 detalladas abajo)
 
 Levantan la API completa contra una base PostgreSQL real y ejercitan el sistema de punta a punta:
 petición, reglas de negocio, persistencia y respuesta.
@@ -503,7 +744,7 @@ petición, reglas de negocio, persistencia y respuesta.
 - **`TokenVigenteDeAdministracionEsAceptado`** — *Slice 05.* El administrador con sesión vigente opera su
   panel sin trabas.
 
-### `BusquedaProximidadTest.cs` — Slice 07 (12 tests)
+### `BusquedaProximidadTest.cs` — Slice 07 (13 tests)
 
 - **`DevuelveLosLavaderosDentroDelRadioOrdenadosPorDistancia`** — *Slice 07.* El cliente ve primero lo más
   cercano, que es el criterio con el que elige.
@@ -525,6 +766,8 @@ petición, reglas de negocio, persistencia y respuesta.
   contratado, buscar por dirección informa que el servicio no está disponible en vez de fallar en silencio.
 - **`LaRutaLiteralNoEsCapturadaPorElIdDeLavadero`** — *Slice 07.* Una ruta fija del buscador no se confunde
   con la de un lavadero concreto: el cliente llega a donde quería.
+- **`LaBusquedaPorDireccionResponde503CuandoElProveedorNoResponde`** — *Slice 07/16.* Si la
+  geocodificación falla, el buscador informa «proveedor no disponible» y no un mercado vacío (CA-7.4).
 
 ### `CanjeComprobanteTest.cs` — Slice 02 (7 tests)
 
@@ -554,6 +797,19 @@ petición, reglas de negocio, persistencia y respuesta.
   reserven el mismo horario al mismo tiempo, solo uno obtiene el puesto: nunca se vende dos veces el mismo
   lugar.
 
+### `CatalogoYTurnoTest.cs` — Slice 13 (7 tests)
+
+- **`ElCatalogoDevuelvePuestosYTiposConLaSena`** — *Slice 13.* `GET /api/lavaderos/{id}/catalogo`
+  publica puestos y tipos con su seña: es lo que el cliente necesita para elegir y reservar.
+- **`ElCatalogoDeUnLavaderoInexistenteDevuelve404`** — *Slice 13.* Un lavadero desconocido responde
+  404 en vez de una lista vacía.
+- **`ElCatalogoExigeSesion`** — *Slice 13.* Sin sesión el catálogo no se expone.
+- **`ElClienteConsultaSuPropioTurno`** — *Slice 13.* El cliente ve su turno con el detalle esperado.
+- **`ElTurnoDeOtroClienteResponde404`** — *Slice 13.* El turno ajeno responde 404: no se revela que
+  existe.
+- **`ElAdministradorDeOtroLavaderoNoVeElTurno`** — *Slice 13.* Un administrador ajeno tampoco lo ve.
+- **`ElAdministradorDelLavaderoSiVeElTurno`** — *Slice 13.* El dueño del lavadero sí lo ve.
+
 ### `CicloVidaTurnoTest.cs` — Slice 04 (5 tests)
 
 - **`FinalizarPoneFinalizadoYLiberaPuesto`** — *Slice 04.* Al terminar el lavado, el turno se cierra y el
@@ -580,6 +836,12 @@ petición, reglas de negocio, persistencia y respuesta.
 
 - **`DevuelveSoloLosHashVigentesDelDiaDelPropioLavadero`** — *Slice 02.* El lavadero puede descargar la
   lista de comprobantes válidos del día para validar sin conexión, y solo la de sus propios turnos.
+
+### `ComprobanteVigentesRb1Test.cs` — Slice 02/11 (1 test)
+
+- **`UnTurnoPendienteDePagoNoApareceAunqueTengaComprobante`** — *Slices 02/11.* La caché de
+  comprobantes vigentes para el canje offline no incluye turnos sin pago aprobado: sin seña no hay
+  atención posible (RB-1).
 
 ### `ConversorHorarioTest.cs` — Slice 00 (2 tests)
 
@@ -650,6 +912,22 @@ petición, reglas de negocio, persistencia y respuesta.
 - **`PuestoDeOtroLavaderoDevuelve404`** — *Slice 04.* Un administrador no puede operar puestos de otro
   comercio.
 
+### `GestionTiposLavadoTest.cs` — Slice 13 (9 tests)
+
+- **`CrearTipoQuedaActivoYApareceEnElListado`** — *Slice 13.* Un tipo recién creado nace activo y se
+  lista en el catálogo.
+- **`CrearTipoConSenaEnCeroDevuelve400`** — *Slice 13.* Una seña en cero se rechaza con 400 (RB-1).
+- **`NombreDuplicadoDevuelve409`** — *Slice 13.* Un nombre repetido responde 409.
+- **`DesactivarTipoSinTurnosLoInactiva`** — *Slice 13.* Sin turnos vigentes el tipo se desactiva.
+- **`DesactivarTipoConTurnoVigenteDevuelve409`** — *Slice 13.* Con un turno vigente responde 409 y no
+  se apaga.
+- **`UnTurnoTerminalNoBloqueaLaDesactivacion`** — *Slice 13.* Un turno finalizado, cancelado o
+  expirado no impide desactivar el tipo.
+- **`EditarTipoCambiaNombreDuracionYPrecios`** — *Slice 13.* La edición persiste nombre, duración y
+  precios.
+- **`EditarUnTipoDeOtroLavaderoDevuelve404`** — *Slice 13.* Editar el catálogo ajeno responde 404.
+- **`ActivarReactivaElTipo`** — *Slice 13.* Activar devuelve el tipo a la oferta.
+
 ### `HorariosBackfillTest.cs` — Slice 17 (1 test)
 
 - **`ElLavaderoPrevioAlSliceQuedaConLaSemanaLunASabado`** — *Slice 17.* Un lavadero que existía antes del
@@ -698,7 +976,7 @@ petición, reglas de negocio, persistencia y respuesta.
 - **`ElCanalDeDisponibilidadNoRecibeMetricas`** — *Slice 18.* Los avisos de métricas no se filtran al grupo
   de disponibilidad: RB-2 mantiene su contrato intacto.
 
-### `MetricasTest.cs` — Slice 06 (11 tests)
+### `MetricasTest.cs` — Slice 06 (12 tests)
 
 - **`CapacidadReflejaLosPuestosReales`** — *Slice 06.* La capacidad informada es la cantidad de puestos que
   el lavadero tiene de verdad.
@@ -717,6 +995,8 @@ petición, reglas de negocio, persistencia y respuesta.
 - **`UnaVentanaInvalidaDevuelve400`** — *Slice 06.* Un rango horario inconsistente se rechaza.
 - **`UnPuestoAjenoDevuelve404`** — *Slice 06.* No se puede consultar la ocupación de un puesto de otro
   comercio.
+- **`UnTurnoCanceladoConSenaCobradaNoSumaAlIngresoDiario`** — *Slice 06.* La seña cobrada de un turno
+  cancelado no se cuenta como ingreso del día: el facturado es servicio entregado, no dinero cobrado.
 
 ### `MigracionTest.cs` — Slice 00 (14 tests)
 
@@ -749,6 +1029,30 @@ petición, reglas de negocio, persistencia y respuesta.
   horarios y de servicios por puesto con sus restricciones (día 1..7, apertura anterior al cierre,
   índice único parcial por franja activa) y la clave compuesta de la tabla puente.
 
+### `MisTurnosTest.cs` — Slice 14 (12 tests)
+
+- **`UnClienteVeSusTurnosDelMasRecienteAlMasViejo`** — *Slice 14.* `GET /api/mis-turnos` ordena del
+  más reciente al más viejo.
+- **`UnTurnoFueraDePlazoSePuedeCancelarPeroNoGeneraReintegro`** — *Slice 14.* El turno se cancela y el
+  reembolso queda en cero, con su motivo.
+- **`UnTurnoEnCursoNoEsCancelableNiMuestraComprobante`** — *Slice 14.* La respuesta publica
+  `cancelable: false` y no expone el comprobante.
+- **`UnClienteSinTurnosRecibeUnaListaVacia`** — *Slice 14.* Sin turnos devuelve una lista vacía, no un
+  error.
+- **`UnAdministradorNoPuedeVerMisTurnos`** — *Slice 14.* El endpoint es del cliente: un administrador
+  no lo usa.
+- **`SinSesionMisTurnosDevuelveNoAutorizado`** — *Slice 14.* Sin sesión responde 401.
+- **`ElClienteCancelaSuTurnoYSeRegistraElReembolsoPendiente`** — *Slice 14.* La cancelación en plazo
+  deja el reembolso en `pendiente` para el worker (RB-1).
+- **`CancelarUnTurnoDeOtroClienteDevuelveNoEncontrado`** — *Slice 14.* El turno ajeno responde 404.
+- **`UnTurnoEnCursoNoSePuedeCancelar`** — *Slice 14.* Un turno iniciado no se cancela.
+- **`LaSegundaCancelacionDevuelveConflicto`** — *Slice 14.* La segunda cancelación responde conflicto
+  y no duplica el reembolso.
+- **`UnAdministradorNoPuedeUsarLaCancelacionDelCliente`** — *Slice 14.* La cancelación del cliente no
+  está disponible para un administrador.
+- **`UnTurnoPendienteDePagoSeCancelaSinReintegro`** — *Slice 14.* Sin pago aprobado el reembolso es
+  `no_aplica`.
+
 ### `OcupacionServicioTest.cs` — Slice 00 (3 tests)
 
 - **`ReservarBloqueaElIntervalo`** — *Slice 00.* Reservar un horario lo deja bloqueado para que nadie más lo
@@ -757,6 +1061,14 @@ petición, reglas de negocio, persistencia y respuesta.
   el límite de uno es el comienzo del otro.
 - **`ReservarSolapadoConOtroConfirmadoLanzaConflicto`** — *Slice 00.* Si el horario se cruza con un turno ya
   confirmado, la reserva se rechaza.
+
+### `OnboardingLavaderoTest.cs` — Slice 13 (2 tests)
+
+- **`ElAltaDelAdministradorSiembraUnPuestoYLosDosTiposPorDefecto`** — *Slice 13.* El registro de un
+  administrador crea «Puesto 1» y los dos tipos de lavado por defecto en la misma transacción, para
+  que el lavadero pueda recibir reservas sin configurar nada.
+- **`UnLavaderoReciénCreadoPuedeReservarSinConfigurarNada`** — *Slice 13.* Un lavadero recién dado de
+  alta ya tiene catálogo y, por lo tanto, acepta una reserva.
 
 ### `OutboxTransaccionalTest.cs` — Slice 03 (7 tests)
 
@@ -835,6 +1147,35 @@ petición, reglas de negocio, persistencia y respuesta.
 - **`AplicaLosValidosYRechazaLosQueElServidorNoReconoce`** — *Slice 02.* Al reconectar, las validaciones
   hechas sin conexión se aplican solo si el servidor reconoce esos comprobantes: no se inventan atenciones.
 
+### `ReembolsoPersistenciaTest.cs` — Slice 15 (6 tests)
+
+- **`UnReembolsoSeGuardaConSuMontoYSeLeePorTurno`** — *Slice 15.* El reembolso se persiste con su
+  importe y se recupera por turno.
+- **`UnTurnoNoPuedeTenerDosReembolsos`** — *Slice 15.* La base impide dos reembolsos para el mismo
+  turno: es la garantía de que un reintegro no se duplica.
+- **`UnReembolsoSinAplicarSeGuardaConMontoCero`** — *Slice 15.* El reembolso `no_aplica` se guarda con
+  importe cero.
+- **`LaAutoriaDeLaCancelacionSePersisteEnSnakeCase`** — *Slice 15.* `cancelado_por` se guarda como
+  texto en snake_case y se lee de vuelta igual.
+- **`ElListadoPorClienteDevuelveSoloSusTurnosDelMasRecienteAlMasViejo`** — *Slice 15.* El listado por
+  cliente no mezcla turnos ajenos y respeta el orden.
+- **`UnClienteSinTurnosRecibeUnaListaVacia`** — *Slice 15.* Sin turnos devuelve lista vacía.
+
+### `ReembolsosEjecucionTest.cs` — Slice 15 (6 tests)
+
+- **`ElReclamoSoloTomaPendientesVencidosYSumaUnIntento`** — *Slice 15.* El reclamo toma sólo los
+  pendientes vencidos e incrementa el intento.
+- **`ElLeaseImpideQueDosTicksTomenLaMismaFila`** — *Slice 15.* El lease de 5 minutos evita que dos
+  workers procesen el mismo reembolso (`FOR UPDATE SKIP LOCKED`).
+- **`UnReembolsoNoAplicaNuncaSeReclama`** — *Slice 15.* Los reembolsos que no aplican quedan fuera de
+  la cola.
+- **`ObtenerPagoAprobadoDevuelveElPagoDelTurno`** — *Slice 15.* Se recupera el pago aprobado del turno
+  antes de reintegrar.
+- **`ElTickProcesaUnReembolsoYPersisteElReintegro`** — *Slice 15.* Un tick completo procesa el
+  reembolso y persiste el resultado.
+- **`ElTickSinPagoAprobadoMarcaFallidoSinLlamarALaPasarela`** — *Slice 15.* Sin pago aprobado se marca
+  fallido sin llamar al proveedor.
+
 ### `RegistroTest.cs` — Slice 08 (10 tests)
 
 - **`UnClienteSeRegistraYRecibeUnTokenUtilizable`** — *Slice 08.* Quien se registra como cliente puede usar
@@ -909,14 +1250,18 @@ petición, reglas de negocio, persistencia y respuesta.
   encontrado».
 - **`UnTipoDeOtroLavaderoDevuelve404`** — *Slice 17.* Un servicio de otro comercio responde «no
   encontrado», sin revelar su existencia.
-- **`UnaFechaMalFormadaDevuelve400` (fecha `2026-13-40` / `manana`)** — *Slice 17.* Fechas imposibles o con
-  otro formato se rechazan con `fecha_invalida` antes de consultar la base.
-- **`UnTipoMalFormadoDevuelve400` (uuid inválido / uuid vacío)** — *Slice 17.* Un identificador de servicio
-  mal formado se rechaza como pedido inválido.
+- **`UnaFechaMalFormadaDevuelve400` (fecha: "2026-13-40", codigo: "fecha_invalida")** — *Slice 17.* Una
+  fecha imposible se rechaza con `fecha_invalida` antes de consultar la base.
+- **`UnaFechaMalFormadaDevuelve400` (fecha: "manana", codigo: "fecha_invalida")** — *Slice 17.* Una fecha
+  con otro formato también responde 400.
+- **`UnTipoMalFormadoDevuelve400` (tipoLavadoId: "no-es-un-uuid")** — *Slice 17.* Un identificador de
+  servicio mal formado se rechaza como pedido inválido.
+- **`UnTipoMalFormadoDevuelve400` (tipoLavadoId: "00000000-0000-0000-0000-000000000000")** — *Slice 17.*
+  El UUID vacío (`Guid.Empty`) tampoco es un servicio válido.
 - **`SinTokenLaGrillaDevuelve401`** — *Slice 17.* La disponibilidad no es pública: sin sesión no se
   consulta.
 
-### `WebhookTest.cs` — Slice 01 (8 tests)
+### `WebhookTest.cs` — Slice 01 (12 tests)
 
 - **`ApprovedTardioSobreUnTurnoExpiradoNoReviveYRegistraElPago`** — *Slice 01.* Un pago aprobado después de
   que el turno venció no lo reactiva, aunque el dinero se registre para conciliación.
@@ -932,6 +1277,14 @@ petición, reglas de negocio, persistencia y respuesta.
   rechaza.
 - **`WebhookSinFirmaValidaDevuelve401YSinEfectos`** — *Slice 01.* Un aviso sin firma válida no confirma ni
   modifica nada.
+- **`WebhookDeReembolsoAdelantaElPendienteSinTocarElMonto`** — *Slice 15.* El aviso de reintegro sólo
+  adelanta el próximo intento del reembolso pendiente; el importe no se toma del webhook (D-15.6).
+- **`WebhookDeReembolsoDuplicadoNoDuplicaNiCambiaElMonto`** — *Slice 15.* Un aviso repetido responde 200
+  sin efectos ni cambios de importe.
+- **`WebhookDeReembolsoDesconocidoRespondeIgnorado`** — *Slice 15.* Un reintegro que el sistema no
+  conoce se ignora con 200: la señal no crea estado.
+- **`WebhookDePagoConAccionDeReembolsoSenalaPorPagoAprobado`** — *Slice 15.* Un evento de pago con
+  acción de reintegro se traduce en señalar el reembolso del pago aprobado, no en ejecutarlo.
 
 ### `WorkerTest.cs` — Slice 01 (6 tests)
 

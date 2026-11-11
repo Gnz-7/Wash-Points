@@ -1,4 +1,6 @@
-# Slice 03 — Sincronización en tiempo real (RB-2): Implementation Plan
+# Slice 03b — Sincronización en tiempo real (RB-2): plan de implementación
+
+> **Anexo de planificación del slice-03.** No es un slice independiente: es el detalle paso a paso de `SPECS/slice-03-sincronizacion-rb2.md` y se conserva por trazabilidad histórica.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: usar `executing-plans` (o `subagent-driven-development`) para implementar tarea por tarea. Los pasos van con checkbox (`- [ ]`).
 
@@ -39,7 +41,7 @@
 ### T-33 · Diseño: outbox, demanda espontánea y tiempo real
 
 **Files:**
-- Modify: `DOCS/ARCHITECTURE.MD` (§2.2, §3.1, §4.2, §5, §6, §7.3)
+- Modify: `DOCS/ARCHITECTURE.md` (§2.2, §3.1, §4.2, §5, §6, §7.3)
 
 **Interfaces:** ninguna de código.
 
@@ -171,7 +173,7 @@
 
 | Acción | Archivo |
 |--------|---------|
-| Mod | `DOCS/ARCHITECTURE.MD` |
+| Mod | `DOCS/ARCHITECTURE.md` |
 | New | `SRC/BACKEND/WashPoints.Domain/Ocupacion/EventoOcupacion.cs` |
 | New | `SRC/BACKEND/WashPoints.Domain/Ocupacion/IOutbox.cs` |
 | New | `SRC/BACKEND/WashPoints.Domain/Catalogo/IRegistroClientes.cs` |

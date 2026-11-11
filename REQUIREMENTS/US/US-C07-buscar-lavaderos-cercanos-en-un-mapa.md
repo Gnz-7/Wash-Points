@@ -60,7 +60,7 @@
 
 | # | Pregunta | Referencia |
 |---|----------|------------|
-| 2 | Proveedor de mapas sin definir. | ARCHITECTURE §7.2, §10.2 |
+| 2 | Proveedor de mapas: **MapTiler** (decidido en slice-16). | ARCHITECTURE §7.4, §10.2 |
 
 ## Referencias
 

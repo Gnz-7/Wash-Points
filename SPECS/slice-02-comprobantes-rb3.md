@@ -8,7 +8,7 @@
 | Campo | Valor |
 |-------|-------|
 | **Rol ejecutor** | `backend` (AGENTS.md §2.2) con apoyo de `qa` (AGENTS.md §2.6) |
-| **Estado** | Aprobado (alcance, estructura y T-23…T-32) |
+| **Estado** | Implementado y verificado (corrección retroactiva del slice-19; ver `DOCS/CATALOGO_TESTS.md`) |
 | **Objetivo** | Hacer verificable RB-3 de punta a punta: emitir el comprobante al confirmar la seña, canjearlo una sola vez (`confirmado → en_curso`) y validar sin conexión con reconciliación en servidor |
 | **Criterio de cierre** | CA-S2.1 a CA-S2.10 verificados con salida adjunta; la suite completa (slice-00 + slice-01 + slice-02) en verde |
 
@@ -130,7 +130,7 @@ Cada tarea tiene un test que debe **fallar primero**. T-23 es el delta de diseñ
 
 ### T-23 · Diseño: módulo `Comprobantes` y esquema de tokens
 
-Actualizar `DOCS/ARCHITECTURE.MD`: §2.2 (módulo `Comprobantes` con su contrato), §3.1 (RB-3 con hash + cifrado), §4.1 (tabla `comprobantes` con `token_cifrado` e índices), §4.2 (decisión de recuperación), §5 (disparador de `confirmado → en_curso` = canje), §6 (regresión de RB-3) y §8 (tratamiento del comprobante como credencial, ahora con copia cifrada).
+Actualizar `DOCS/ARCHITECTURE.md`: §2.2 (módulo `Comprobantes` con su contrato), §3.1 (RB-3 con hash + cifrado), §4.1 (tabla `comprobantes` con `token_cifrado` e índices), §4.2 (decisión de recuperación), §5 (disparador de `confirmado → en_curso` = canje), §6 (regresión de RB-3) y §8 (tratamiento del comprobante como credencial, ahora con copia cifrada).
 
 - **Verificación**: el documento refleja `comprobantes` con `UNIQUE(turno_id)`, `hash` único y `token_cifrado`, y el canje como único disparador de `confirmado → en_curso`, con trazabilidad a RB-3.
 

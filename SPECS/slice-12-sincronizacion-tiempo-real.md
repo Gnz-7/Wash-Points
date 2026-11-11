@@ -323,7 +323,7 @@ Se considera terminado cuando: cada CA-S12.x tiene un test que falla si se rompe
 
 Sigue abierto y sin slice asignado:
 
-- **Mapa real (CU-01):** bloqueado por `ARCHITECTURE.md` §10.2, proveedor sin definir. El puerto `ProveedorMapas` ya lo admite sin tocar el flujo de reserva.
+- **Mapa real (CU-01): resuelto en el slice-16.** El proveedor es MapTiler (`ARCHITECTURE.md` §7.4) y la decisión quedó cerrada en `§10.2`. El puerto `ProveedorMapas`/`IGeocodificador` lo admitió sin tocar el flujo de reserva.
 - **Política de cancelación y reembolso (§10.1):** decisión de producto, no técnica.
 - **CI:** no existe `.github/`. Un pipeline de `flutter analyze` + `flutter test` + `dotnet test` es el candidato natural al slice-13.
 - **Escaneo de QR con cámara:** el puerto `LectorComprobante` ya lo admite.
