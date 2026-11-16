@@ -106,8 +106,7 @@ void main() {
     expect(c.read(reservaProvider('lav-1')).fase, FaseReserva.esperandoPago);
   });
 
-  test('un turno cancelado se muestra como rechazado', () async {
-    final repositorio = RepositorioReservasFalso(
+  test('un turno cancelado se muestra como rechazado', () async {    final repositorio = RepositorioReservasFalso(
       estadoTurno: reservaDeEjemplo(estado: EstadoReserva.cancelada),
     );
     final c = contenedor(repositorio, AbridorCheckoutFalso());
@@ -116,6 +115,22 @@ void main() {
     await c.read(reservaProvider('lav-1').notifier).verificarEstado();
 
     expect(c.read(reservaProvider('lav-1')).fase, FaseReserva.rechazada);
+  });
+
+  test('un turno expirado vuelve al camino de rechazo (regresión slice-20)', () async {
+    // Slice-20, T-223: el camino de expiración sigue terminando en rechazada
+    // y no confirma ni abre comprobante.
+    final repositorio = RepositorioReservasFalso(
+      estadoTurno: reservaDeEjemplo(estado: EstadoReserva.expirada),
+    );
+    final c = contenedor(repositorio, AbridorCheckoutFalso());
+
+    await confirmar(c);
+    await c.read(reservaProvider('lav-1').notifier).verificarEstado();
+
+    final estado = c.read(reservaProvider('lav-1'));
+    expect(estado.fase, FaseReserva.rechazada);
+    expect(estado.fase, isNot(FaseReserva.confirmada));
   });
 
   test('un slot ocupado vuelve a la selección con su mensaje', () async {
@@ -167,6 +182,28 @@ void main() {
     await cargarSlots(c);
     await confirmar(c);
 
+    expect(repositorio.slotsPedidos, hasLength(1));
+  });
+
+  test('un 422 mercadopago_no_vinculado vuelve a la selección con su mensaje', () async {
+    // Slice-20, CA-S20.13: sin cuenta de Mercado Pago vinculada el backend
+    // rechaza antes de crear la preferencia; el flujo vuelve a la selección
+    // (la grilla no cambia: no fue un problema del slot).
+    final repositorio = RepositorioReservasFalso(
+      errorCrear: const ApiException(
+        CodigoError.mercadopagoNoVinculado,
+        estado: 422,
+      ),
+    );
+    final c = contenedor(repositorio, AbridorCheckoutFalso());
+
+    await cargarSlots(c);
+    await confirmar(c);
+
+    final estado = c.read(reservaProvider('lav-1'));
+    expect(estado.fase, FaseReserva.seleccionando);
+    expect(estado.codigo, CodigoError.mercadopagoNoVinculado);
+    expect(estado.mensaje, isNotNull);
     expect(repositorio.slotsPedidos, hasLength(1));
   });
 

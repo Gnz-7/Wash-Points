@@ -1,0 +1,17 @@
+# Contexto de build de la imagen web (slice-20, T-221).
+#
+# Sin este archivo, `COPY . .` pisa el `.dart_tool/package_config.json` que
+# `flutter pub get` generó dentro del contenedor con el de la máquina local
+# (rutas Windows hacia el pub-cache), y `flutter build web` falla porque el
+# compilador no resuelve ningún paquete (ni siquiera el SDK: «'BuildContext'
+# isn't a type»). El diagnóstico se obtuvo del log completo del build del
+# 15/11/2026.
+.dart_tool/
+build/
+.idea/
+.vscode/
+*.iml
+.gradle/
+android/.gradle/
+test/
+maestro/

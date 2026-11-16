@@ -62,6 +62,40 @@ public sealed class MigracionTest : IClassFixture<ContenedorPostgres>, IAsyncLif
     }
 
     [Fact]
+    public async Task LasColumnasDeSuscripcionYVinculacionExisten()
+    {
+        // Slice-20 (D-20.8): la migración agrega 7 columnas a lavaderos.
+        var esperadas = new Dictionary<string, bool>
+        {
+            ["suscripcion_activa"] = true,
+            ["suscripcion_vence_el"] = false,
+            ["mp_vinculado"] = true,
+            ["mp_access_token"] = false,
+            ["mp_refresh_token"] = false,
+            ["mp_user_id"] = false,
+            ["mp_vinculado_el"] = false,
+        };
+
+        await using var contexto = CrearContexto();
+        var conexion = contexto.Database.GetDbConnection();
+        await conexion.OpenAsync();
+
+        foreach (var (columna, esNotNull) in esperadas)
+        {
+            using var comando = conexion.CreateCommand();
+            comando.CommandText = $"""
+                SELECT is_nullable = 'NO'
+                FROM information_schema.columns
+                WHERE table_name = 'lavaderos' AND column_name = '{columna}'
+                """;
+            var notNull = await comando.ExecuteScalarAsync();
+            Assert.True(
+                notNull as bool? == esNotNull,
+                $"La columna {columna} no existe o su nulabilidad no es la esperada.");
+        }
+    }
+
+    [Fact]
     public async Task BtreeGistQuedaInstaladaPorLaMigracion()
     {
         // La migración ejecuta CREATE EXTENSION btree_gist; sin ella, el

@@ -14,6 +14,7 @@ namespace WashPoints.UnitTests.Pagos;
 public sealed class PasarelaPagosMercadoPagoTest
 {
     private static readonly Guid TurnoId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    private const string TokenDelLavadero = "TOKEN-LAVADERO";
 
     private static OpcionesMercadoPago Opciones() => new()
     {
@@ -40,6 +41,7 @@ public sealed class PasarelaPagosMercadoPagoTest
 
         var creada = await pasarela.CrearPreferenciaAsync(
             new PreferenciaPago(TurnoId, 1500m, "Seña Lavado básico", TurnoId.ToString()),
+            TokenDelLavadero,
             CancellationToken.None);
 
         Assert.Equal("pref-1", creada.PreferenceId);
@@ -49,6 +51,7 @@ public sealed class PasarelaPagosMercadoPagoTest
         Assert.Equal(HttpMethod.Post, llamada.Metodo);
         Assert.Contains("/checkout/preferences", llamada.Uri);
         Assert.Equal($"turno-{TurnoId}", llamada.Encabezados["X-Idempotency-Key"]);
+        Assert.Equal($"Bearer {TokenDelLavadero}", llamada.Encabezados["Authorization"]);
         Assert.Contains("\"external_reference\"", llamada.Cuerpo);
         Assert.Contains(TurnoId.ToString(), llamada.Cuerpo);
         Assert.Contains("\"notification_url\"", llamada.Cuerpo);
@@ -68,6 +71,7 @@ public sealed class PasarelaPagosMercadoPagoTest
         await Assert.ThrowsAsync<PasarelaNoDisponibleException>(() =>
             pasarela.CrearPreferenciaAsync(
                 new PreferenciaPago(TurnoId, 1500m, "Seña", TurnoId.ToString()),
+                TokenDelLavadero,
                 CancellationToken.None));
     }
 
@@ -79,7 +83,7 @@ public sealed class PasarelaPagosMercadoPagoTest
             """));
         var pasarela = Crear(handler);
 
-        var resultado = await pasarela.VerificarPagoAsync("77", CancellationToken.None);
+        var resultado = await pasarela.VerificarPagoAsync("77", TokenDelLavadero, CancellationToken.None);
 
         Assert.Equal(EstadoVerificacionPago.Aprobado, resultado.Estado);
         Assert.Equal(TurnoId, resultado.TurnoId);
@@ -94,7 +98,7 @@ public sealed class PasarelaPagosMercadoPagoTest
             """));
         var pasarela = Crear(handler);
 
-        var resultado = await pasarela.VerificarPagoAsync("78", CancellationToken.None);
+        var resultado = await pasarela.VerificarPagoAsync("78", TokenDelLavadero, CancellationToken.None);
 
         Assert.Equal(EstadoVerificacionPago.Rechazado, resultado.Estado);
         Assert.Equal("78", resultado.MpPaymentId);
@@ -106,10 +110,21 @@ public sealed class PasarelaPagosMercadoPagoTest
         var handler = new HandlerFalso((_, _) => Json("{}"));
         var pasarela = Crear(handler);
 
-        var resultado = await pasarela.VerificarPagoAsync("pref-1", CancellationToken.None);
+        var resultado = await pasarela.VerificarPagoAsync("pref-1", TokenDelLavadero, CancellationToken.None);
 
         Assert.Equal(EstadoVerificacionPago.Pendiente, resultado.Estado);
         Assert.Empty(handler.Llamadas);
+    }
+
+    [Fact]
+    public async Task VerificarPagoCon401SeTraduceATokenInvalido()
+    {
+        var handler = new HandlerFalso((_, _) =>
+            Json("""{"message":"unauthorized"}""", HttpStatusCode.Unauthorized));
+        var pasarela = Crear(handler);
+
+        await Assert.ThrowsAsync<PasarelaTokenInvalidoException>(() =>
+            pasarela.VerificarPagoAsync("77", TokenDelLavadero, CancellationToken.None));
     }
 
     [Fact]
@@ -121,7 +136,7 @@ public sealed class PasarelaPagosMercadoPagoTest
             + "\"}],\"paging\":{\"total\":1,\"limit\":10,\"offset\":0}}"));
         var pasarela = Crear(handler);
 
-        var resultado = await pasarela.BuscarPagoPorTurnoAsync(TurnoId, CancellationToken.None);
+        var resultado = await pasarela.BuscarPagoPorTurnoAsync(TurnoId, TokenDelLavadero, CancellationToken.None);
 
         Assert.Equal(EstadoVerificacionPago.Aprobado, resultado.Estado);
         var llamada = Assert.Single(handler.Llamadas);
@@ -136,7 +151,7 @@ public sealed class PasarelaPagosMercadoPagoTest
             """{"results":[],"paging":{"total":0,"limit":10,"offset":0}}"""));
         var pasarela = Crear(handler);
 
-        var resultado = await pasarela.BuscarPagoPorTurnoAsync(TurnoId, CancellationToken.None);
+        var resultado = await pasarela.BuscarPagoPorTurnoAsync(TurnoId, TokenDelLavadero, CancellationToken.None);
 
         Assert.Equal(EstadoVerificacionPago.Pendiente, resultado.Estado);
         Assert.Null(resultado.MpPaymentId);
@@ -153,7 +168,7 @@ public sealed class PasarelaPagosMercadoPagoTest
         var pasarela = Crear(handler);
 
         var resultado = await pasarela.ReembolsarAsync(
-            "77", 1500m, "reembolso-abc", CancellationToken.None);
+            "77", 1500m, "reembolso-abc", TokenDelLavadero, CancellationToken.None);
 
         Assert.Equal(EstadoReembolsoPasarela.Aprobado, resultado.Estado);
         Assert.Equal("900", resultado.ReembolsoId);
@@ -173,7 +188,7 @@ public sealed class PasarelaPagosMercadoPagoTest
                 : Json("""{"id":901,"payment_id":77,"amount":500.0,"status":"approved"}"""));
         var pasarela = Crear(handler);
 
-        await pasarela.ReembolsarAsync("77", 500m, "reembolso-abc", CancellationToken.None);
+        await pasarela.ReembolsarAsync("77", 500m, "reembolso-abc", TokenDelLavadero, CancellationToken.None);
 
         var post = Assert.Single(handler.Llamadas, l => l.Metodo == HttpMethod.Post);
         Assert.Contains("\"amount\":500.0", post.Cuerpo);
@@ -187,7 +202,7 @@ public sealed class PasarelaPagosMercadoPagoTest
         var pasarela = Crear(handler);
 
         var resultado = await pasarela.ReembolsarAsync(
-            "77", 2000m, "reembolso-abc", CancellationToken.None);
+            "77", 2000m, "reembolso-abc", TokenDelLavadero, CancellationToken.None);
 
         Assert.Equal(EstadoReembolsoPasarela.Rechazado, resultado.Estado);
         Assert.False(resultado.Reintentable);
@@ -204,7 +219,7 @@ public sealed class PasarelaPagosMercadoPagoTest
         var pasarela = Crear(handler);
 
         var resultado = await pasarela.ReembolsarAsync(
-            "77", 1500m, "reembolso-abc", CancellationToken.None);
+            "77", 1500m, "reembolso-abc", TokenDelLavadero, CancellationToken.None);
 
         Assert.Equal(EstadoReembolsoPasarela.Rechazado, resultado.Estado);
         Assert.True(resultado.Reintentable);
@@ -217,7 +232,8 @@ public sealed class PasarelaPagosMercadoPagoTest
             """{"id":900,"payment_id":77,"amount":1500.0,"status":"approved"}"""));
         var pasarela = Crear(handler);
 
-        var resultado = await pasarela.ConsultarReembolsoAsync("77", "900", CancellationToken.None);
+        var resultado = await pasarela.ConsultarReembolsoAsync(
+            "77", "900", TokenDelLavadero, CancellationToken.None);
 
         Assert.Equal(EstadoReembolsoPasarela.Aprobado, resultado.Estado);
         var llamada = Assert.Single(handler.Llamadas);

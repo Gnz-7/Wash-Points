@@ -11,19 +11,29 @@ public interface IPasarelaPagos
 {
     /// <summary>
     /// Crea una preferencia de pago para el turno y devuelve su identificador
-    /// externo junto con la URL de checkout. El prefijo de idempotencia se
-    /// deriva del <c>turnoId</c> para que un reintento del cliente no genere
+    /// externo junto con la URL de checkout. Se autentica con el token de
+    /// Mercado Pago del <em>lavadero</em> (SPECS/slice-20 D-20.4: el dinero va
+    /// a su cuenta). El prefijo de idempotencia se deriva del
+    /// <c>turnoId</c> para que un reintento del cliente no genere
     /// una preferencia nueva.
     /// </summary>
-    Task<PreferenciaCreada> CrearPreferenciaAsync(PreferenciaPago preferencia, CancellationToken ct);
+    Task<PreferenciaCreada> CrearPreferenciaAsync(
+        PreferenciaPago preferencia,
+        string accessToken,
+        CancellationToken ct);
 
     /// <summary>
     /// Consulta el estado del pago a partir del <c>payment_id</c> que entrega
     /// el webhook (SPECS/slice-15 D-15.2). Un identificador que no sea un
     /// payment id de Mercado Pago devuelve <c>Pendiente</c>, nunca un pago
-    /// inventado.
+    /// inventado. Un <c>401</c> del proveedor se traduce en
+    /// <see cref="PasarelaTokenInvalidoException"/> para que el consumidor
+    /// refresque el token (SPECS/slice-20 D-20.8).
     /// </summary>
-    Task<ResultadoVerificacionPago> VerificarPagoAsync(string pagoIdExterno, CancellationToken ct);
+    Task<ResultadoVerificacionPago> VerificarPagoAsync(
+        string pagoIdExterno,
+        string accessToken,
+        CancellationToken ct);
 
     /// <summary>
     /// Busca el pago de un turno por su <c>external_reference</c> (el
@@ -32,7 +42,10 @@ public interface IPasarelaPagos
     /// consultarse como si lo fuera (SPECS/slice-15 D-15.2).
     /// Devuelve <c>Pendiente</c> sin <c>MpPaymentId</c> si todavía no hay pago.
     /// </summary>
-    Task<ResultadoVerificacionPago> BuscarPagoPorTurnoAsync(Guid turnoId, CancellationToken ct);
+    Task<ResultadoVerificacionPago> BuscarPagoPorTurnoAsync(
+        Guid turnoId,
+        string accessToken,
+        CancellationToken ct);
 
     /// <summary>
     /// Solicita el reintegro de un pago. <paramref name="monto"/> es el importe
@@ -47,6 +60,7 @@ public interface IPasarelaPagos
         string pagoId,
         decimal monto,
         string? claveIdempotencia,
+        string accessToken,
         CancellationToken ct);
 
     /// <summary>
@@ -57,5 +71,6 @@ public interface IPasarelaPagos
     Task<ResultadoReembolso> ConsultarReembolsoAsync(
         string pagoId,
         string reembolsoId,
+        string accessToken,
         CancellationToken ct);
 }

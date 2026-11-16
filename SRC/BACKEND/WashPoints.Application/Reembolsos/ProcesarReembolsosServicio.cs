@@ -1,3 +1,5 @@
+using WashPoints.Domain.MercadoPago;
+using WashPoints.Domain.Ocupacion;
 using WashPoints.Domain.Puertos;
 using WashPoints.Domain.Reembolsos;
 
@@ -22,13 +24,24 @@ namespace WashPoints.Application.Reembolsos;
 /// el dinero pendiente es una tarea de conciliación, no una razón para
 /// resucitar el turno (D-15.4).
 /// </para>
+///
+/// <para>
+/// Slice-20 (D-20.5): cada reintegro se pide con el token del <b>lavadero del
+/// pago</b>, resuelto turno → lavadero vía <see cref="IObtenedorTokensMp"/>.
+/// Un token rechazado (401) refresca y reintenta una vez; un lavadero
+/// desvinculado deja el reembolso <see cref="EstadoReembolso.Fallido"/> con
+/// motivo explícito.
+/// </para>
 /// </summary>
 public sealed class ProcesarReembolsosServicio
 {
     private const string SinPagoAprobado = "El turno no tiene un pago aprobado que reembolsar.";
+    private const string SinVinculoMercadoPago = "El lavadero desvinculó su cuenta de Mercado Pago.";
 
     private readonly IReembolsoRepositorio _reembolsos;
     private readonly IPasarelaPagos _pasarela;
+    private readonly IObtenedorTokensMp _tokensMp;
+    private readonly IOcupacionRepositorio _turnos;
     private readonly OpcionesReembolso _opciones;
     private readonly Func<DateTime> _relojUtc;
     private readonly Func<Guid, int, int> _jitterSegundos;
@@ -36,8 +49,10 @@ public sealed class ProcesarReembolsosServicio
     public ProcesarReembolsosServicio(
         IReembolsoRepositorio reembolsos,
         IPasarelaPagos pasarela,
+        IObtenedorTokensMp tokensMp,
+        IOcupacionRepositorio turnos,
         OpcionesReembolso opciones)
-        : this(reembolsos, pasarela, opciones, () => DateTime.UtcNow, JitterDeterminista)
+        : this(reembolsos, pasarela, tokensMp, turnos, opciones, () => DateTime.UtcNow, JitterDeterminista)
     {
     }
 
@@ -48,12 +63,16 @@ public sealed class ProcesarReembolsosServicio
     public ProcesarReembolsosServicio(
         IReembolsoRepositorio reembolsos,
         IPasarelaPagos pasarela,
+        IObtenedorTokensMp tokensMp,
+        IOcupacionRepositorio turnos,
         OpcionesReembolso opciones,
         Func<DateTime> relojUtc,
         Func<Guid, int, int> jitterSegundos)
     {
         _reembolsos = reembolsos;
         _pasarela = pasarela;
+        _tokensMp = tokensMp;
+        _turnos = turnos;
         _opciones = opciones;
         _relojUtc = relojUtc;
         _jitterSegundos = jitterSegundos;
@@ -111,6 +130,28 @@ public sealed class ProcesarReembolsosServicio
             return ResultadoItem.Fallido;
         }
 
+        // Slice-20 (D-20.5): el reintegro se pide con el token del lavadero del
+        // pago. Un lavadero desvinculado deja el reembolso fallido con motivo.
+        var turno = await _turnos.ObtenerAsync(reembolso.TurnoId, ct);
+
+        if (turno is null)
+        {
+            reembolso.MarcarFallido("El turno del reembolso ya no existe.");
+            return ResultadoItem.Fallido;
+        }
+
+        string accessToken;
+
+        try
+        {
+            accessToken = await _tokensMp.ObtenerTokenVigenteAsync(turno.LavaderoId, ct);
+        }
+        catch (MercadoPagoNoVinculadoException)
+        {
+            reembolso.MarcarFallido(SinVinculoMercadoPago);
+            return ResultadoItem.Fallido;
+        }
+
         ResultadoReembolso resultado;
 
         try
@@ -118,16 +159,48 @@ public sealed class ProcesarReembolsosServicio
             // Si el proceso cayó después de que la pasarela aceptara el
             // reintegro, se reconcilia por su id en vez de pedirlo otra vez.
             resultado = reembolso.MpRefundId is { Length: > 0 } reembolsoId
-                ? await _pasarela.ConsultarReembolsoAsync(pagoId, reembolsoId, ct)
+                ? await _pasarela.ConsultarReembolsoAsync(pagoId, reembolsoId, accessToken, ct)
                 : await _pasarela.ReembolsarAsync(
                     pagoId,
                     reembolso.Monto,
                     $"reembolso-{reembolso.Id}",
+                    accessToken,
                     ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             throw;
+        }
+        catch (PasarelaTokenInvalidoException)
+        {
+            // El token del lavadero fue rechazado (401): refresca y reintenta
+            // una vez (D-20.8). El rollback interno es del propio reintegro.
+            try
+            {
+                var tokenFresco = await _tokensMp.RefrescarTokenAsync(turno.LavaderoId, ct);
+
+                resultado = reembolso.MpRefundId is { Length: > 0 } reembolsoId
+                    ? await _pasarela.ConsultarReembolsoAsync(pagoId, reembolsoId, tokenFresco, ct)
+                    : await _pasarela.ReembolsarAsync(
+                        pagoId,
+                        reembolso.Monto,
+                        $"reembolso-{reembolso.Id}",
+                        tokenFresco,
+                        ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (MercadoPagoNoVinculadoException)
+            {
+                reembolso.MarcarFallido(SinVinculoMercadoPago);
+                return ResultadoItem.Fallido;
+            }
+            catch (Exception ex)
+            {
+                return Reintentar(reembolso, ahora, ex.Message);
+            }
         }
         catch (Exception ex)
         {

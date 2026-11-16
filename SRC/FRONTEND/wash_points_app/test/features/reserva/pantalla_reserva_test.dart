@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:wash_points_app/core/errores/api_exception.dart';
 import 'package:wash_points_app/features/reserva/domain/catalogo_lavadero.dart';
 import 'package:wash_points_app/features/reserva/domain/reserva.dart';
@@ -25,6 +26,47 @@ void main() {
       home: PantallaReserva(lavaderoId: 'lav-1', clienteId: 'cli-1'),
     ),
   );
+
+  /// Igual que [app], pero con un GoRouter: los caminos que navegan al
+  /// comprobante (slice-20, T-223) necesitan `context.push`. Devuelve el
+  /// router para que los tests puedan navegar de vuelta.
+  ({Widget pantalla, GoRouter router}) appConRouter(
+    WidgetTester tester,
+    RepositorioReservasFalso repositorio, {
+    AbridorCheckoutFalso? abridor,
+  }) {
+    final router = GoRouter(
+      initialLocation: '/reserva',
+      routes: <RouteBase>[
+        GoRoute(
+          path: '/reserva',
+          builder: (context, state) =>
+              const PantallaReserva(lavaderoId: 'lav-1', clienteId: 'cli-1'),
+        ),
+        GoRoute(
+          path: '/turnos/:id/comprobante',
+          builder: (context, state) => Text(
+            'comprobante ${state.pathParameters['id']}',
+            key: const ValueKey('pantalla_comprobante_destino'),
+          ),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    return (
+      pantalla: ProviderScope(
+        overrides: <Override>[
+          repositorioReservasProvider.overrideWithValue(repositorio),
+          abridorCheckoutProvider.overrideWithValue(
+            abridor ?? AbridorCheckoutFalso(),
+          ),
+        ],
+        child: MaterialApp.router(routerConfig: router),
+      ),
+      router: router,
+    );
+  }
 
   /// Recorre el flujo del slice-17: servicio → fecha → slot → puesto.
   Future<void> elegirTodo(WidgetTester tester) async {
@@ -94,7 +136,8 @@ void main() {
     final repositorio = RepositorioReservasFalso(
       estadoTurno: reservaDeEjemplo(estado: EstadoReserva.confirmada),
     );
-    await tester.pumpWidget(app(repositorio));
+    final destino = appConRouter(tester, repositorio);
+    await tester.pumpWidget(destino.pantalla);
     await tester.pumpAndSettle();
 
     await elegirTodo(tester);
@@ -106,7 +149,11 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('boton_verificar_pago')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('estado_confirmada')), findsOneWidget);
+    // Slice-20 (CA-S20.17): la confirmación del backend abre el comprobante.
+    expect(
+      find.byKey(const ValueKey('pantalla_comprobante_destino')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('un turno cancelado se muestra como rechazado y permite reintentar', (
@@ -184,6 +231,49 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('grilla_cerrada')), findsOneWidget);
+  });
+
+  testWidgets('al confirmarse la reserva abre el comprobante una sola vez', (
+    tester,
+  ) async {
+    // Slice-20, T-223 (CA-S20.17): cuando verificarEstado pasa el flujo a
+    // `confirmada`, la pantalla empuja el comprobante automáticamente, sin
+    // tocar de nuevo el botón. El push no se repite en verificaciones extra
+    // ni en re-render: una sola vez por confirmación.
+    final repositorio = RepositorioReservasFalso(
+      estadoTurno: reservaDeEjemplo(estado: EstadoReserva.confirmada),
+    );
+    final destino = appConRouter(tester, repositorio);
+    await tester.pumpWidget(destino.pantalla);
+    await tester.pumpAndSettle();
+
+    await elegirTodo(tester);
+    final confirmar = find.byKey(const ValueKey('boton_confirmar_reserva'));
+    await tester.ensureVisible(confirmar);
+    await tester.tap(confirmar);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('boton_verificar_pago')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('pantalla_comprobante_destino')),
+      findsOneWidget,
+    );
+
+    // Volver: sin nueva transición a confirmada, el comprobante no se abre
+    // solo otra vez; el botón manual `boton_ver_comprobante` sigue ahí.
+    destino.router.go('/reserva');
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('pantalla_comprobante_destino')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('boton_ver_comprobante')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('un rechazo del servidor se muestra con su mensaje', (

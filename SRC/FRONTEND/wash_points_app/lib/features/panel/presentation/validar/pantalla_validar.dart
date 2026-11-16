@@ -5,14 +5,26 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/resultado_validacion.dart';
 import '../banner_canjes_pendientes.dart';
+import 'escaner_qr.dart';
 import 'validar_notifier.dart';
 
 /// Validación de arribo (CU-09, RB-3).
 ///
-/// El operador pega el código del comprobante y el panel muestra el desenlace
-/// del canje. Ningún código técnico llega a la pantalla (CA-S10.14).
+/// El operador pega el código del comprobante —o lo lee con la cámara vía
+/// `boton_escanear_qr` (T-225, CA-S20.18)— y el panel muestra el desenlace del
+/// canje. Ningún código técnico llega a la pantalla (CA-S10.14).
+///
+/// El escáner llega como [constructorEscaner] inyectable: por defecto es la
+/// cámara real (`escanerQrCamara`) y los tests inyectan un doble que emite el
+/// código, de modo que el desenlace del QR es idéntico al de la carga manual.
 class PantallaValidar extends ConsumerStatefulWidget {
-  const PantallaValidar({super.key});
+  const PantallaValidar({
+    super.key,
+    this.constructorEscaner = escanerQrCamara,
+  });
+
+  /// Arma la vista del escáner y le entrega cada código detectado.
+  final ConstructorEscanerQr constructorEscaner;
 
   @override
   ConsumerState<PantallaValidar> createState() => _PantallaValidarState();
@@ -53,6 +65,39 @@ class _PantallaValidarState extends ConsumerState<PantallaValidar>
 
   void _reconciliar() =>
       unawaited(ref.read(validarProvider.notifier).reconciliar());
+
+  /// Abre la hoja del escáner (T-225). Cada código que la cámara entrega se
+  /// valida igual que el campo manual y la hoja se cierra sola.
+  void _abrirEscaner() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (BuildContext contextoHoja) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text(
+                'Escanear QR del comprobante',
+                style: Theme.of(contextoHoja).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                key: const ValueKey('escaner_qr'),
+                height: 380,
+                child: widget.constructorEscaner((String codigo) {
+                  Navigator.of(contextoHoja).pop();
+                  ref.read(validarProvider.notifier).validar(codigo);
+                }),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -97,6 +142,12 @@ class _PantallaValidarState extends ConsumerState<PantallaValidar>
               spacing: 12,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: <Widget>[
+                OutlinedButton.icon(
+                  key: const ValueKey('boton_escanear_qr'),
+                  onPressed: estado.validando ? null : _abrirEscaner,
+                  icon: const Icon(Icons.qr_code_scanner),
+                  label: const Text('Escanear QR'),
+                ),
                 if (estado.reconciliando)
                   const SizedBox(
                     width: 16,

@@ -28,6 +28,7 @@ using WashPoints.Application.Seguridad;
 using WashPoints.Domain.Catalogo;
 using WashPoints.Domain.Comprobantes;
 using WashPoints.Domain.Geo;
+using WashPoints.Domain.MercadoPago;
 using WashPoints.Domain.Metricas;
 using WashPoints.Domain.MisTurnos;
 using WashPoints.Domain.Ocupacion;
@@ -124,24 +125,46 @@ builder.Services.AddScoped<IRegistroClientes, RegistroClientes>();
 builder.Services.AddScoped<IOutbox, OutboxRepositorio>();
 builder.Services.AddScoped<RegistrarDemandaEspontaneaServicio>();
 
-// Pasarela de pagos (slice-15): en Production sin credenciales no se arranca
-// (D-15.8); en Development se sustituye por una pasarela que responde 503.
+// Pasarela de pagos (slice-15, adaptada en slice-20 D-20.4): la preferencia
+// se crea y el pago se verifica con el token de Mercado Pago del LAVADERO
+// (resuelto por turno), así que el adaptador no necesita credenciales
+// globales: se registra siempre (D-20.6, ninguna credencial bloquea el
+// arranque). `Pagos:AccessToken` queda obsoleto; `Pagos:WebhookSecret`
+// mantiene la firma del webhook y `Pagos:UrlNotificacion`/`UrlRetorno`
+// siguen siendo documentales/configurables.
 var opcionesMercadoPago = builder.Configuration
     .GetSection(OpcionesMercadoPago.Seccion)
     .Get<OpcionesMercadoPago>() ?? new OpcionesMercadoPago();
-ValidadorConfiguracionPagos.Validar(opcionesMercadoPago, builder.Environment.IsProduction());
 builder.Services.AddSingleton(opcionesMercadoPago);
+builder.Services.AddSingleton<MercadoPago.Http.IHttpClient>(
+    _ => new MercadoPago.Http.DefaultHttpClient());
+builder.Services.AddScoped<IPasarelaPagos, PasarelaPagosMercadoPago>();
 
-if (opcionesMercadoPago.ClavesFaltantes().Count == 0)
+// Vinculación OAuth de Mercado Pago por lavadero (slice-20, D-20.3): los
+// tokens viven cifrados en la fila del lavadero; ninguna credencial bloquea el
+// arranque (D-20.6) — el bloqueo es de acción (503 al vincular). La sección
+// "MercadoPago" (credenciales de app + clave de tokens) es independiente de
+// "Pagos" (seña del slice-15).
+var opcionesVinculacionMp = builder.Configuration
+    .GetSection(OpcionesVinculacionMp.Seccion)
+    .Get<OpcionesVinculacionMp>() ?? new OpcionesVinculacionMp();
+builder.Services.AddSingleton(opcionesVinculacionMp);
+builder.Services.AddSingleton<ICifradorTokensMp>(
+    _ => new CifradorTokensMp(opcionesVinculacionMp.ClaveTokens));
+builder.Services.AddHttpClient("mercadopago-oauth", http =>
 {
-    builder.Services.AddSingleton<MercadoPago.Http.IHttpClient>(
-        _ => new MercadoPago.Http.DefaultHttpClient());
-    builder.Services.AddScoped<IPasarelaPagos, PasarelaPagosMercadoPago>();
-}
-else
-{
-    builder.Services.AddScoped<IPasarelaPagos, PasarelaPagosNoConfigurada>();
-}
+    http.BaseAddress = new Uri("https://api.mercadopago.com");
+});
+builder.Services.AddScoped<VinculacionMpServicio>(servicios => new VinculacionMpServicio(
+    servicios.GetRequiredService<WashPointsDbContext>(),
+    opcionesVinculacionMp,
+    servicios.GetRequiredService<ICifradorTokensMp>(),
+    servicios.GetRequiredService<IHttpClientFactory>().CreateClient("mercadopago-oauth"),
+    servicios.GetRequiredService<TimeProvider>()));
+// D-20.8: el mismo servicio es la puerta de los tokens que la reserva, el
+// webhook y el worker de reembolsos usan con la cuenta del lavadero.
+builder.Services.AddScoped<IObtenedorTokensMp>(servicios =>
+    servicios.GetRequiredService<VinculacionMpServicio>());
 
 // Configuración del ciclo de vida de la seña (sección "Pagos").
 var opcionesPago = builder.Configuration.GetSection("Pagos").Get<OpcionesPago>()
@@ -309,8 +332,9 @@ builder.Services.AddHostedService<WashPoints.Api.WorkerReservas>();
 builder.Services.AddHostedService<WashPoints.Api.WorkerAgenda>();
 
 // Worker de ejecución de reembolsos (slice-15 T-157): pendiente -> procesado/fallido.
-// Sólo se registra con pasarela real: sin credenciales no hay reintegro que
-// ejecutar y un tick marcaría fallidos los reembolsos de desarrollo.
+// Sólo se registra con credenciales de la app de MP: sin ellas no puede haber
+// pagos aprobados (el webhook exige su firma) y un tick marcaría fallidos
+// fantasmas en desarrollo (slice-20 D-20.6: el arranque nunca se bloquea).
 if (opcionesMercadoPago.ClavesFaltantes().Count == 0)
 {
     builder.Services.AddHostedService<WashPoints.Api.WorkerReembolsos>();
@@ -324,10 +348,10 @@ builder.Services.AddScoped<PublicadorOutbox>();
 builder.Services.AddHostedService<WashPoints.Api.PublicadorOutboxWorker>();
 
 // Validador de firma del webhook IPN. El secreto va por variable de entorno
-// (Pagos:WebhookSecret, nunca en el repo, AGENTS §3.4). En Production el
-// arranque ya falló si falta (D-15.8). Sin secreto —Development— el validador
-// rechaza toda firma (401): no existe secreto de respaldo (T-159).
-// Tolerancia configurable (default 5 min).
+// (Pagos:WebhookSecret, nunca en el repo, AGENTS §3.4). Sin secreto el
+// validador rechaza toda firma (401): no existe secreto de respaldo (T-159);
+// el arranque nunca se bloquea por su ausencia (slice-20 D-20.6, despliegue
+// autónomo). Tolerancia configurable (default 5 min).
 var webhookToleranciaSegundos = builder.Configuration.GetValue<int?>("Pagos:WebhookToleranciaSegundos") ?? 300;
 builder.Services.AddSingleton(new WebhookSignatureValidator(
     opcionesMercadoPago.WebhookSecret,
@@ -337,12 +361,27 @@ builder.Services.AddSingleton(new WebhookSignatureValidator(
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// CORS (slice-20 D-20.2): la política «Desarrollo» está registrada siempre y
+// se aplica sólo fuera de Production. En producción la web comparte origen
+// con la API detrás del proxy de Nginx (D-20.9) y no necesita CORS. El token
+// de SignalR viaja en la query del negotiate (no en cookies), así que
+// AllowAnyOrigin no choca con credenciales.
+builder.Services.AddCors(opciones => opciones.AddPolicy(
+    "Desarrollo",
+    politica => politica.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+}
+
+// Sólo fuera de Production (D-20.2); ver decisión para el detalle.
+if (!app.Environment.IsProduction())
+{
+    app.UseCors("Desarrollo");
 }
 
 // Pipeline de identidad: autenticar (valida el bearer) y autorizar (policies).
@@ -648,6 +687,7 @@ app.MapPost("/api/lavaderos/{id:guid}/turnos", async (
             mpPreferenceId = turno.MpPreferenceId,
             initPoint = turno.InitPoint,
             precioSena = turno.PrecioSena,
+            montoSena = turno.PrecioSena, // slice-20 (D-20.4): monto exacto de la seña.
             desde = ConversorHorario.ALocal(turno.InicioUtc),
             hasta = ConversorHorario.ALocal(turno.FinUtc),
         });
@@ -686,6 +726,14 @@ app.MapPost("/api/lavaderos/{id:guid}/turnos", async (
     {
         return Results.Json(
             new { error = "puesto_incompatible", detalle = ex.Message },
+            statusCode: StatusCodes.Status422UnprocessableEntity);
+    }
+    catch (MercadoPagoNoVinculadoException ex)
+    {
+        // Slice-20 (D-20.4): el lavadero no vinculó su cuenta de MP; el
+        // flujo no se bloquea con 500, vuelve a la selección con su motivo.
+        return Results.Json(
+            new { error = "mercadopago_no_vinculado", detalle = ex.Message },
             statusCode: StatusCodes.Status422UnprocessableEntity);
     }
     catch (PasarelaNoDisponibleException)
@@ -733,6 +781,7 @@ app.MapGet("/api/turnos/{id:guid}", async (
         desde = ConversorHorario.ALocal(turno.InicioUtc),
         hasta = ConversorHorario.ALocal(turno.FinUtc),
         precioSena = turno.PrecioSena,
+        montoSena = turno.PrecioSena, // slice-20 (D-20.4): monto exacto de la seña.
         mpPreferenceId = turno.MpPreferenceId,
         initPoint = turno.InitPoint,
     });
@@ -1353,6 +1402,137 @@ app.MapGet("/api/lavaderos/{id:guid}/metricas/ocupacion", async (
 .RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
 .WithOpenApi();
 
+// Vinculación OAuth de Mercado Pago (slice-20, D-20.3): el administrador
+// propietario pide la URL de autorización; MP llama al callback anónimo con el
+// code, la API intercambia tokens y redirige al panel con ?mp=ok|error. Los
+// tokens nunca aparecen en la respuesta ni en la URL de retorno (CA-S20.12).
+app.MapGet("/api/lavaderos/{id:guid}/mercadopago/conectar", async Task<IResult> (
+    Guid id,
+    VinculacionMpServicio vinculacion,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var url = await vinculacion.ConstruirUrlAutorizacionAsync(id, ct);
+        return Results.Ok(new { url });
+    }
+    catch (LavaderoDeVinculacionInexistenteException)
+    {
+        return Results.Json(
+            new { error = "lavadero_inexistente" },
+            statusCode: StatusCodes.Status404NotFound);
+    }
+    catch (MercadoPagoNoConfiguradoException)
+    {
+        return Results.Json(
+            new { error = "mercadopago_no_configurado" },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+})
+.WithName("ConectarMercadoPago")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
+.WithOpenApi();
+
+// Callback del OAuth: MP redirige acá sin sesión. Valida el state firmado,
+// intercambia el code por tokens (que se cifran y persisten) y redirige al
+// panel. Cualquier fallo es una redirección de error, sin detalles.
+app.MapGet("/api/mercadopago/oauth/callback", async Task<IResult> (
+    string? code,
+    string? state,
+    VinculacionMpServicio vinculacion,
+    CancellationToken ct) =>
+{
+    string destino;
+    try
+    {
+        if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(state))
+        {
+            throw new EstadoOauthInvalidoException();
+        }
+
+        await vinculacion.VincularConCodeAsync(state, code, ct);
+        destino = $"{OrigenDelPanel(opcionesVinculacionMp, opcionesMercadoPago)}/admin?mp=ok";
+    }
+    catch (Exception ex) when (ex is EstadoOauthInvalidoException
+        or IntercambioOauthFallidoException
+        or MercadoPagoNoConfiguradoException
+        or LavaderoDeVinculacionInexistenteException)
+    {
+        destino = $"{OrigenDelPanel(opcionesVinculacionMp, opcionesMercadoPago)}/admin?mp=error";
+    }
+
+    return Results.Redirect(destino);
+})
+.WithName("CallbackOauthMercadoPago")
+.WithOpenApi();
+
+// Cobro mensual mock de la suscripción (slice-20, D-20.7): activa 30 días
+// desde ahora; si sigue vigente responde 409 y no extiende. Es el único cobro
+// de suscripción del sistema y no hay dinero real de por medio.
+app.MapPost("/api/lavaderos/{id:guid}/suscripcion/pagar", async Task<IResult> (
+    Guid id,
+    WashPointsDbContext contexto,
+    TimeProvider reloj,
+    CancellationToken ct) =>
+{
+    var lavadero = await contexto.Lavaderos.FirstOrDefaultAsync(l => l.Id == id, ct);
+    if (lavadero is null)
+    {
+        return Results.Json(
+            new { error = "lavadero_inexistente" },
+            statusCode: StatusCodes.Status404NotFound);
+    }
+
+    var ahora = reloj.GetUtcNow();
+    if (lavadero.SuscripcionVigente(ahora))
+    {
+        return Results.Json(
+            new { error = "suscripcion_activa" },
+            statusCode: StatusCodes.Status409Conflict);
+    }
+
+    lavadero.ActivarSuscripcion(ahora.AddDays(30));
+    await contexto.SaveChangesAsync(ct);
+
+    return Results.Ok(new
+    {
+        suscripcionActiva = lavadero.SuscripcionActiva,
+        suscripcionVenceEl = lavadero.SuscripcionVenceEl,
+    });
+})
+.WithName("PagarSuscripcionMensual")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
+.WithOpenApi();
+
+// Perfil del lavadero para el panel (slice-20, T-224, spec §4.4): estado de
+// suscripción y de vinculación de Mercado Pago en una sola lectura. Los
+// tokens de OAuth NUNCA aparecen acá — la respuesta tiene exactamente tres
+// campos, y `mercadopagoVinculado` es el nombre del spec.
+app.MapGet("/api/lavaderos/{id:guid}/perfil", async Task<IResult> (
+    Guid id,
+    WashPointsDbContext contexto,
+    TimeProvider reloj,
+    CancellationToken ct) =>
+{
+    var lavadero = await contexto.Lavaderos.FirstOrDefaultAsync(l => l.Id == id, ct);
+    if (lavadero is null)
+    {
+        return Results.Json(
+            new { error = "lavadero_inexistente" },
+            statusCode: StatusCodes.Status404NotFound);
+    }
+
+    return Results.Ok(new
+    {
+        suscripcionActiva = lavadero.SuscripcionVigente(reloj.GetUtcNow()),
+        suscripcionVenceEl = lavadero.SuscripcionVenceEl,
+        mercadopagoVinculado = lavadero.MpVinculado,
+    });
+})
+.WithName("PerfilLavadero")
+.RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
+.WithOpenApi();
+
 // Búsqueda por proximidad (CU-01, US-C07). Dos modos excluyentes: coordenadas
 // directas —la distancia se calcula en la base local con Haversine, D-08.2— o
 // una dirección que se resuelve con el puerto IGeocodificador (D-08.4). Con el
@@ -1803,6 +1983,13 @@ app.MapPost("/api/webhooks/mercadopago", async (
             ? a.GetString()
             : null;
         var dataId = ExtraerDataId(raiz);
+        // Slice-20 (D-20.5): `user_id` del payload es la cuenta que cobró (el
+        // lavadero) y permite resolver el token cuando el pago todavía no
+        // tiene fila en `pagos`. MP lo manda como número o texto.
+        var userId = raiz.TryGetProperty("user_id", out var u) &&
+            (u.ValueKind == JsonValueKind.String || u.ValueKind == JsonValueKind.Number)
+            ? u.ToString()
+            : null;
 
         if (string.IsNullOrWhiteSpace(dataId))
         {
@@ -1819,7 +2006,7 @@ app.MapPost("/api/webhooks/mercadopago", async (
 
         try
         {
-            var resultado = await servicio.ProcesarAsync(tipo, accion, dataId, ct);
+            var resultado = await servicio.ProcesarAsync(tipo, accion, dataId, userId, ct);
             return Results.Ok(new { resultado = resultado.ToString() });
         }
         catch (ComprobanteNoEmitidoException ex)
@@ -1831,10 +2018,34 @@ app.MapPost("/api/webhooks/mercadopago", async (
                 new { error = "comprobante_no_emitido", detalle = ex.Message },
                 statusCode: StatusCodes.Status500InternalServerError);
         }
+        catch (MercadoPagoNoVinculadoException ex)
+        {
+            // Slice-20 (D-20.5): el lavadero del pago quedó desvinculado, así
+            // que el pago no se puede verificar. Nada se confirma (RB-1);
+            // MP reintenta y el lavadero repara re-vinculando.
+            return Results.Json(
+                new { error = "verificacion_no_disponible", detalle = ex.Message },
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
     }
 })
 .WithName("WebhookMercadoPago")
 .WithOpenApi();
+
+// Slice-20 (D-20.1): migraciones al arranque, sin condición — el despliegue
+// (docker compose up -d --build) queda autónomo y también en Production.
+// Idempotente: en los tests la fixture ya migró y esta pasada no hace nada.
+// Revierte «migraciones manuales» (DOCS/DIAGRAMAS.md D7, ARCHITECTURE.md §7.5,
+// actualizados en T-226).
+await using (var scope = app.Services.CreateAsyncScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<WashPointsDbContext>();
+    var pendientes = await db.Database.GetPendingMigrationsAsync();
+    await db.Database.MigrateAsync();
+    using var loggerFactory = LoggerFactory.Create(logging => logging.AddConsole());
+    loggerFactory.CreateLogger("WashPoints.Migraciones").LogInformation(
+        "Migraciones aplicadas al arrancar ({cantidad} pendientes).", pendientes.Count());
+}
 
 app.Run();
 
@@ -1854,6 +2065,24 @@ static string? ExtraerDataId(JsonElement raiz)
         JsonValueKind.Number => id.GetRawText(),
         _ => null,
     };
+}
+
+/// <summary>
+/// Origen del panel para las redirecciones del callback OAuth (slice-20,
+/// D-20.3): sale del origen del <c>MercadoPago:RedirectUri</c> configurado. Si
+/// no hay RedirectUri, se usa el origen de la URL de retorno por defecto
+/// (sólo alcanza las redirecciones de error).
+/// </summary>
+static string OrigenDelPanel(
+    OpcionesVinculacionMp vinculacion,
+    OpcionesMercadoPago opciones)
+{
+    if (Uri.TryCreate(vinculacion.RedirectUri, UriKind.Absolute, out var callback))
+    {
+        return callback.GetLeftPart(UriPartial.Authority);
+    }
+
+    return new Uri(opciones.UrlRetorno).GetLeftPart(UriPartial.Authority);
 }
 
 /// <summary>

@@ -60,6 +60,9 @@ public sealed class WebhookTest : IClassFixture<ContenedorPostgres>, IDisposable
         await using var contexto = CrearContexto();
 
         var lavadero = Lavadero.Crear("Lavadero Webhook");
+        // Slice-20 (D-20.5): el webhook resuelve el lavadero por el user_id del
+        // payload cuando no hay fila Pago previa; la cuenta del lavadero cobró.
+        lavadero.VincularMercadoPago("acceso-cifrado", "refresh-cifrado", "999", DateTimeOffset.UtcNow);
         var puesto = Puesto.Crear(lavadero.Id, "Puesto 1");
         var tipo = TipoLavado.Crear(lavadero.Id, "Exterior", 30, 15000m, 3000m);
         var cliente = Cliente.Crear("Cliente Webhook");
@@ -106,6 +109,7 @@ public sealed class WebhookTest : IClassFixture<ContenedorPostgres>, IDisposable
         type = "payment",
         action = "payment.created",
         data = new { id = dataId },
+        user_id = 999,
     };
 
     private static string Firmar(string dataId, string requestId, DateTimeOffset instante)

@@ -68,6 +68,7 @@ Reserva reservaDeEjemplo({
   desde: DateTime.utc(2026, 10, 29, 13),
   hasta: DateTime.utc(2026, 10, 29, 13, 30),
   precioSena: 3000,
+  montoSena: 3000,
   mpPreferenceId: 'pref-1',
   initPoint: initPoint,
 );

@@ -59,6 +59,9 @@ public sealed class EmisionComprobanteTest : IClassFixture<ContenedorPostgres>, 
         await using var contexto = CrearContexto();
 
         var lavadero = Lavadero.Crear("Lavadero Comprobantes");
+        // Slice-20 (D-20.5): el webhook resuelve el lavadero por el user_id del
+        // payload cuando no hay fila Pago previa; la cuenta del lavadero cobró.
+        lavadero.VincularMercadoPago("acceso-cifrado", "refresh-cifrado", "999", DateTimeOffset.UtcNow);
         var puesto = Puesto.Crear(lavadero.Id, "Puesto 1");
         var tipo = TipoLavado.Crear(lavadero.Id, "Exterior", 30, 15000m, 3000m);
         var cliente = Cliente.Crear("Cliente Comprobantes");
@@ -127,6 +130,7 @@ public sealed class EmisionComprobanteTest : IClassFixture<ContenedorPostgres>, 
                 type = "payment",
                 action = "payment.created",
                 data = new { id = dataId },
+                user_id = 999,
             }),
         };
         peticion.Headers.Add("x-request-id", requestId);

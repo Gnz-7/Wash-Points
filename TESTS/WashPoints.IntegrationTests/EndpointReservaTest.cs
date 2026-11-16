@@ -2,10 +2,12 @@ using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using WashPoints.Domain.Catalogo;
+using WashPoints.Domain.MercadoPago;
 using WashPoints.Domain.Puertos;
 using WashPoints.Domain.Turnos;
 using WashPoints.Infrastructure.Persistencia;
@@ -86,7 +88,19 @@ public sealed class EndpointReservaTest : IClassFixture<ContenedorPostgres>, IDi
         $"{Dia:yyyy-MM-dd}T{hora:00}:{minuto:00}:00";
 
     private CustomWebApplicationFactory CrearApi(PasarelaPagosFakeSimulada pasarela) =>
-        new(_baseDeDatos.CadenaConexion, builder =>
+        CrearApi(pasarela, tokens: null);
+
+    /// <summary>
+    /// API de los casos con un <see cref="IObtenedorTokensMp"/> opcional: los
+    /// tests del token del lavadero (slice-20, D-20.8) lo re-registran en
+    /// ConfigureTestServices para ganar sobre el laxo por defecto de la
+    /// factory.
+    /// </summary>
+    private CustomWebApplicationFactory CrearApi(
+        PasarelaPagosFakeSimulada pasarela,
+        IObtenedorTokensMp? tokens)
+    {
+        return new(_baseDeDatos.CadenaConexion, builder =>
         {
             builder.UseSetting("ConnectionStrings:Postgres", _baseDeDatos.CadenaConexion);
             builder.ConfigureServices(servicios =>
@@ -94,7 +108,16 @@ public sealed class EndpointReservaTest : IClassFixture<ContenedorPostgres>, IDi
                 servicios.RemoveAll<IPasarelaPagos>();
                 servicios.AddSingleton<IPasarelaPagos>(pasarela);
             });
+            if (tokens is not null)
+            {
+                builder.ConfigureTestServices(servicios =>
+                {
+                    servicios.RemoveAll<IObtenedorTokensMp>();
+                    servicios.AddSingleton<IObtenedorTokensMp>(tokens);
+                });
+            }
         });
+    }
 
     private static object Cuerpo(Guid puestoId, Guid tipoId, Guid clienteId, string inicioLocal) => new
     {
@@ -179,11 +202,53 @@ public sealed class EndpointReservaTest : IClassFixture<ContenedorPostgres>, IDi
         Assert.Equal(HttpStatusCode.BadRequest, respuesta.StatusCode);
     }
 
+    [Fact]
+    public async Task SinVinculacionLaReservaResponde422MercadoPagoNoVinculado()
+    {
+        var (lavaderoId, puestoId, tipoId, clienteId) = await SembrarAsync();
+        var pasarela = new PasarelaPagosFakeSimulada();
+        using var api = CrearApi(pasarela, tokens: new TokensEstrictos());
+        using var cliente = api.CreateClient();
+
+        var respuesta = await cliente.PostAsJsonAsync(
+            $"/api/lavaderos/{lavaderoId}/turnos",
+            Cuerpo(puestoId, tipoId, clienteId, Inicio(10)));
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, respuesta.StatusCode);
+        var cuerpo = await respuesta.Content.ReadFromJsonAsync<Dictionary<string, string>>();
+        Assert.Equal("mercadopago_no_vinculado", cuerpo!["error"]);
+
+        await using var verificacion = CrearContexto();
+        Assert.Empty(await verificacion.Turnos.ToListAsync());
+    }
+
+    [Fact]
+    public async Task ConVinculacionLaReservaUsaElTokenDelLavaderoYDevuelveElMontoDeLaSena()
+    {
+        var (lavaderoId, puestoId, tipoId, clienteId) = await SembrarAsync();
+        var pasarela = new PasarelaPagosFakeSimulada();
+        using var api = CrearApi(pasarela, tokens: new TokensDeLavadero("token-descifrado-del-lavadero"));
+        using var cliente = api.CreateClient();
+
+        var respuesta = await cliente.PostAsJsonAsync(
+            $"/api/lavaderos/{lavaderoId}/turnos",
+            Cuerpo(puestoId, tipoId, clienteId, Inicio(10)));
+
+        Assert.Equal(HttpStatusCode.Created, respuesta.StatusCode);
+        var creado = await respuesta.Content.ReadFromJsonAsync<RespuestaTurno>();
+        Assert.NotNull(creado);
+        Assert.False(string.IsNullOrWhiteSpace(creado!.initPoint));
+        Assert.Equal(3000m, creado.montoSena);
+        Assert.Contains("token-descifrado-del-lavadero", pasarela.TokensUsados);
+    }
+
     private sealed record RespuestaTurno(
         Guid id,
         string estado,
         string? mpPreferenceId,
-        decimal precioSena);
+        decimal precioSena,
+        string? initPoint,
+        decimal montoSena);
 
     private sealed record RespuestaDisponibilidad(
         Guid turnoId,
@@ -191,4 +256,26 @@ public sealed class EndpointReservaTest : IClassFixture<ContenedorPostgres>, IDi
         string origen,
         string desde,
         string hasta);
+
+    /// <summary>Sin cuenta vinculada: la reserva debe responder 422 (D-20.4).</summary>
+    private sealed class TokensEstrictos : IObtenedorTokensMp
+    {
+        public Task<string> ObtenerTokenVigenteAsync(Guid lavaderoId, CancellationToken ct) =>
+            throw new MercadoPagoNoVinculadoException(
+                "El lavadero no vinculó su cuenta de Mercado Pago.");
+
+        public Task<string> RefrescarTokenAsync(Guid lavaderoId, CancellationToken ct) =>
+            throw new MercadoPagoNoVinculadoException(
+                "El lavadero no vinculó su cuenta de Mercado Pago.");
+    }
+
+    /// <summary>Devuelve un token fijo: el test lo busca en la pasarela fake.</summary>
+    private sealed class TokensDeLavadero(string token) : IObtenedorTokensMp
+    {
+        public Task<string> ObtenerTokenVigenteAsync(Guid lavaderoId, CancellationToken ct) =>
+            Task.FromResult(token);
+
+        public Task<string> RefrescarTokenAsync(Guid lavaderoId, CancellationToken ct) =>
+            Task.FromResult(token);
+    }
 }

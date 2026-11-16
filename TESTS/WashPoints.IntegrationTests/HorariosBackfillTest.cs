@@ -74,10 +74,16 @@ public sealed class HorariosBackfillTest : IClassFixture<ContenedorPostgres>, IA
         Guid lavaderoId;
         await using (var contexto = CrearContexto())
         {
-            var previo = Lavadero.Crear("Lavadero Previo");
-            contexto.Lavaderos.Add(previo);
-            await contexto.SaveChangesAsync();
-            lavaderoId = previo.Id;
+            // Siembra por SQL crudo: la base está fijada en el esquema previo al
+            // slice-17, donde `lavaderos` no tiene las columnas que el modelo EF
+            // actual mapea (suscripción y vinculación MP, slice-20); un INSERT
+            // por entidad intentaría escribirlas y fallaría con 42703.
+            contexto.Database.ExecuteSqlRaw(
+                "INSERT INTO lavaderos (id, nombre, activo) VALUES (gen_random_uuid(), 'Lavadero Previo', true)");
+            lavaderoId = await contexto.Lavaderos
+                .Where(l => l.Nombre == "Lavadero Previo")
+                .Select(l => l.Id)
+                .SingleAsync();
         }
 
         await using (var contexto = CrearContexto())

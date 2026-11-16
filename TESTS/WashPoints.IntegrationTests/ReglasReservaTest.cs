@@ -210,7 +210,7 @@ public sealed class ReglasReservaTest : IClassFixture<ContenedorPostgres>, IDisp
 
         var respuesta = await cliente.PostAsJsonAsync(
             $"/api/lavaderos/{lavaderoId}/turnos",
-            Cuerpo(puestoId, tipoId, clienteId, Inicio(Dia.AddDays(-1), 10)));
+            Cuerpo(puestoId, tipoId, clienteId, Inicio(Dia.AddDays(-2), 10)));
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, respuesta.StatusCode);
         var error = await LeerErrorAsync(respuesta);

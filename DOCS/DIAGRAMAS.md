@@ -113,16 +113,20 @@ sequenceDiagram
 
     C->>A: POST /api/lavaderos/{id}/turnos
     A->>A: revalida pertenencia, anticipación, horizonte,<br/>franja y compatibilidad puesto/tipo
-    alt regla incumplida
-        A-->>C: 422 / 404 (sin crear preferencia, RB-1)
+    A->>D: token OAuth del lavadero (descifra mp_access_token)
+    alt sin vínculo OAuth
+        A-->>C: 422 mercadopago_no_vinculado (sin crear preferencia)
     else regla válida
         A->>D: INSERT turno pendiente_pago + expira_en (TTL)
-        A->>M: CrearPreferenciaAsync<br/>X-Idempotency-Key: turno-{turnoId}
+        A->>M: CrearPreferenciaAsync con AccessToken DEL LAVADERO<br/>X-Idempotency-Key: turno-{turnoId}
         M-->>A: preferenceId + init_point
-        A-->>C: 201 con la preferencia
-        C->>M: paga la seña
-        M->>A: webhook (x-signature, x-request-id)
-        A->>A: verifica firma HMAC-SHA256 y tolerancia
+        A-->>C: 201 con la preferencia (+ montoSena) e initPoint
+        C->>M: paga la seña (Checkout Pro de la cuenta del lavadero)
+        M->>A: webhook (x-signature, x-request-id, user_id)
+        A->>A: verifica firma HMAC-SHA256 y tolerancia<br/>y resuelve el lavadero (fila Pago por payment_id<br/>o user_id → mp_user_id) antes de verificar el pago
+        alt token vencido (401)
+            A->>D: refresh del par OAuth del lavadero y retry (1 vez)
+        end
         A->>D: transición pendiente_pago → confirmado<br/>+ encola ocupacion_cambiada y agenda_cambiada
         A-->>M: 200
         W->>D: lee outbox_eventos no publicados
@@ -135,6 +139,14 @@ sequenceDiagram
 El turno **no** se confirma por el retorno del navegador: sólo por webhook
 verificado o por la consulta de respaldo (`ARCHITECTURE.md` §7.2). La
 máquina de estados está en §5.
+
+**Vinculación OAuth (slice-20):** antes de este flujo el propietario vincula
+su cuenta desde el panel — `conectar` (JWT) devuelve la url de consentimiento
+con `state` HMAC (10 min); el `callback` anónimo valida el `state`, intercambia
+el código por tokens, los cifra (AES-GCM, `MercadoPago:ClaveTokens`) y
+persiste `mp_access_token`/`mp_refresh_token`/`mp_user_id`; el panel recibe
+`?mp=ok|error` y refresca el perfil. Un refresh fallido desvincula al lavadero
+y la API responde `mercadopago_no_vinculado` hasta re-vincular (§7.2.1).
 
 ---
 
@@ -247,32 +259,41 @@ El ejemplo numérico de la grilla (franja de 4 h con duración de 45 min) está 
 
 ### D7 — Despliegue
 
-Fuente: [`ARCHITECTURE.md`](./ARCHITECTURE.md) §2 y
+Fuente: [`ARCHITECTURE.md`](./ARCHITECTURE.md) §2 y §7.7 y
 [`docker-compose.yml`](../docker-compose.yml).
 
 ```mermaid
 flowchart TB
     subgraph host["Host de desarrollo / despliegue"]
+        web["web<br/>washpoints-web<br/>Flutter web + Nginx<br/>8081:80 (SPA + proxy /api, /hubs)"]
         subgraph red["Red interna de docker compose"]
-            api["api<br/>WashPoints.Api<br/>ASPNETCORE_URLS=http://+:8080"]
+            api["api<br/>WashPoints.Api<br/>ASPNETCORE_URLS=http://+:8080<br/>MigrateAsync() al arrancar"]
             pg[("postgres<br/>postgres:16-alpine<br/>volumen postgres_data")]
         end
         pub["8080:8080 publicado"]
+        pw["8081:80 publicado"]
         pto["5432:5432 publicado"]
     end
 
-    dev["Desarrollador / cliente"] -->|"HTTP :8080"| pub
+    dev["Desarrollador / cliente"] -->|"HTTP :8081 (web, mismo origen)"| pw
+    pw --> web
+    dev -->|"HTTP :8080 (API directa)"| pub
     pub --> api
+    web -->|"proxy_pass /api y /hubs → http://api:8080"| api
     api -->|"Host=postgres;Port=5432"| pg
+    api -->|"MigrateAsync: migra al arrancar (sin paso manual)"| pg
     pto --> pg
     init["docker/postgres/initdb<br/>(scripts de arranque, sólo lectura)"] --> pg
-    migraciones["dotnet ef database update<br/>(paso manual, fuera del contenedor)"] --> pg
+    env[".env (MercadoPago__*, Comprobantes__*)<br/>placeholders vacíos por defecto: el stack levanta sin credenciales"] --> api
 ```
 
-`api` espera a que `postgres` esté *healthy* (`pg_isready`) antes de arrancar. Las
-migraciones **no** se aplican al arrancar la API: se ejecutan como paso explícito
-(`dotnet ef database update`). Los `appsettings*.json` se hornean en la imagen, así
-que un cambio de configuración exige `docker compose build api`
+`api` espera a que `postgres` esté *healthy* (`pg_isready`) antes de arrancar.
+Desde el slice-20 la API **aplica sus migraciones al arrancar**
+(`MigrateAsync()` en `Program.cs`): se revierte el paso manual
+`dotnet ef database update` fuera del contenedor (`ARCHITECTURE.md` §7.7). La
+`web` comparte origen con la API vía el proxy de `nginx.conf`, así que
+Production no necesita CORS. Los `appsettings*.json` se hornean en la imagen,
+así que un cambio de configuración exige `docker compose build api`
 (`AGENTS.md` §5.5).
 
 ---

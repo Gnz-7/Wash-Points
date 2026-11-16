@@ -10,6 +10,8 @@
 	<string>Wash Points App</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Wash Points usa tu ubicación para mostrar los lavaderos cercanos.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Wash Points usa la cámara para escanear el QR del comprobante al validar el arribo.</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

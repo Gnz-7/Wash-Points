@@ -37,20 +37,29 @@ class Reserva {
     required this.desde,
     required this.hasta,
     required this.precioSena,
+    this.montoSena,
     this.mpPreferenceId,
     this.initPoint,
   });
 
-  factory Reserva.desdeJson(Map<String, dynamic> json) => Reserva(
-        id: _texto(json['id']),
-        estado: EstadoReserva.desdeValor(json['estado'] as String?),
-        puestoId: _texto(json['puestoId']),
-        desde: _fecha(json['desde']),
-        hasta: _fecha(json['hasta']),
-        precioSena: _decimal(json['precioSena']),
-        mpPreferenceId: json['mpPreferenceId'] as String?,
-        initPoint: json['initPoint'] as String?,
-      );
+  factory Reserva.desdeJson(Map<String, dynamic> json) {
+    final precioSena = _decimal(json['precioSena']);
+
+    return Reserva(
+      id: _texto(json['id']),
+      estado: EstadoReserva.desdeValor(json['estado'] as String?),
+      puestoId: _texto(json['puestoId']),
+      desde: _fecha(json['desde']),
+      hasta: _fecha(json['hasta']),
+      precioSena: precioSena,
+      // Slice-20 (CA-S20.13): el monto exacto de la seña que el backend
+      // congela al reservar. Si no viene, el precio de la seña lo reemplaza.
+      montoSena:
+          json['montoSena'] is num ? _decimal(json['montoSena']) : precioSena,
+      mpPreferenceId: json['mpPreferenceId'] as String?,
+      initPoint: json['initPoint'] as String?,
+    );
+  }
 
   final String id;
   final EstadoReserva estado;
@@ -58,6 +67,11 @@ class Reserva {
   final DateTime desde;
   final DateTime hasta;
   final double precioSena;
+
+  /// Monto exacto de la seña del turno (slice-20): el backend lo congela en el
+  /// alta; editar el catálogo después no lo reescribe. `null` sólo en el doble
+  /// de tests que lo arma a mano.
+  final double? montoSena;
   final String? mpPreferenceId;
 
   /// URL del checkout de Mercado Pago. Solo viene en el alta: no se persiste

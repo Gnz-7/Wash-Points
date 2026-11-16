@@ -19,6 +19,7 @@ enum CodigoError {
   proveedorMapasNoConfigurado('proveedor_mapas_no_configurado'),
   slotYaOcupado('slot_ya_ocupado'),
   pasarelaNoDisponible('pasarela_no_disponible'),
+  mercadopagoNoVinculado('mercadopago_no_vinculado'),
   turnoNoEncontrado('turno_no_encontrado'),
   turnoTransicionInvalida('turno_transicion_invalida'),
   comprobanteNoEncontrado('comprobante_no_encontrado'),
@@ -46,6 +47,7 @@ enum CodigoError {
   comprobanteVencido('comprobante_vencido'),
   faltaComprobante('falta_comprobante'),
   servidorNoDisponible('servidor_no_disponible'),
+  suscripcionYaActiva('suscripcion_activa'),
   desconocido('desconocido');
 
   const CodigoError(this.codigo);
@@ -173,6 +175,9 @@ class ApiException implements Exception {
         return 'Ese horario acaba de ocuparse. Elegí otro.';
       case CodigoError.pasarelaNoDisponible:
         return 'El pago no está disponible. Intentá más tarde.';
+      case CodigoError.mercadopagoNoVinculado:
+        return 'El local todavía no vinculó su cuenta de Mercado Pago. '
+            'Avisale al local e intentá más tarde.';
       case CodigoError.turnoNoEncontrado:
         return 'No encontramos esa reserva.';
       case CodigoError.turnoTransicionInvalida:
@@ -227,6 +232,8 @@ class ApiException implements Exception {
         return 'Las métricas no están disponibles. Intentá más tarde.';
       case CodigoError.servidorNoDisponible:
         return 'El servicio no está disponible. Intentá más tarde.';
+      case CodigoError.suscripcionYaActiva:
+        return 'La suscripción mensual ya está activa.';
       case CodigoError.desconocido:
         return 'Ocurrió un error inesperado.';
     }

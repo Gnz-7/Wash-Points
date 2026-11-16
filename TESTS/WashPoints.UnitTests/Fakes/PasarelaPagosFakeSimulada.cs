@@ -35,6 +35,12 @@ public sealed class PasarelaPagosFakeSimulada : IPasarelaPagos
     /// <summary>Preferencias que se pidieron, en orden de llegada.</summary>
     public IReadOnlyList<PreferenciaPago> PreferenciasCreadas => _preferencias;
 
+    /// <summary>
+    /// Tokens de acceso que recibió cada operación (slice-20: la preferencia
+    /// y las verificaciones se autentican con el token del lavadero).
+    /// </summary>
+    public List<string> TokensUsados { get; } = [];
+
     /// <summary>Cantidad de veces que se consultó un pago (para asserts de sondeo).</summary>
     public int VerificacionesRealizadas => Volatile.Read(ref _verificaciones);
 
@@ -49,9 +55,14 @@ public sealed class PasarelaPagosFakeSimulada : IPasarelaPagos
 
     private string? _proximoIdForzado;
 
-    public Task<PreferenciaCreada> CrearPreferenciaAsync(PreferenciaPago preferencia, CancellationToken ct)
+    public Task<PreferenciaCreada> CrearPreferenciaAsync(
+        PreferenciaPago preferencia, string accessToken, CancellationToken ct)
     {
         LanzarSiCayo();
+        lock (_candado)
+        {
+            TokensUsados.Add(accessToken);
+        }
 
         // El fake es un singleton inyectado en los tests; en las pruebas de
         // concurrencia (T-20) varias requests lo llaman a la vez.
@@ -68,8 +79,15 @@ public sealed class PasarelaPagosFakeSimulada : IPasarelaPagos
         }
     }
 
-    public Task<ResultadoVerificacionPago> VerificarPagoAsync(string pagoIdExterno, CancellationToken ct)
+    public Task<ResultadoVerificacionPago> VerificarPagoAsync(
+        string pagoIdExterno, string accessToken, CancellationToken ct)
     {
+        LanzarSiCayo();
+        lock (_candado)
+        {
+            TokensUsados.Add(accessToken);
+        }
+
         Interlocked.Increment(ref _verificaciones);
         LanzarSiCayo();
 
@@ -93,9 +111,14 @@ public sealed class PasarelaPagosFakeSimulada : IPasarelaPagos
     public void ScriptearBusqueda(Guid turnoId, ResultadoVerificacionPago resultado) =>
         _busquedas[turnoId] = resultado;
 
-    public Task<ResultadoVerificacionPago> BuscarPagoPorTurnoAsync(Guid turnoId, CancellationToken ct)
+    public Task<ResultadoVerificacionPago> BuscarPagoPorTurnoAsync(
+        Guid turnoId, string accessToken, CancellationToken ct)
     {
         LanzarSiCayo();
+        lock (_candado)
+        {
+            TokensUsados.Add(accessToken);
+        }
 
         var resultado = _busquedas.TryGetValue(turnoId, out var scripteado)
             ? scripteado
@@ -108,12 +131,13 @@ public sealed class PasarelaPagosFakeSimulada : IPasarelaPagos
         string pagoId,
         decimal monto,
         string? claveIdempotencia,
+        string accessToken,
         CancellationToken ct)
     {
         LanzarSiCayo();
-
         lock (_candado)
         {
+            TokensUsados.Add(accessToken);
             _reembolsos.Add((pagoId, monto, claveIdempotencia));
             var respuesta = RespuestaReembolso
                 ?? ResultadoReembolso.Aprobado($"refund-{_reembolsos.Count}");
@@ -124,9 +148,14 @@ public sealed class PasarelaPagosFakeSimulada : IPasarelaPagos
     public Task<ResultadoReembolso> ConsultarReembolsoAsync(
         string pagoId,
         string reembolsoId,
+        string accessToken,
         CancellationToken ct)
     {
         LanzarSiCayo();
+        lock (_candado)
+        {
+            TokensUsados.Add(accessToken);
+        }
         return Task.FromResult(
             RespuestaReembolso ?? ResultadoReembolso.Pendiente(reembolsoId));
     }

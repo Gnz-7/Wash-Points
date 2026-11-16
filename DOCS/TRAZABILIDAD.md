@@ -234,6 +234,13 @@ Nota CA-1.2: el contrato exacto de la preferencia (item en ARS, `external_refere
 `PasarelaPagosMercadoPagoTest.CrearPreferenciaEnviaTodosLosCamposDelContrato` (unitaria).
 Nota CA-1.3: que abrir el checkout no confirma el turno lo cubre
 `reserva_notifier_test.dart` (`abrir el checkout no confirma el turno`).
+Nota slice-20: la preferencia se crea con el **token OAuth del lavadero** y la
+respuesta 201 expone `montoSena` (D-20.4): `EndpointReservaTest`
+(`ConVinculacionLaReservaUsaElTokenDelLavaderoYDevuelveElMontoDeLaSena`) y la
+restricción nueva `SinVinculacionLaReservaResponde422MercadoPagoNoVinculado`
+(422 `mercadopago_no_vinculado` sin crear turno). El clínic real de tokens vive
+en `VinculacionTokensTest` (4 casos: descifrado por lavadero, sin vínculo,
+refresh que persiste cifrado, refresh fallido que desvincula).
 
 ---
 
@@ -253,6 +260,11 @@ tolerancia) está en `WebhookSignatureValidatorTest` (unitaria, 10 casos, inclui
 Nota CA-2.4: el aviso fuera de orden también está en
 `WebhookTest.WebhookFueraDeOrdenDevuelve200SinEfecto`, y el cobro no se duplica por el lado de la
 pasarela en `ReservaServicioTest.ReintentoIdenticoConElOriginalPendienteDevuelveElMismoTurno`.
+Nota slice-20: el webhook verifica el pago con el **token del lavadero** (D-20.5) y resuelve el
+lavadero antes de verificar (fila `Pago` por `mp_payment_id`, o `user_id` del payload →
+`mp_user_id`): `WebhookTokenLavaderoTest` (4 casos: token por user_id, retry tras 401 con
+refresh, refresh fallido desvincula y nada se confirma, sin lavadero resoluble ⇒
+`TurnoNoEncontrado`).
 
 ---
 
@@ -271,6 +283,11 @@ vía, está en `WorkerTest.ExpiraElPendienteVencidoYLiberaElPuesto` y
 `MaquinaEstadosTurnoTest.ElPendienteVencidoDejaDeBloquear` (unitaria).
 Nota CA-3.4: el pago aprobado que llega tarde sobre un turno ya expirado tampoco lo revive
 (`WebhookTest.ApprovedTardioSobreUnTurnoExpiradoNoReviveYRegistraElPago`).
+Nota slice-20: ni el webhook ni el respaldo confirman cuando el vínculo del lavadero está roto —
+`WebhookTokenLavaderoTest.UnRefreshFallidoDesvinculaYNadaSeConfirma` (RB-1: la cuenta desvinculada
+deja el turno en `pendiente_pago` y el endpoint responde `503 verificacion_no_disponible` para que
+MP reintente) y `ProcesarReembolsosServicioTest` cubre el mismo criterio en el lado de los
+reembolsos (desvinculado ⇒ `fallido` con motivo; token rechazado ⇒ refresh y un solo retry).
 
 ---
 

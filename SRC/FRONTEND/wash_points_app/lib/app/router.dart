@@ -106,8 +106,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const PantallaHorarios(),
       ),
       StatefulShellRoute.indexedStack(
-        builder: (context, state, navegacion) =>
-            PanelAdmin(navegacion: navegacion),
+        builder: (context, state, navegacion) => PanelAdmin(
+          navegacion: navegacion,
+          retornoMp: state.uri.queryParameters['mp'],
+        ),
         branches: <StatefulShellBranch>[
           StatefulShellBranch(
             routes: <RouteBase>[

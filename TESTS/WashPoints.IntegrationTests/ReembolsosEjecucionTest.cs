@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using WashPoints.Application.Reembolsos;
 using WashPoints.Domain.Catalogo;
+using WashPoints.Domain.MercadoPago;
 using WashPoints.Domain.Puertos;
 using WashPoints.Domain.Reembolsos;
 using WashPoints.Domain.Turnos;
@@ -230,6 +231,8 @@ public sealed class ReembolsosEjecucionTest : IClassFixture<ContenedorPostgres>,
             var servicio = new ProcesarReembolsosServicio(
                 new ReembolsoRepositorio(contexto),
                 pasarela,
+                new TokensLaxos(),
+                new OcupacionRepositorio(contexto),
                 new OpcionesReembolso(),
                 () => Ahora,
                 (_, _) => 0);
@@ -266,6 +269,8 @@ public sealed class ReembolsosEjecucionTest : IClassFixture<ContenedorPostgres>,
             var servicio = new ProcesarReembolsosServicio(
                 new ReembolsoRepositorio(contexto),
                 pasarela,
+                new TokensLaxos(),
+                new OcupacionRepositorio(contexto),
                 new OpcionesReembolso(),
                 () => Ahora,
                 (_, _) => 0);
@@ -289,17 +294,19 @@ public sealed class ReembolsosEjecucionTest : IClassFixture<ContenedorPostgres>,
         public decimal MontoReembolsado { get; private set; }
 
         public Task<PreferenciaCreada> CrearPreferenciaAsync(
-            PreferenciaPago preferencia, CancellationToken ct) =>
+            PreferenciaPago preferencia, string accessToken, CancellationToken ct) =>
             throw new NotSupportedException();
 
-        public Task<ResultadoVerificacionPago> VerificarPagoAsync(string pagoIdExterno, CancellationToken ct) =>
+        public Task<ResultadoVerificacionPago> VerificarPagoAsync(
+            string pagoIdExterno, string accessToken, CancellationToken ct) =>
             Task.FromResult(ResultadoVerificacionPago.Pendiente());
 
-        public Task<ResultadoVerificacionPago> BuscarPagoPorTurnoAsync(Guid turnoId, CancellationToken ct) =>
+        public Task<ResultadoVerificacionPago> BuscarPagoPorTurnoAsync(
+            Guid turnoId, string accessToken, CancellationToken ct) =>
             Task.FromResult(ResultadoVerificacionPago.Pendiente(turnoId));
 
         public Task<ResultadoReembolso> ReembolsarAsync(
-            string pagoId, decimal monto, string? claveIdempotencia, CancellationToken ct)
+            string pagoId, decimal monto, string? claveIdempotencia, string accessToken, CancellationToken ct)
         {
             Llamadas++;
             PagoReembolsado = pagoId;
@@ -308,7 +315,21 @@ public sealed class ReembolsosEjecucionTest : IClassFixture<ContenedorPostgres>,
         }
 
         public Task<ResultadoReembolso> ConsultarReembolsoAsync(
-            string pagoId, string reembolsoId, CancellationToken ct) =>
+            string pagoId, string reembolsoId, string accessToken, CancellationToken ct) =>
             Task.FromResult(respuesta);
+    }
+
+    /// <summary>
+    /// Doble laxo de <see cref="IObtenedorTokensMp"/>: los tests de este archivo
+    /// no se ocupan del token del lavadero (D-20.8), sólo de que el reintegro
+    /// llegue a la pasarela.
+    /// </summary>
+    private sealed class TokensLaxos : IObtenedorTokensMp
+    {
+        public Task<string> ObtenerTokenVigenteAsync(Guid lavaderoId, CancellationToken ct) =>
+            Task.FromResult("token-de-prueba");
+
+        public Task<string> RefrescarTokenAsync(Guid lavaderoId, CancellationToken ct) =>
+            Task.FromResult("token-de-prueba");
     }
 }

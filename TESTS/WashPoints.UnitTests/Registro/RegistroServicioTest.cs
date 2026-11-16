@@ -147,6 +147,21 @@ public sealed class RegistroServicioTest
             servicio.RegistrarClienteAsync(new ClienteNuevo(Nombre, Usuario, Contrasena)));
     }
 
+    [Fact]
+    public async Task ElAltaDejaLaSuscripcionDelLavaderoPendiente()
+    {
+        // Slice-20 (D-20.7): la suscripción mensual nace pendiente en el alta;
+        // el cobro mensual mock es el único que la activa (CA-S20.8).
+        var (servicio, _, lavaderos, _, _, _, _) = Crear();
+
+        await servicio.RegistrarAdministradorAsync(Admin());
+
+        var lavadero = Assert.Single(lavaderos.Agregados);
+        Assert.False(lavadero.SuscripcionActiva);
+        Assert.Null(lavadero.SuscripcionVenceEl);
+        Assert.False(lavadero.MpVinculado);
+    }
+
     private static AdministradorNuevo Admin(
         string nombreLavadero = NombreLavadero,
         double? latitud = Latitud)

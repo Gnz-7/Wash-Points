@@ -9,7 +9,8 @@ using WashPoints.Domain.Puertos;
 namespace WashPoints.Infrastructure.MercadoPago;
 
 /// <summary>
-/// Adaptador real de Mercado Pago (slice-15, D-15.1/D-15.2).
+/// Adaptador real de Mercado Pago (slice-15, D-15.1/D-15.2; token por
+/// lavadero del slice-20, D-20.4).
 ///
 /// Toda la superficie del SDK vive aquí: el resto del sistema sólo conoce
 /// <see cref="IPasarelaPagos"/>. El <see cref="IHttpClient"/> se inyecta para
@@ -35,6 +36,7 @@ public sealed class PasarelaPagosMercadoPago : IPasarelaPagos
 
     public async Task<PreferenciaCreada> CrearPreferenciaAsync(
         PreferenciaPago preferencia,
+        string accessToken,
         CancellationToken ct)
     {
         var request = new PreferenceRequest
@@ -66,7 +68,7 @@ public sealed class PasarelaPagosMercadoPago : IPasarelaPagos
         {
             var creada = await new PreferenceClient(_http).CreateAsync(
                 request,
-                Opciones($"turno-{preferencia.TurnoId}"),
+                Opciones(accessToken, $"turno-{preferencia.TurnoId}"),
                 ct);
 
             var url = creada.InitPoint ?? creada.SandboxInitPoint;
@@ -77,6 +79,11 @@ public sealed class PasarelaPagosMercadoPago : IPasarelaPagos
             }
 
             return new PreferenciaCreada(creada.Id, url);
+        }
+        catch (MercadoPagoApiException ex) when (ex.StatusCode == 401)
+        {
+            throw new PasarelaTokenInvalidoException(
+                "Mercado Pago rechazó el token del lavadero al crear la preferencia.");
         }
         catch (MercadoPagoApiException ex)
         {
@@ -94,6 +101,7 @@ public sealed class PasarelaPagosMercadoPago : IPasarelaPagos
 
     public async Task<ResultadoVerificacionPago> VerificarPagoAsync(
         string pagoIdExterno,
+        string accessToken,
         CancellationToken ct)
     {
         if (!long.TryParse(pagoIdExterno, out var pagoId))
@@ -105,12 +113,17 @@ public sealed class PasarelaPagosMercadoPago : IPasarelaPagos
 
         try
         {
-            var pago = await new PaymentClient(_http).GetAsync(pagoId, Opciones(), ct);
+            var pago = await new PaymentClient(_http).GetAsync(pagoId, Opciones(accessToken), ct);
             return MapearPago(pago);
         }
         catch (MercadoPagoApiException ex) when (ex.StatusCode == 404)
         {
             return ResultadoVerificacionPago.Pendiente();
+        }
+        catch (MercadoPagoApiException ex) when (ex.StatusCode == 401)
+        {
+            throw new PasarelaTokenInvalidoException(
+                "Mercado Pago rechazó el token del lavadero al verificar el pago.");
         }
         catch (MercadoPagoApiException ex)
         {
@@ -128,6 +141,7 @@ public sealed class PasarelaPagosMercadoPago : IPasarelaPagos
 
     public async Task<ResultadoVerificacionPago> BuscarPagoPorTurnoAsync(
         Guid turnoId,
+        string accessToken,
         CancellationToken ct)
     {
         var request = new SearchRequest
@@ -143,11 +157,16 @@ public sealed class PasarelaPagosMercadoPago : IPasarelaPagos
 
         try
         {
-            var pagina = await new PaymentClient(_http).SearchAsync(request, Opciones(), ct);
+            var pagina = await new PaymentClient(_http).SearchAsync(request, Opciones(accessToken), ct);
             var pago = pagina.Results?.FirstOrDefault();
             return pago is null
                 ? ResultadoVerificacionPago.Pendiente(turnoId)
                 : MapearPago(pago);
+        }
+        catch (MercadoPagoApiException ex) when (ex.StatusCode == 401)
+        {
+            throw new PasarelaTokenInvalidoException(
+                "Mercado Pago rechazó el token del lavadero al buscar el pago.");
         }
         catch (MercadoPagoApiException ex)
         {
@@ -167,6 +186,7 @@ public sealed class PasarelaPagosMercadoPago : IPasarelaPagos
         string pagoId,
         decimal monto,
         string? claveIdempotencia,
+        string accessToken,
         CancellationToken ct)
     {
         if (!long.TryParse(pagoId, out var id))
@@ -183,7 +203,7 @@ public sealed class PasarelaPagosMercadoPago : IPasarelaPagos
 
         try
         {
-            var pago = await new PaymentClient(_http).GetAsync(id, Opciones(), ct);
+            var pago = await new PaymentClient(_http).GetAsync(id, Opciones(accessToken), ct);
             var total = pago.TransactionAmount ?? 0m;
             if (total <= 0)
             {
@@ -201,10 +221,15 @@ public sealed class PasarelaPagosMercadoPago : IPasarelaPagos
             var reembolso = await new PaymentRefundClient(_http).RefundAsync(
                 id,
                 esTotal ? null : monto,
-                Opciones(claveIdempotencia),
+                Opciones(accessToken, claveIdempotencia),
                 ct);
 
             return MapearReembolso(reembolso);
+        }
+        catch (MercadoPagoApiException ex) when (ex.StatusCode == 401)
+        {
+            throw new PasarelaTokenInvalidoException(
+                "Mercado Pago rechazó el token del lavadero al reintegrar.");
         }
         catch (MercadoPagoApiException ex)
         {
@@ -224,6 +249,7 @@ public sealed class PasarelaPagosMercadoPago : IPasarelaPagos
     public async Task<ResultadoReembolso> ConsultarReembolsoAsync(
         string pagoId,
         string reembolsoId,
+        string accessToken,
         CancellationToken ct)
     {
         if (!long.TryParse(pagoId, out var id) || !long.TryParse(reembolsoId, out var refundId))
@@ -234,13 +260,18 @@ public sealed class PasarelaPagosMercadoPago : IPasarelaPagos
 
         try
         {
-            var reembolso = await new PaymentRefundClient(_http).GetAsync(id, refundId, Opciones(), ct);
+            var reembolso = await new PaymentRefundClient(_http).GetAsync(id, refundId, Opciones(accessToken), ct);
             return MapearReembolso(reembolso);
         }
         catch (MercadoPagoApiException ex) when (ex.StatusCode == 404)
         {
             return ResultadoReembolso.Rechazado(
                 "Mercado Pago no encontró el reintegro consultado.", reintentable: false);
+        }
+        catch (MercadoPagoApiException ex) when (ex.StatusCode == 401)
+        {
+            throw new PasarelaTokenInvalidoException(
+                "Mercado Pago rechazó el token del lavadero al consultar el reintegro.");
         }
         catch (MercadoPagoApiException ex)
         {
@@ -257,9 +288,9 @@ public sealed class PasarelaPagosMercadoPago : IPasarelaPagos
         }
     }
 
-    private RequestOptions Opciones(string? claveIdempotencia = null)
+    private static RequestOptions Opciones(string accessToken, string? claveIdempotencia = null)
     {
-        var opciones = new RequestOptions { AccessToken = _opciones.AccessToken };
+        var opciones = new RequestOptions { AccessToken = accessToken };
         if (!string.IsNullOrWhiteSpace(claveIdempotencia))
         {
             opciones.CustomHeaders["X-Idempotency-Key"] = claveIdempotencia;

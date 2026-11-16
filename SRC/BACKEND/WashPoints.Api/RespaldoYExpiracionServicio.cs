@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using WashPoints.Application.Pagos;
+using WashPoints.Domain.MercadoPago;
 using WashPoints.Domain.Ocupacion;
 using WashPoints.Domain.Puertos;
 using WashPoints.Domain.Turnos;
@@ -47,6 +48,7 @@ public sealed class RespaldoYExpiracionServicio
 {
     private readonly WashPointsDbContext _contexto;
     private readonly IPasarelaPagos _pasarela;
+    private readonly IObtenedorTokensMp _tokensMp;
     private readonly WebhookPagoServicio _aplicador;
     private readonly OpcionesPago _opciones;
     private readonly TimeProvider _reloj;
@@ -55,6 +57,7 @@ public sealed class RespaldoYExpiracionServicio
     public RespaldoYExpiracionServicio(
         WashPointsDbContext contexto,
         IPasarelaPagos pasarela,
+        IObtenedorTokensMp tokensMp,
         WebhookPagoServicio aplicador,
         OpcionesPago opciones,
         TimeProvider reloj,
@@ -62,6 +65,7 @@ public sealed class RespaldoYExpiracionServicio
     {
         _contexto = contexto;
         _pasarela = pasarela;
+        _tokensMp = tokensMp;
         _aplicador = aplicador;
         _opciones = opciones;
         _reloj = reloj;
@@ -171,10 +175,29 @@ public sealed class RespaldoYExpiracionServicio
 
             try
             {
+                // Slice-20 (D-20.5): el respaldo consulta con el token del
+                // lavadero del turno. Un token rechazado (401) refresca y
+                // reintenta una vez; un lavadero desvinculado cae en el
+                // catch general y se reintenta en el próximo tick.
+                var accessToken = await _tokensMp.ObtenerTokenVigenteAsync(
+                    turno.LavaderoId, timeout.Token);
+
                 // La preferencia no es un payment id: se busca el pago por la
                 // referencia externa del turno (slice-15 D-15.2/T-153).
-                var verificacion = await _pasarela.BuscarPagoPorTurnoAsync(
-                    turno.Id, timeout.Token);
+                ResultadoVerificacionPago verificacion;
+
+                try
+                {
+                    verificacion = await _pasarela.BuscarPagoPorTurnoAsync(
+                        turno.Id, accessToken, timeout.Token);
+                }
+                catch (PasarelaTokenInvalidoException)
+                {
+                    var tokenFresco = await _tokensMp.RefrescarTokenAsync(
+                        turno.LavaderoId, timeout.Token);
+                    verificacion = await _pasarela.BuscarPagoPorTurnoAsync(
+                        turno.Id, tokenFresco, timeout.Token);
+                }
 
                 var debeAplicar =
                     (verificacion.Estado == EstadoVerificacionPago.Aprobado ||

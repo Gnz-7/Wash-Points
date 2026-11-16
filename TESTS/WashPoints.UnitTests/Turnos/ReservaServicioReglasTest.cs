@@ -2,6 +2,7 @@ using WashPoints.Application.Agenda;
 using WashPoints.Application.Pagos;
 using WashPoints.Application.ReservarTurno;
 using WashPoints.Domain.Catalogo;
+using WashPoints.Domain.MercadoPago;
 using WashPoints.Domain.Ocupacion;
 using WashPoints.Domain.Puertos;
 using WashPoints.Domain.Tiempo;
@@ -191,6 +192,7 @@ public sealed class ReservaServicioReglasTest
                 catalogo,
                 new OutboxFake(),
                 Pasarela,
+                new TokensLaxos(),
                 new OpcionesPago(),
                 new RelojFijo(Ahora),
                 new ConversorHorarioPort(),
@@ -265,6 +267,20 @@ public sealed class ReservaServicioReglasTest
             CancellationToken ct) => throw new NotSupportedException();
 
         public Task GuardarAsync(CancellationToken ct) => throw new NotSupportedException();
+    }
+
+    /// <summary>
+    /// Doble laxo de <see cref="IObtenedorTokensMp"/>: los tests de reglas
+    /// temporales no se ocupan de la vinculación, así que entregan el mismo
+    /// token siempre (el comportamiento real lo cubren los tests de vínculo).
+    /// </summary>
+    private sealed class TokensLaxos : IObtenedorTokensMp
+    {
+        public Task<string> ObtenerTokenVigenteAsync(Guid lavaderoId, CancellationToken ct) =>
+            Task.FromResult("token-de-lavadero");
+
+        public Task<string> RefrescarTokenAsync(Guid lavaderoId, CancellationToken ct) =>
+            Task.FromResult("token-fresco");
     }
 
     private sealed class OcupacionRepositorioFake : IOcupacionRepositorio

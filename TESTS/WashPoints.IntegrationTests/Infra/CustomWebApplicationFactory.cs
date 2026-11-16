@@ -4,7 +4,11 @@ using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Tokens;
+using WashPoints.Domain.MercadoPago;
 using WashPoints.Domain.Seguridad;
 using WashPoints.Infrastructure.Seguridad;
 
@@ -51,6 +55,18 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
         builder.UseSetting("Jwt:ClaveSecreta", ClaveJwt);
         builder.UseSetting("Jwt:Emisor", Emisor);
         builder.UseSetting("Jwt:Audiencia", Audiencia);
+
+        // Token por lavadero (slice-20, D-20.8): los tests de API no prueban la
+        // resolución del token, así que la factory registra un doble laxo por
+        // defecto (corre DESPUÉS del ConfigureServices de la API, así que gana
+        // sobre el registro real de Program.cs). Un test que necesite el
+        // comportamiento real lo re-registra en su propio ConfigureTestServices.
+        builder.ConfigureTestServices(servicios =>
+        {
+            servicios.RemoveAll<IObtenedorTokensMp>();
+            servicios.AddSingleton<IObtenedorTokensMp>(new TokensLaxosDeFactory());
+        });
+
         _configurar?.Invoke(builder);
     }
 
@@ -189,5 +205,20 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
         public RelojCorrido(TimeSpan desplazamiento) => _desplazamiento = desplazamiento;
 
         public override DateTimeOffset GetUtcNow() => DateTimeOffset.UtcNow + _desplazamiento;
+    }
+
+    /// <summary>
+    /// Doble laxo por defecto de <see cref="IObtenedorTokensMp"/> (slice-20,
+    /// D-20.8): entrega siempre «token-de-prueba» sin mirar la base. Un test
+    /// que necesite la resolución real lo re-registra en su
+    /// ConfigureTestServices.
+    /// </summary>
+    private sealed class TokensLaxosDeFactory : IObtenedorTokensMp
+    {
+        public Task<string> ObtenerTokenVigenteAsync(Guid lavaderoId, CancellationToken ct) =>
+            Task.FromResult("token-de-prueba");
+
+        public Task<string> RefrescarTokenAsync(Guid lavaderoId, CancellationToken ct) =>
+            Task.FromResult("token-de-prueba");
     }
 }

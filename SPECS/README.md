@@ -37,6 +37,7 @@ siendo `OVERVIEW.md`; la del diseño técnico, `DOCS/ARCHITECTURE.md`.
 | 17 | [slice-17-horarios-reglas-puestos.md](./slice-17-horarios-reglas-puestos.md) | Horarios de atención, reglas temporales y puestos por servicio (CU-05 / CU-06 / US-A07) | Implementado y verificado | backend 529/529; Flutter 410/410 |
 | 18 | [slice-18-metricas-tiempo-real.md](./slice-18-metricas-tiempo-real.md) | Métricas en tiempo real (CU-09 / US-A08 CA-8.3) | Implementado y verificado | backend 544/544; Flutter 441/441 |
 | 19 | [slice-19-cierre-documental.md](./slice-19-cierre-documental.md) | Cierre documental y sincronización de la documentación | Implementado y verificado | backend 544/544; Flutter 441/441; `flutter analyze` limpio |
+| 20 | [slice-20-despliegue-autonomo-mock-qr.md](./slice-20-despliegue-autonomo-mock-qr.md) | Despliegue autónomo (OAuth de Mercado Pago por lavadero, Checkout Pro, suscripción mock, migración automática, web) y escáner QR (CU-03, CU-09 / RB-1, RB-2, RB-3) | Implementado y verificado | backend 601/601; Flutter 468/468; `flutter analyze` limpio; `docker compose up -d --build` sin credenciales |
 
 ## Notas
 

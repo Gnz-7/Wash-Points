@@ -3,6 +3,7 @@ using System.Text;
 using WashPoints.Application.Agenda;
 using WashPoints.Application.Pagos;
 using WashPoints.Domain.Catalogo;
+using WashPoints.Domain.MercadoPago;
 using WashPoints.Domain.Ocupacion;
 using WashPoints.Domain.Puertos;
 using WashPoints.Domain.Tiempo;
@@ -32,6 +33,7 @@ public sealed class ReservaServicio
     private readonly IConsultaCatalogo _catalogo;
     private readonly IOutbox _outbox;
     private readonly IPasarelaPagos _pasarela;
+    private readonly IObtenedorTokensMp _tokensMp;
     private readonly OpcionesPago _opciones;
     private readonly TimeProvider _reloj;
     private readonly IConversorHorario _conversor;
@@ -44,6 +46,7 @@ public sealed class ReservaServicio
         IConsultaCatalogo catalogo,
         IOutbox outbox,
         IPasarelaPagos pasarela,
+        IObtenedorTokensMp tokensMp,
         OpcionesPago opciones,
         TimeProvider reloj,
         IConversorHorario conversor,
@@ -55,6 +58,7 @@ public sealed class ReservaServicio
         _catalogo = catalogo;
         _outbox = outbox;
         _pasarela = pasarela;
+        _tokensMp = tokensMp;
         _opciones = opciones;
         _reloj = reloj;
         _conversor = conversor;
@@ -109,6 +113,39 @@ public sealed class ReservaServicio
                 "El puesto no atiende el tipo de lavado elegido.");
         }
 
+        // slice-20 (D-20.4): el cobro es un Checkout Pro de la cuenta del
+        // lavadero. Sin vínculo, ObtenerTokenVigenteAsync lanza
+        // MercadoPagoNoVinculadoException (422 mercadopago_no_vinculado) antes
+        // de crear el turno o tocar la pasarela (RB-1).
+        var accessToken = await _tokensMp.ObtenerTokenVigenteAsync(solicitud.LavaderoId, ct);
+
+        try
+        {
+            return await ReservarUnaVezAsync(solicitud, accessToken, tipo, finUtc, ct);
+        }
+        catch (PasarelaTokenInvalidoException)
+        {
+            // El token del lavadero expiró o fue revocado: se refresca una
+            // sola vez y se reintenta. La transacción del primer intento ya
+            // revirtió el INSERT y la clave de idempotencia hace equivalente
+            // al reintento (CA-S1.2).
+            var fresco = await _tokensMp.RefrescarTokenAsync(solicitud.LavaderoId, ct);
+            return await ReservarUnaVezAsync(solicitud, fresco, tipo, finUtc, ct);
+        }
+    }
+
+    /// <summary>
+    /// Un intento completo de reserva: turno + outbox + preferencia dentro de
+    /// una transacción. Se llama dos veces a lo sumo (token refrescado).
+    /// </summary>
+    private async Task<Turno> ReservarUnaVezAsync(
+        SolicitudReserva solicitud,
+        string accessToken,
+        TipoLavado tipo,
+        DateTime finUtc,
+        CancellationToken ct)
+    {
+        var ahoraUtc = _reloj.GetUtcNow().UtcDateTime;
         var idempotencyKey = CalcularIdempotencyKey(solicitud, finUtc);
         var expiraEn = ahoraUtc.AddMinutes(_opciones.TtlReservaMinutos);
 
@@ -160,7 +197,7 @@ public sealed class ReservaServicio
                     Monto: tipo.PrecioSena,
                     Descripcion: $"Seña {tipo.Nombre}",
                     ReferenciaExterna: turno.Id.ToString());
-                var creada = await _pasarela.CrearPreferenciaAsync(preferencia, ctTransaccion);
+                var creada = await _pasarela.CrearPreferenciaAsync(preferencia, accessToken, ctTransaccion);
 
                 turno.RegistrarPreferenciaDePago(creada.PreferenceId, creada.InitPoint);
                 await _repositorio.GuardarAsync(ctTransaccion);

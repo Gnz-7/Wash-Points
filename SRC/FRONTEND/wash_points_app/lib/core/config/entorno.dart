@@ -9,8 +9,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// flutter run --dart-define=API_BASE_URL=http://192.168.0.10:8080
 /// ```
 ///
-/// Sin `--dart-define` se usan los defaults de desarrollo local: el emulador
-/// de Android no ve `localhost` de la máquina anfitriona, por eso `10.0.2.2`.
+/// Sin `--dart-define` se usan los defaults por plataforma (D-20.10): en web,
+/// el mismo origen que sirve la página (`Uri.base.origin`, la API queda detrás
+/// del proxy de Nginx); en el emulador de Android, `10.0.2.2` (no ve el
+/// `localhost` del anfitrión); en el resto, `http://localhost:8080`.
 @immutable
 class Entorno {
   const Entorno({
@@ -21,14 +23,42 @@ class Entorno {
     required this.radioMetrosPorDefecto,
   });
 
-  /// Construye el entorno desde los `--dart-define`, con defaults de desarrollo.
+  /// Construye el entorno desde los `--dart-define`, con defaults por
+  /// plataforma.
+  ///
+  /// En web sin `API_BASE_URL`, la base es `Uri.base.origin`: la web queda en
+  /// el mismo origen que la API detrás del proxy de Nginx (slice-20, D-20.10)
+  /// y el hub en `$api/hubs`. Android emulador mantiene `10.0.2.2` (no ve el
+  /// `localhost` del anfitrión) y el APK recibe su URL por `--dart-define`.
   factory Entorno.desdeDartDefine() {
     const apiConfigurada = String.fromEnvironment('API_BASE_URL');
     const hubConfigurado = String.fromEnvironment('HUB_URL');
 
-    final apiPorDefecto = defaultTargetPlatform == TargetPlatform.android
-        ? 'http://10.0.2.2:8080'
-        : 'http://localhost:8080';
+    // `kIsWeb` es constante de compilación y `Uri.base` no es simulable en
+    // tests: la resolución vive en [resolver] con los valores inyectados.
+    return resolver(
+      esWeb: kIsWeb,
+      origenWeb: Uri.base.origin,
+      esAndroid: defaultTargetPlatform == TargetPlatform.android,
+      apiConfigurada: apiConfigurada,
+      hubConfigurado: hubConfigurado,
+    );
+  }
+
+  /// Resolución pura del mapeo de URLs (slice-20 T-222), testeable.
+  @visibleForTesting
+  static Entorno resolver({
+    required bool esWeb,
+    required String origenWeb,
+    required bool esAndroid,
+    String apiConfigurada = '',
+    String hubConfigurado = '',
+  }) {
+    final apiPorDefecto = esWeb
+        ? origenWeb
+        : esAndroid
+            ? 'http://10.0.2.2:8080'
+            : 'http://localhost:8080';
     final api = apiConfigurada.isEmpty ? apiPorDefecto : apiConfigurada;
 
     return Entorno(

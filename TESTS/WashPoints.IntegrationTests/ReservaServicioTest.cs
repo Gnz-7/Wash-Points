@@ -3,6 +3,7 @@ using WashPoints.Application.Agenda;
 using WashPoints.Application.Pagos;
 using WashPoints.Application.ReservarTurno;
 using WashPoints.Domain.Catalogo;
+using WashPoints.Domain.MercadoPago;
 using WashPoints.Domain.Ocupacion;
 using WashPoints.Domain.Puertos;
 using WashPoints.Domain.Turnos;
@@ -80,6 +81,7 @@ public sealed class ReservaServicioTest : IClassFixture<ContenedorPostgres>, IDi
             new ConsultaCatalogo(contexto),
             new OutboxRepositorio(contexto, new RelojFijo(Ahora)),
             pasarela,
+            new TokensLaxos(),
             new OpcionesPago(),
             new RelojFijo(Ahora),
             new ConversorHorarioPort(),
@@ -206,5 +208,19 @@ public sealed class ReservaServicioTest : IClassFixture<ContenedorPostgres>, IDi
         private readonly DateTimeOffset _ahora;
         public RelojFijo(DateTime ahoraUtc) => _ahora = new DateTimeOffset(ahoraUtc);
         public override DateTimeOffset GetUtcNow() => _ahora;
+    }
+
+    /// <summary>
+    /// Doble laxo de <see cref="IObtenedorTokensMp"/>: este archivo prueba la
+    /// reserva y el idempotency-key, no la resolución del token del lavadero
+    /// (D-20.8, token-por-lavadero).
+    /// </summary>
+    private sealed class TokensLaxos : IObtenedorTokensMp
+    {
+        public Task<string> ObtenerTokenVigenteAsync(Guid lavaderoId, CancellationToken ct) =>
+            Task.FromResult("token-de-prueba");
+
+        public Task<string> RefrescarTokenAsync(Guid lavaderoId, CancellationToken ct) =>
+            Task.FromResult("token-de-prueba");
     }
 }

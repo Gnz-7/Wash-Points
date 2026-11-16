@@ -57,6 +57,11 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva> {
   DateTime? _fecha;
   SlotDisponible? _slot;
 
+  /// Slice-20 (T-223): el comprobante se abre automáticamente una sola vez
+  /// cuando el flujo pasa a confirmada. Se reinicia con `reintentar` para que
+  /// una nueva reserva lo vuelva a abrir.
+  bool _comprobanteMostrado = false;
+
   EstadoReservaFlujo get _flujo => ref.watch(reservaProvider(widget.lavaderoId));
 
   @override
@@ -66,6 +71,18 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva> {
       // dejado de estar disponible, así que se suelta la selección.
       if (actual.mensaje != null && anterior?.mensaje != actual.mensaje) {
         setState(() => _slot = null);
+      }
+
+      // Slice-20 (CA-S20.17): al pasar a confirmada se empuja el comprobante
+      // una sola vez; RB-1 — sólo el backend confirma. El botón manual
+      // `boton_ver_comprobante` sigue disponible en la vista confirmada.
+      final reserva = actual.reserva;
+      if (actual.fase == FaseReserva.confirmada &&
+          anterior?.fase != FaseReserva.confirmada &&
+          !_comprobanteMostrado &&
+          reserva != null) {
+        _comprobanteMostrado = true;
+        context.push('/turnos/${reserva.id}/comprobante');
       }
     });
 
@@ -306,7 +323,7 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva> {
         if (reserva != null)
           Text(
             '${_fechaDe(reserva.desde)} · '
-            'Seña ${_importe(reserva.precioSena)}',
+            'Seña ${_importe(reserva.montoSena ?? reserva.precioSena)}',
           ),
         const SizedBox(height: 16),
         FilledButton(
@@ -361,6 +378,7 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva> {
             _slot = null;
             _puestoId = null;
           });
+          _comprobanteMostrado = false;
           ref.read(reservaProvider(widget.lavaderoId).notifier).reintentar();
         },
         child: const Text('Reservar otro turno'),

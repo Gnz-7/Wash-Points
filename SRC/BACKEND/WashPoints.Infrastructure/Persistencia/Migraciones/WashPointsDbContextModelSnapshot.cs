@@ -115,11 +115,39 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
                         .HasColumnType("double precision")
                         .HasColumnName("longitud");
 
+                    b.Property<string>("MpAccessToken")
+                        .HasColumnType("text")
+                        .HasColumnName("mp_access_token");
+
+                    b.Property<string>("MpRefreshToken")
+                        .HasColumnType("text")
+                        .HasColumnName("mp_refresh_token");
+
+                    b.Property<string>("MpUserId")
+                        .HasColumnType("varchar")
+                        .HasColumnName("mp_user_id");
+
+                    b.Property<bool>("MpVinculado")
+                        .HasColumnType("boolean")
+                        .HasColumnName("mp_vinculado");
+
+                    b.Property<DateTimeOffset?>("MpVinculadoEl")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("mp_vinculado_el");
+
                     b.Property<string>("Nombre")
                         .IsRequired()
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)")
                         .HasColumnName("nombre");
+
+                    b.Property<bool>("SuscripcionActiva")
+                        .HasColumnType("boolean")
+                        .HasColumnName("suscripcion_activa");
+
+                    b.Property<DateTimeOffset?>("SuscripcionVenceEl")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("suscripcion_vence_el");
 
                     b.HasKey("Id");
 

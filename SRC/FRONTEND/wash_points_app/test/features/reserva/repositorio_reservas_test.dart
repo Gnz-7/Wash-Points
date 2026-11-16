@@ -116,6 +116,7 @@ void main() {
         'desde': '2026-10-29T13:00:00Z',
         'hasta': '2026-10-29T13:30:00Z',
         'precioSena': 3000,
+        'montoSena': 3000,
         'mpPreferenceId': 'pref-1',
         'initPoint': 'https://checkout.test/pref-1',
       },
@@ -140,6 +141,7 @@ void main() {
     expect(reserva.estado, EstadoReserva.pendientePago);
     expect(reserva.initPoint, 'https://checkout.test/pref-1');
     expect(reserva.precioSena, 3000);
+    expect(reserva.montoSena, 3000);
   });
 
   test('consultar turno pega en /api/turnos/{id} y mapea el estado', () async {

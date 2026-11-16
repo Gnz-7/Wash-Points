@@ -29,11 +29,32 @@ services:
       ASPNETCORE_URLS: http://+:8080
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=washpoints;Username=postgres;Password=postgres
+      # Credenciales de Mercado Pago (slice-20): vacías por defecto (D-20.6) —
+      # el despliegue es autónomo y el arranque nunca se bloquea. Completarlas
+      # vía .env (ver .env.example) habilita la vinculación OAuth y el cobro.
+      MercadoPago__ClientId: ${MERCADOPAGO_CLIENT_ID:-}
+      MercadoPago__ClientSecret: ${MERCADOPAGO_CLIENT_SECRET:-}
+      MercadoPago__RedirectUri: ${MERCADOPAGO_REDIRECT_URI:-http://localhost:8081/api/mercadopago/oauth/callback}
+      MercadoPago__ClaveTokens: ${MERCADOPAGO_CLAVE_TOKENS:-}
+      Comprobantes__ClaveCifrado: ${COMPROBANTES_CLAVE_CIFRADO:-}
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
+
+  web:
+    build:
+      context: ./SRC/FRONTEND/wash_points_app
+      dockerfile: Dockerfile
+    container_name: washpoints-web
+    restart: unless-stopped
+    # La web (Flutter web + Nginx) queda en el mismo origen que la API vía el
+    # proxy /api y /hubs de nginx.conf (D-20.9): Production no necesita CORS.
+    ports:
+      - "8081:80"
+    depends_on:
+      - api
 
 volumes:
   postgres_data:

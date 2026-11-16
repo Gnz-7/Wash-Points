@@ -3,6 +3,7 @@ using System.Text;
 using WashPoints.Api;
 using WashPoints.Application.Pagos;
 using WashPoints.Domain.Catalogo;
+using WashPoints.Domain.MercadoPago;
 using WashPoints.Domain.Puertos;
 using WashPoints.Domain.Turnos;
 using WashPoints.Infrastructure.Comprobantes;
@@ -51,8 +52,9 @@ public sealed class WorkerTest : IClassFixture<ContenedorPostgres>, IDisposable
         new(
             contexto,
             pasarela,
+            new TokensLaxos(),
             new WebhookPagoServicio(
-                pasarela, new OcupacionRepositorio(contexto), contexto, CrearEmisor(contexto),
+                pasarela, new TokensLaxos(), new OcupacionRepositorio(contexto), contexto, CrearEmisor(contexto),
                 CrearOutbox(contexto)),
             new OpcionesPago(),
             new RelojFijo(Ahora),
@@ -231,9 +233,9 @@ public sealed class WorkerTest : IClassFixture<ContenedorPostgres>, IDisposable
         await using (var contextoWebhook = CrearContexto())
         {
             var webhook = new WebhookPagoServicio(
-                pasarela, new OcupacionRepositorio(contextoWebhook), contextoWebhook,
+                pasarela, new TokensLaxos(), new OcupacionRepositorio(contextoWebhook), contextoWebhook,
                 CrearEmisor(contextoWebhook), CrearOutbox(contextoWebhook));
-            await webhook.ProcesarAsync("payment", null, "pref-1", CancellationToken.None);
+            await webhook.ProcesarAsync("payment", null, "pref-1", null, CancellationToken.None);
         }
 
         // El worker reejecuta el respaldo: no debe duplicar el pago ni fallar.
@@ -255,5 +257,18 @@ public sealed class WorkerTest : IClassFixture<ContenedorPostgres>, IDisposable
         private readonly DateTimeOffset _ahora;
         public RelojFijo(DateTime ahoraUtc) => _ahora = new DateTimeOffset(ahoraUtc);
         public override DateTimeOffset GetUtcNow() => _ahora;
+    }
+
+    /// <summary>
+    /// Doble laxo de <see cref="IObtenedorTokensMp"/>: el worker no prueba la
+    /// resolución de tokens (D-20.8), sólo la conciliación.
+    /// </summary>
+    private sealed class TokensLaxos : IObtenedorTokensMp
+    {
+        public Task<string> ObtenerTokenVigenteAsync(Guid lavaderoId, CancellationToken ct) =>
+            Task.FromResult("token-de-prueba");
+
+        public Task<string> RefrescarTokenAsync(Guid lavaderoId, CancellationToken ct) =>
+            Task.FromResult("token-de-prueba");
     }
 }

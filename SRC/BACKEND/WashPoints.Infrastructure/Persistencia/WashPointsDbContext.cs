@@ -264,6 +264,17 @@ public sealed class WashPointsDbContext : DbContext
             .HasFilter(@"""latitud"" IS NOT NULL")
             .HasDatabaseName("ix_lavaderos_ubicacion");
 
+        // Suscripción mensual mock y vinculación de Mercado Pago
+        // (SPECS/slice-20, D-20.8). Los tokens van cifrados por arriba: lo que
+        // persiste es la cadena opaca del cifrador AES-GCM.
+        lavadero.Property(x => x.SuscripcionActiva).HasColumnName("suscripcion_activa").IsRequired();
+        lavadero.Property(x => x.SuscripcionVenceEl).HasColumnName("suscripcion_vence_el");
+        lavadero.Property(x => x.MpVinculado).HasColumnName("mp_vinculado").IsRequired();
+        lavadero.Property(x => x.MpAccessToken).HasColumnName("mp_access_token");
+        lavadero.Property(x => x.MpRefreshToken).HasColumnName("mp_refresh_token");
+        lavadero.Property(x => x.MpUserId).HasColumnName("mp_user_id").HasColumnType("varchar");
+        lavadero.Property(x => x.MpVinculadoEl).HasColumnName("mp_vinculado_el");
+
         var puesto = modelo.Entity<Puesto>();
         puesto.ToTable("puestos");
         puesto.HasKey(x => x.Id);

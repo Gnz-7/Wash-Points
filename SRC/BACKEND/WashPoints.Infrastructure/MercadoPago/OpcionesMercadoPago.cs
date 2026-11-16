@@ -1,19 +1,28 @@
 namespace WashPoints.Infrastructure.MercadoPago;
 
 /// <summary>
-/// Configuración de la integración con Mercado Pago (slice-15, D-15.8).
+/// Configuración de la integración con Mercado Pago (slice-15, D-15.8,
+/// adaptada en slice-20 D-20.4/D-20.6).
 ///
 /// Los secretos nunca viven en el repositorio (AGENTS §3.4): se cargan desde
-/// variables de entorno con el prefijo <c>Pagos__</c>. En Production la
-/// ausencia de cualquiera de las claves impide arrancar; en Development el
-/// adaptador se sustituye por <see cref="PasarelaPagosNoConfigurada"/> y la
-/// reserva responde 503 <c>pasarela_no_configurada</c>.
+/// variables de entorno con el prefijo <c>Pagos__</c>. Slice-20: el token que
+/// opera el dinero es el del LAVADERO (OAuth por lavadero, D-20.3), así que
+/// <see cref="AccessToken"/> queda <b>obsoleto</b> (sin uso); ninguna
+/// credencial bloquea el arranque (D-20.6). El webhook mantiene la firma
+/// global <see cref="WebhookSecret"/> y <see cref="UrlNotificacion"/> es
+/// documental de la URL configurada en la app de MP.
 /// </summary>
 public sealed class OpcionesMercadoPago
 {
     public const string Seccion = "Pagos";
 
-    /// <summary>Access token de la cuenta de Mercado Pago (sandbox o producción).</summary>
+    /// <summary>
+    /// Obsoleto (slice-20): la reserva usa el token del lavadero. Se conserva
+    /// la propiedad para no romper configuraciones existentes; sólo la lee
+    /// <see cref="ClavesFaltantes"/> (condición del worker de reembolsos).
+    /// </summary>
+    // Sin [Obsolete]: el proyecto trata los warnings como errores (CS0618) y la
+    // propiedad sigue leyéndose en ClavesFaltantes.
     public string? AccessToken { get; init; }
 
     /// <summary>Secreto con el que se valida la firma de los webhooks.</summary>

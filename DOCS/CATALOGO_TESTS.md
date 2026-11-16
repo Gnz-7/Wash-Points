@@ -1,8 +1,8 @@
-# Catálogo de pruebas — Wash Points
+# Catálogo de pruebas - Wash Points
 
-Referencia funcional de la suite del backend: **544 tests** (295 unitarios y 249 de integración),
-verificados en verde el 10/11/2026 sobre el árbol del slice-18. La suite Flutter suma **441 tests**
-(`flutter test`), verificados el 10/11/2026 sobre el mismo árbol con `flutter analyze` limpio.
+Referencia funcional de la suite del backend: **601 tests** (320 unitarios y 281 de integración),
+verificados en verde el 15/11/2026 sobre el árbol del slice-20. La suite Flutter suma **468 tests**
+(`flutter test`), verificados el 15/11/2026 sobre el mismo árbol con `flutter analyze` limpio.
 
 - **Propósito.** Que cualquier persona del equipo —sin leer código— entienda qué comportamiento
   del sistema está protegido por cada prueba y qué se rompe si esa prueba falla.
@@ -19,7 +19,8 @@ verificados en verde el 10/11/2026 sobre el árbol del slice-18. La suite Flutte
   09 = frontend; 10 = panel de administración; 11 = validación offline; 12 = sincronización en
   tiempo real; 13 = catálogo y onboarding; 14 = ciclo del cliente, cancelación y reembolsos;
   15 = pagos reales y ejecución de reembolsos; 16 = mapa, GPS y geocodificación;
-  17 = horarios de atención, reglas temporales y servicios por puesto; 18 = métricas en tiempo real.
+  17 = horarios de atención, reglas temporales y servicios por puesto; 18 = métricas en tiempo real;
+  20 = despliegue autónomo: OAuth de Mercado Pago por lavadero, suscripción mock y escáner QR.
 
 > **Cobertura del catálogo.** Todas las pruebas del backend están desglosadas caso por caso: los
 > 295 tests unitarios y los 249 de integración. El slice-19 (T-213) reconcilió este documento con
@@ -29,7 +30,7 @@ verificados en verde el 10/11/2026 sobre el árbol del slice-18. La suite Flutte
 
 ---
 
-## 1. Pruebas Unitarias (295 en total; 295 detalladas abajo)
+## 1. Pruebas Unitarias (320 en total; 320 detalladas abajo)
 
 Prueban una pieza aislada del sistema, sin base de datos ni red. Son las más rápidas y las que
 primero señalan que una regla del dominio cambió.
@@ -695,7 +696,7 @@ primero señalan que una regla del dominio cambió.
 
 ---
 
-## 2. Pruebas de Integración (249 en total; 249 detalladas abajo)
+## 2. Pruebas de Integración (281 en total; 281 detalladas abajo)
 
 Levantan la API completa contra una base PostgreSQL real y ejercitan el sistema de punta a punta:
 petición, reglas de negocio, persistencia y respuesta.
@@ -1301,5 +1302,156 @@ petición, reglas de negocio, persistencia y respuesta.
   vencidos se liberan: una caída externa no bloquea la operación.
 - **`UnPagoAprobadoTardioNoReviveUnTurnoExpirado`** — *Slice 01.* Un pago que llega después del vencimiento
   no resucita el turno.
+
+## 3. Pruebas nuevas del slice-20 (despliegue autónomo, OAuth por lavadero, suscripción mock y escáner)
+
+Todas verificadas en verde el 15/11/2026 (suite completa: 468/468). Los tests nuevos del slice-20
+sobre el baseline del slice-18 (441) son: 14 del perfil del lavadero (`repositorio_perfil_http_test` 5,
+`perfil_notifier_test` 4, `banda_perfil_test` 5), 3 del escáner (`escaner_qr_test`), 6 del entorno
+web (`core/entorno_test.dart`: base URL relativa y `Uri.base.origin` para SignalR), 1 de humo web
+(`widget_test.dart`: la app monta y cae en el login sin sesión — `flutter create . --platforms web`
+pisó este archivo con el template del contador durante la verificación y se reescribió) y 2 agregados
+en los tests de reserva adaptados
+(`pantalla_reserva_test` / `reserva_notifier_test`). Detalle funcional en los tests y en
+`SPECS/slice-20-despliegue-autonomo-mock-qr.md` §10.
+
+### Unitarias — `MercadoPago/CifradorTokensMpTest.cs` — Slice 20 (5 tests)
+
+- **`CifrarYDescifrar_HacenRoundTrip`** — El par de tokens del lavadero se cifra con AES-GCM y se
+  recupera intacto con la misma clave.
+- **`ElCifradoNoContieneElClaroYEsNoDeterminista`** — Dos cifrados del mismo texto difieren (IV
+  nuevo) y ninguno contiene el claro: sin token en claro en la base.
+- **`UnTextoCifradoConOtraClaveNoSeDescifra`** — Con otra clave el descifrado falla de forma
+  explícita, nunca degradada (RB-1).
+- **`UnaClaveQueNoEsAes256SeRechaza`** — Una clave de longitud incorrecta se rechaza al construir.
+- **`SinClave_NoEstaConfiguradoYCifrarFallaExplicito`** — Sin `MercadoPago:ClaveTokens` la
+  vinculación falla con un error claro, no guarda tokens en claro.
+
+### Unitarias — `MercadoPago/FirmadorEstadoOauthTest.cs` — Slice 20 (5 tests)
+
+- **`UnEstadoFirmadoSeValidaYDevuelveElLavadero`** — El `state` del OAuth firma y devuelve el
+  lavadero que inició la vinculación.
+- **`UnPayloadAlteradoNoSeValida`** — Un `state` manipulado no valida (protege el CSRF del callback).
+- **`UnEstadoConFormatoBasuraNoSeValida`** — Basura en el parámetro no rompe, devuelve inválido.
+- **`UnEstadoVencidoNoSeValida`** — El `state` vence a los 10 minutos.
+- **`UnaFirmaConOtraClaveNoSeValida`** — Una firma generada con otra clave no valida.
+
+### Unitarias — `MercadoPago/ClienteOauthMpTest.cs` — Slice 20 (2 tests)
+
+- **`IntercambiaElCodigoConElFormularioCompleto`** — El intercambio del código OAuth manda el
+  formulario completo (grant_type, code, client_id/secret, redirect_uri) a la API de MP.
+- **`UnCodigoRechazadoPorMercadoPagoFallaConExcepcionEspecifica`** — Un código rechazado lanza
+  `IntercambioOauthFallidoException` con el detalle del proveedor.
+
+### Unitarias — `Catalogo/LavaderoSuscripcionVinculacionTest.cs` — Slice 20 (6 tests)
+
+- **`ElAltaDejaLaSuscripcionPendiente`** — El lavadero nace con la suscripción pendiente (mock):
+  hay que pagarla desde el panel.
+- **`ActivarSuscripcion_FijaActivoYVencimiento`** — El cobro activa la suscripción y fija el
+  vencimiento (+30 días).
+- **`ElLavaderoNaceDesvinculadoDeMercadoPago`** — Sin OAuth previo no hay tokens ni `mp_user_id`.
+- **`VincularMercadoPago_MarcaVinculadoYPersisteLosDatos`** — La vinculación OAuth guarda el par
+  de tokens cifrado y el `user_id`.
+- **`ReVincular_ReemplazaLosTokensAnteriores`** — Re-vincular reemplaza el par viejo (no hay
+  tokens huérfanos).
+- **`Desvincular_DejaFalseYLimpiaLosTokens`** — Desvincular (o un refresh fallido) limpia el
+  estado: la cuenta vuelve a no-vinculada.
+
+### Unitarias — `Catalogo/LavaderoSuscripcionVigenteTest.cs` — Slice 20 (5 tests)
+
+- **`UnaSuscripcionPendienteNoEstaVigente`**, **`UnaSuscripcionActivaConVencimientoFuturoEstaVigente`**,
+  **`UnaSuscripcionActivaSinVencimientoRegistradoEstaVigente`**,
+  **`UnaSuscripcionVencidaNoEstaVigente`**, **`ElVencimientoEsInclusivoEnElBordeExacto`** —
+  Regla de vigencia de la suscripción que decide si el panel muestra «pendiente» y si el cobro
+  mock responde 409.
+
+### Unitarias — `Reembolsos/ProcesarReembolsosServicioTest.cs` — Slice 20 (+3 tests)
+
+- **`ElReintegroSePideConElTokenDelLavadero`** — El reembolso se pide con el token de la cuenta
+  del lavadero que cobró (no con un token global del operador).
+- **`UnLavaderoDesvinculadoDejaElReembolsoFallidoConMotivo`** — Si la cuenta se desvinculó, el
+  reembolso queda fallido con el motivo y no sale a la pasarela.
+- **`UnTokenRechazadoRefrescaYReintentaUnaVez`** — Un 401 dispara el refresh del par del lavadero
+  y un único reintento; si el token nuevo sirve, el reembolso se procesa.
+
+### Integración — `SuscripcionTest.cs` — Slice 20 (4 tests)
+
+- **`ElPrimerCobroActivaLaSuscripcionPorTreintaDias`** — `POST /api/lavaderos/{id}/suscripcion/pagar`
+  activa 30 días.
+- **`UnDoblePagoDelMesDevuelve409SuscripcionActiva`** — Un segundo cobro con vigencia activa
+  responde 409 `suscripcion_activa`.
+- **`UnAdminAjenoDevuelve403NoEsPropietario`** — Un administrador de otro lavadero no cobra.
+- **`UnLavaderoInexistenteDevuelve404`** — `lavadero_inexistente`.
+
+### Integración — `PerfilLavaderoTest.cs` — Slice 20 (4 tests)
+
+- **`DevuelveLaSuscripcionPendienteYLaVinculacionSinTokens`** — `GET /api/lavaderos/{id}/perfil`
+  devuelve exactamente `suscripcionActiva`, `suscripcionVenceEl` y `mercadopagoVinculado`
+  (nunca tokens).
+- **`ReflejaLaSuscripcionActivaYLaCuentaVinculada`** — Tras cobrar y vincular, el perfil refleja
+  ambos estados.
+- **`UnAdminAjenoDevuelve403NoEsPropietario`**, **`UnLavaderoInexistenteDevuelve404`** —
+  Autorización por propiedad y 404.
+
+### Integración — `VinculacionMpTest.cs` — Slice 20 (9 tests)
+
+- **`ConectarDevuelveLaUrlDeAutorizacionConStateFirmado`** — `GET .../mercadopago/oauth/conectar`
+  devuelve la URL de consentimiento con `state` HMAC.
+- **`ConectarDeOtroLavaderoDevuelve403NoEsPropietario`**, **`ConectarParaUnLavaderoInexistenteDevuelve404`** —
+  Autorización del inicio del flujo.
+- **`ConectarSinCredencialesDevuelve503MercadopagoNoConfigurado`** — Sin `MercadoPago:ClientId/…`
+  el flujo responde 503 `mercadopago_no_configurado`, nunca arranca a medias.
+- **`ElCallbackCompletoVinculaElLavaderoYRedirigeAMpOk`** — El callback intercambia el código,
+  cifra los tokens y redirige 302 al panel con `mp=ok`.
+- **`UnStateInvalidoRedirigeAMpErrorSinVincular`**, **`UnStateVencidoRedirigeAMpError`**,
+  **`CuandoMercadoPagoRechazaElCodigoRedirigeAMpError`** — Todos los fracasos redirigen con
+  `mp=error` y **no** vinculan nada.
+- **`RevincularReemplazaLosTokens`** — Re-corrida del flujo reemplaza el par.
+
+### Integración — `VinculacionTokensTest.cs` — Slice 20 (4 tests)
+
+- **`ObtenerTokenVigenteDescifraElTokenDelLavadero`** — `IObtenedorTokensMp` entrega el token
+  descifrado del lavadero pedido.
+- **`UnLavaderoSinVinculacionLanzaMercadoPagoNoVinculado`** — Sin vínculo, `MercadoPagoNoVinculadoException`.
+- **`RefrescarTokenRenuevaElParYLoPersisteCifrado`** — El refresh pide a MP con
+  `grant_type=refresh_token` y persiste el nuevo par cifrado.
+- **`UnRefreshFallidoDesvinculaElLavaderoYLanzaMercadoPagoNoVinculado`** — El fracaso del refresh
+  desvincula y propaga (reserva 422 / webhook 503; RB-1: nada se confirma).
+
+### Integración — `WebhookTokenLavaderoTest.cs` — Slice 20 (4 tests)
+
+- **`VerificaElPagoConElTokenDelLavaderoResueltoPorElUserIdDelPayload`** — El webhook resuelve el
+  lavadero por `user_id` del payload y verifica el pago con su token; el turno se confirma.
+- **`UnTokenRechazadoRefrescaYVerificaDeNuevo`** — 401 ⇒ refresh del par y reintento único; el
+  turno igual se confirma si el token nuevo sirve.
+- **`UnRefreshFallidoDesvinculaYNadaSeConfirma`** — Refresh fallido ⇒ desvinculación y ningún
+  turno confirmado (RB-1; MP reintenta contra el 503).
+- **`SinLavaderoResolubleElWebhookNoHaceNada`** — Ni fila `Pago` ni `user_id` ⇒ `TurnoNoEncontrado`,
+  sin llamadas a la pasarela.
+
+### Integración — `EndpointReservaTest.cs` — Slice 20 (+2 tests)
+
+- **`SinVinculacionLaReservaResponde422MercadoPagoNoVinculado`** — La reserva de un lavadero sin
+  cuenta vinculada responde 422 `mercadopago_no_vinculado` y no crea turnos.
+- **`ConVinculacionLaReservaUsaElTokenDelLavaderoYDevuelveElMontoDeLaSena`** — Con vínculo, la
+  preferencia se crea con el token del lavadero (visible en la pasarela doble) y la respuesta 201
+  incluye `initPoint` y `montoSena` (la seña, no el precio total).
+
+### Integración — `ArranqueProduccionSinCredencialesTest.cs` — Slice 20 (1 test)
+
+- **`ElHostArrancaEnProduccionSinNingunaCredencial`** — Con `Environment=Production` y sin
+  `MercadoPago:*` ni `Pagos:*`, el host levanta (D-20.6: ninguna credencial bloquea el arranque).
+
+### Integración — `CorsTest.cs` — Slice 20 (2 tests)
+
+- **`EnDevelopmentElPreflightRespondeConCabecerasCors`** / **`EnProductionElPreflightNoTieneCabecerasCors`** —
+  CORS existe sólo en desarrollo: en producción la web comparte origen con la API (D-20.9).
+
+### Integración — `BackfillSuscripcionTest.cs` — Slice 20 (1 test)
+
+- **`ElLavaderoPrevioAlSlice20QuedaConSuscripcionActiva`** — La migración `Slice20SuscripcionVinculacion`
+  backfillea `suscripcion_activa = true` a los lavaderos existentes: el despliegue no los deja sin
+  poder operar.
+
 
 

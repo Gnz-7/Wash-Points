@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using WashPoints.Domain.Comprobantes;
+using WashPoints.Domain.MercadoPago;
 using WashPoints.Domain.Ocupacion;
 using WashPoints.Domain.Puertos;
 using WashPoints.Domain.Reembolsos;
@@ -45,6 +46,7 @@ public enum ResultadoWebhook
 public sealed class WebhookPagoServicio
 {
     private readonly IPasarelaPagos _pasarela;
+    private readonly IObtenedorTokensMp _tokensMp;
     private readonly IOcupacionRepositorio _turnos;
     private readonly WashPointsDbContext _contexto;
     private readonly IEmisorComprobante _emisorComprobante;
@@ -53,6 +55,7 @@ public sealed class WebhookPagoServicio
 
     public WebhookPagoServicio(
         IPasarelaPagos pasarela,
+        IObtenedorTokensMp tokensMp,
         IOcupacionRepositorio turnos,
         WashPointsDbContext contexto,
         IEmisorComprobante emisorComprobante,
@@ -60,6 +63,7 @@ public sealed class WebhookPagoServicio
         TimeProvider? reloj = null)
     {
         _pasarela = pasarela;
+        _tokensMp = tokensMp;
         _turnos = turnos;
         _contexto = contexto;
         _emisorComprobante = emisorComprobante;
@@ -73,11 +77,14 @@ public sealed class WebhookPagoServicio
     /// <param name="tipo">Campo <c>type</c> del IPN (<c>payment</c>, <c>refund</c>…).</param>
     /// <param name="accion">Campo <c>action</c> del IPN (<c>payment.refunded</c>…), si vino.</param>
     /// <param name="dataId">Identificador del recurso notificado.</param>
+    /// <param name="userId">Campo <c>user_id</c> del payload (la cuenta de MP
+    /// que cobró: el lavadero). Puede venir como número o string.</param>
     /// <param name="ct">Cancelación.</param>
     public async Task<ResultadoWebhook> ProcesarAsync(
         string? tipo,
         string? accion,
         string dataId,
+        string? userId,
         CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(dataId);
@@ -95,7 +102,32 @@ public sealed class WebhookPagoServicio
             return ResultadoWebhook.Ignorado;
         }
 
-        var verificacion = await _pasarela.VerificarPagoAsync(dataId, ct);
+        // slice-20 (D-20.5): el pago vive en la cuenta de Mercado Pago del
+        // lavadero, así que la verificación se hace con el token de ESA
+        // cuenta. El lavadero se resuelve antes de verificar: primero por el
+        // pago ya registrado (duplicados y fuera de orden) y, si no hay fila,
+        // por el user_id del payload.
+        var lavaderoId = await ResolverLavaderoDelPagoAsync(dataId, userId, ct);
+        if (lavaderoId is null)
+        {
+            return ResultadoWebhook.TurnoNoEncontrado;
+        }
+
+        var accessToken = await _tokensMp.ObtenerTokenVigenteAsync(lavaderoId.Value, ct);
+
+        ResultadoVerificacionPago verificacion;
+        try
+        {
+            verificacion = await _pasarela.VerificarPagoAsync(dataId, accessToken, ct);
+        }
+        catch (PasarelaTokenInvalidoException)
+        {
+            // Token expirado o revocado: un refresco y un solo reintento
+            // (CA-S20.15). Un refresh fallido desvincula y lanza
+            // MercadoPagoNoVinculadoException, que el endpoint mapea.
+            var fresco = await _tokensMp.RefrescarTokenAsync(lavaderoId.Value, ct);
+            verificacion = await _pasarela.VerificarPagoAsync(dataId, fresco, ct);
+        }
         var mpPaymentId = string.IsNullOrWhiteSpace(verificacion.MpPaymentId)
             ? dataId
             : verificacion.MpPaymentId;
@@ -219,6 +251,62 @@ public sealed class WebhookPagoServicio
             // orden con otro payment_id). Idempotente: 200 sin efecto (T-18).
             return ResultadoWebhook.Duplicado;
         }
+    }
+
+    /// <summary>
+    /// Resuelve el lavadero dueño del pago <b>antes</b> de verificarlo
+    /// (D-20.5): primero por un pago ya registrado con ese payment id (cubre
+    /// duplicados y notificaciones fuera de orden) y, si no hay fila, por el
+    /// <c>user_id</c> del payload (el <c>mp_user_id</c> en claro del lavadero,
+    /// que puede venir como número o como string). Sin lavadero, la
+    /// notificación no puede verificarse con la cuenta correcta: se responde
+    /// <c>TurnoNoEncontrado</c> para que Mercado Pago reintente.
+    /// </summary>
+    private async Task<Guid?> ResolverLavaderoDelPagoAsync(
+        string dataId,
+        string? userId,
+        CancellationToken ct)
+    {
+        var turnoId = await _contexto.Pagos
+            .Where(p => p.MpPaymentId == dataId)
+            .Select(p => (Guid?)p.TurnoId)
+            .FirstOrDefaultAsync(ct);
+
+        if (turnoId is not null)
+        {
+            var turno = await _turnos.ObtenerAsync(turnoId.Value, ct);
+            if (turno is not null)
+            {
+                return turno.LavaderoId;
+            }
+        }
+
+        var normalizado = userId?.Trim();
+        if (string.IsNullOrWhiteSpace(normalizado))
+        {
+            return null;
+        }
+
+        var porUsuario = await _contexto.Lavaderos
+            .Where(l => l.MpUserId == normalizado)
+            .Select(l => (Guid?)l.Id)
+            .FirstOrDefaultAsync(ct);
+        if (porUsuario is not null)
+        {
+            return porUsuario;
+        }
+
+        // El payload de Mercado Pago trae el user_id numérico sin comillas;
+        // en la base se guardó como string. Se compara la forma numérica.
+        if (long.TryParse(normalizado, out var numero))
+        {
+            return await _contexto.Lavaderos
+                .Where(l => l.MpUserId == numero.ToString())
+                .Select(l => (Guid?)l.Id)
+                .FirstOrDefaultAsync(ct);
+        }
+
+        return null;
     }
 
     private static ResultadoPago Mapear(EstadoVerificacionPago estado) => estado switch

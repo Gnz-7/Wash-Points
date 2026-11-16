@@ -24,7 +24,7 @@ public sealed class PasarelaPagosFakeSimuladaTest
     {
         var pasarela = new PasarelaPagosFakeSimulada();
 
-        var resultado = await pasarela.VerificarPagoAsync("pago-desconocido", CancellationToken.None);
+        var resultado = await pasarela.VerificarPagoAsync("pago-desconocido", "token-1", CancellationToken.None);
 
         Assert.Equal(EstadoVerificacionPago.Pendiente, resultado.Estado);
     }
@@ -36,7 +36,7 @@ public sealed class PasarelaPagosFakeSimuladaTest
         var turnoId = Guid.NewGuid();
         pasarela.ScriptearVerificacion("pago-1", ResultadoVerificacionPago.Aprobado(turnoId, "pago-1"));
 
-        var resultado = await pasarela.VerificarPagoAsync("pago-1", CancellationToken.None);
+        var resultado = await pasarela.VerificarPagoAsync("pago-1", "token-1", CancellationToken.None);
 
         Assert.Equal(EstadoVerificacionPago.Aprobado, resultado.Estado);
         Assert.Equal(turnoId, resultado.TurnoId);
@@ -48,7 +48,7 @@ public sealed class PasarelaPagosFakeSimuladaTest
         var pasarela = new PasarelaPagosFakeSimulada { EnModoCaida = true };
 
         await Assert.ThrowsAsync<PasarelaNoDisponibleException>(
-            () => pasarela.CrearPreferenciaAsync(Preferencia(), CancellationToken.None));
+            () => pasarela.CrearPreferenciaAsync(Preferencia(), "token-1", CancellationToken.None));
     }
 
     [Fact]
@@ -57,7 +57,7 @@ public sealed class PasarelaPagosFakeSimuladaTest
         var pasarela = new PasarelaPagosFakeSimulada { EnModoCaida = true };
 
         await Assert.ThrowsAsync<PasarelaNoDisponibleException>(
-            () => pasarela.VerificarPagoAsync("pago-1", CancellationToken.None));
+            () => pasarela.VerificarPagoAsync("pago-1", "token-1", CancellationToken.None));
     }
 
     [Fact]
@@ -65,7 +65,7 @@ public sealed class PasarelaPagosFakeSimuladaTest
     {
         var pasarela = new PasarelaPagosFakeSimulada();
 
-        var creada = await pasarela.CrearPreferenciaAsync(Preferencia(), CancellationToken.None);
+        var creada = await pasarela.CrearPreferenciaAsync(Preferencia(), "token-1", CancellationToken.None);
 
         Assert.False(string.IsNullOrWhiteSpace(creada.PreferenceId));
         Assert.StartsWith("https://checkout.test/", creada.InitPoint);
