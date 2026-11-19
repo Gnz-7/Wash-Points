@@ -4,10 +4,14 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <!-- Escáner de comprobantes QR (slice-20, T-225): mobile_scanner. -->
     <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- Despliegue en LAN por HTTP (slice-20): Android 9+ bloquea el tráfico en
+         claro por defecto. La API se sirve por http://<IP>:8081 (Nginx del
+         compose) durante la validación en dispositivo; con HTTPS esto se quita. -->
     <application
         android:label="wash_points_app"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

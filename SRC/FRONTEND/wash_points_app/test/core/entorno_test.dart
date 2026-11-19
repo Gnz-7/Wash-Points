@@ -73,4 +73,17 @@ void main() {
       expect(entorno.hubDisponibilidad, Uri.parse('http://10.0.2.2:8080/disponibilidad'));
     });
   });
+
+  group('Entorno.desdeDartDefine (regresión APK, 19/11)', () {
+    test('fuera de web no evalúa Uri.base.origin y no lanza', () {
+      // En el VM de tests `Uri.base` es `file:///…`. Antes de la guarda de
+      // `kIsWeb`, evaluar `Uri.base.origin` lanzaba «Bad state: Origin is only
+      // applicable schemes http and https» dentro del handler del botón del
+      // APK: la pantalla quedaba sin spinner, sin mensaje y sin request.
+      late Entorno entorno;
+      expect(() => entorno = Entorno.desdeDartDefine(), returnsNormally);
+      expect(entorno.apiBaseUrl, startsWith('http'));
+      expect(entorno.hubUrl, entorno.apiBaseUrl + '/hubs');
+    });
+  });
 }

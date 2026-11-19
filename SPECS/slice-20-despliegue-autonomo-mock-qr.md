@@ -391,9 +391,17 @@ del pago usa el token del lavadero (D-20.5).
 | `MercadoPago:ClientSecret` | vacío | Intercambio `code`→tokens | No (503 al vincular) |
 | `MercadoPago:RedirectUri` | vacío | Callback OAuth (`http://localhost:8081/api/mercadopago/oauth/callback` en dev) | No (503 al vincular) |
 | `MercadoPago:ClaveTokens` | vacía | Cifrado AES-GCM de tokens en reposo | No (503 al vincular; User Secrets/env) |
-| `Pagos:WebhookSecret` | vacío | Firma HMAC del webhook (app única del operador) | No (fail-safe: rechaza todo) |
-| `Pagos:AccessToken` | — | **Obsoleto** (sin uso; la reserva usa el token del lavadero) | No |
-| `Pagos:UrlNotificacion` | — | Documental: URL del webhook configurada en la app de MP | No |
+| `Pagos:WebhookSecret` | `washpoints-webhook-secret-local` en compose (vacío sin compose) | Firma HMAC del webhook (app única del operador); debe ser la «Clave secreta» de MP | No (fail-safe: rechaza todo) |
+| `Pagos:AccessToken` | — | **Obsoleto** (sin uso; la reserva usa el token del lavadero). Sigue siendo una de las tres claves de `ClavesFaltantes()`, o sea la condición del worker de reembolsos | No |
+| `Pagos:UrlNotificacion` | vacío | URL pública del webhook registrada en MP; viaja como `notification_url` de la preferencia y es condición del worker de reembolsos | No |
+
+En el despliegue, las variables de entorno del compose son `MERCADOPAGO_CLIENT_ID`,
+`MERCADOPAGO_CLIENT_SECRET`, `MERCADOPAGO_REDIRECT_URI`, `MERCADOPAGO_CLAVE_TOKENS`,
+`PAGOS_WEBHOOK_SECRET`, `PAGOS_URL_NOTIFICACION` y `COMPROBANTES_CLAVE_CIFRADO`
+(mapeadas a las secciones `MercadoPago`, `Pagos` y `Comprobantes`; ver `.env.example`).
+El `RedirectUri` debe apuntar al origen público de la API (en el compose,
+`http://localhost:8081/api/mercadopago/oauth/callback`, detrás del proxy de Nginx);
+`Pagos:UrlNotificacion` debe ser una URL alcanzable desde internet (nunca `localhost`).
 
 ## 5. Casos de aceptación
 

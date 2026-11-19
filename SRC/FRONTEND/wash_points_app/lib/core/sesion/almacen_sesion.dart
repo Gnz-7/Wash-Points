@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import 'almacen_sesion_memoria.dart';
 import 'sesion.dart';
 
 /// Persistencia de la sesión entre arranques (D-10.4).
@@ -56,4 +57,38 @@ class AlmacenSesionSeguro implements AlmacenSesion {
 
   @override
   Future<void> borrar() => _almacenamiento.delete(key: _clave);
+}
+
+/// Elige el almacén de sesión según la plataforma y el origen de la página.
+///
+/// En web, `flutter_secure_storage` cifra con WebCrypto y el navegador sólo lo
+/// expone en **contextos seguros**: HTTPS o `localhost`. Servida por HTTP
+/// desde una IP de la LAN (`http://192.168.x.x:8081`), la escritura lanza
+/// `UnsupportedError` y el login no puede publicar la sesión. En ese caso se
+/// usa [AlmacenSesionMemoria], que mantiene el token sólo en memoria (AGENTS
+/// §3.4) a cambio de pedir login al recargar.
+///
+/// La decisión es pura para poder probarla sin navegador.
+AlmacenSesion fabricaAlmacenSesion({
+  required bool esWeb,
+  required Uri base,
+  AlmacenSesion? seguro,
+  AlmacenSesion? memoria,
+}) {
+  if (esWeb && !_esContextoSeguro(base)) {
+    return memoria ?? AlmacenSesionMemoria();
+  }
+
+  return seguro ?? AlmacenSesionSeguro();
+}
+
+/// Réplica de la regla del navegador para contextos seguros: HTTPS en
+/// cualquier host, HTTP sólo en `localhost`/loopback.
+bool _esContextoSeguro(Uri base) {
+  if (base.scheme == 'https') {
+    return true;
+  }
+
+  final host = base.host.toLowerCase();
+  return host == 'localhost' || host == '127.0.0.1' || host == '::1';
 }

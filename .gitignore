@@ -14,6 +14,9 @@ TestResults/
 # Docker / entorno local
 .env
 .env.*
+# La plantilla SÍ se versiona (el resto de .env.* no): sin esta excepción
+# `.env.example` queda ignorado y el repo pierde la referencia de variables.
+!.env.example
 
 # Flutter
 .dart_tool/

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/panel/data/almacen_offline_provider.dart';
@@ -7,8 +8,12 @@ import 'aviso_sesion.dart';
 import 'sesion.dart';
 
 /// Almacenamiento seguro de la sesión (D-10.4).
+///
+/// En web servida por HTTP desde una IP de la LAN no hay contexto seguro y
+/// `flutter_secure_storage` no puede cifrar: la fábrica cae a memoria para que
+/// el login funcione sin dejar el token en `localStorage`.
 final almacenSesionProvider = Provider<AlmacenSesion>(
-  (ref) => AlmacenSesionSeguro(),
+  (ref) => fabricaAlmacenSesion(esWeb: kIsWeb, base: Uri.base),
 );
 
 /// Sesión activa de la app.

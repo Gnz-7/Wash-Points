@@ -36,9 +36,16 @@ class Entorno {
 
     // `kIsWeb` es constante de compilación y `Uri.base` no es simulable en
     // tests: la resolución vive en [resolver] con los valores inyectados.
+    //
+    // `Uri.base.origin` sólo se evalúa en web: en Android/iOS `Uri.base` es
+    // `file:///` y su `origin` lanza «Bad state: Origin is only applicable
+    // schemes http and https». Evaluarlo siempre rompía el alta y el login del
+    // APK dentro del handler del botón (19/11): la excepción no capturada
+    // dejaba la pantalla sin spinner, sin mensaje y sin request.
+    final esWeb = kIsWeb;
     return resolver(
-      esWeb: kIsWeb,
-      origenWeb: Uri.base.origin,
+      esWeb: esWeb,
+      origenWeb: esWeb ? Uri.base.origin : '',
       esAndroid: defaultTargetPlatform == TargetPlatform.android,
       apiConfigurada: apiConfigurada,
       hubConfigurado: hubConfigurado,

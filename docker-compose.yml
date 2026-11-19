@@ -36,6 +36,12 @@ services:
       MercadoPago__ClientSecret: ${MERCADOPAGO_CLIENT_SECRET:-}
       MercadoPago__RedirectUri: ${MERCADOPAGO_REDIRECT_URI:-http://localhost:8081/api/mercadopago/oauth/callback}
       MercadoPago__ClaveTokens: ${MERCADOPAGO_CLAVE_TOKENS:-}
+      # Webhook (sección Pagos, D-20.5): el secreto firma el x-signature y la
+      # URL es la que MP tiene registrada en la app (pública, nunca localhost).
+      # El default del secreto es el de desarrollo para no romper el flujo local
+      # ya documentado; con la clave real de MP, completarla en .env.
+      Pagos__WebhookSecret: ${PAGOS_WEBHOOK_SECRET:-washpoints-webhook-secret-local}
+      Pagos__UrlNotificacion: ${PAGOS_URL_NOTIFICACION:-}
       Comprobantes__ClaveCifrado: ${COMPROBANTES_CLAVE_CIFRADO:-}
     ports:
       - "8080:8080"
