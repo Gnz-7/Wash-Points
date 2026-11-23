@@ -41,6 +41,7 @@ class MapaPlaceholder implements ProveedorMapas {
     bool siguiendo = false,
     ValueChanged<EventoMapa>? alMoverMapa,
     double? alto,
+    ValueChanged<PuntoRuta>? alTocarCoordenada,
   }) {
     final tema = Theme.of(contexto);
 

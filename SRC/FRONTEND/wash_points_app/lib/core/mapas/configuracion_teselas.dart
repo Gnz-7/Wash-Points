@@ -2,38 +2,39 @@ import 'package:flutter/foundation.dart';
 
 /// Teselas y atribución del mapa (slice-21, D-21.8).
 ///
-/// Con `MAPS_API_KEY` se usa MapTiler `streets-v2`; sin clave, **Carto Voyager**
-/// como fallback de desarrollo (estética más limpia que el raster de OSM y con
-/// atribución explícita). La atribución no es opcional: es condición de uso de
-/// ambos proveedores.
+/// Con `MAPS_API_KEY` se usa MapTiler `streets-v2`; sin clave, el raster
+/// estándar de **OpenStreetMap** como fallback de desarrollo. La atribución no
+/// es opcional: es condición de uso de ambos proveedores.
+///
+/// El fallback era Carto Voyager hasta el 23/11/2026; Carto empezó a exigir API
+/// key y devolvía teselas con el sello «API KEY REQUIRED» (200 con 2 KB de
+/// imagen), así que el mapa se veía vacío sin `MAPS_API_KEY`.
 @immutable
 class ConfiguracionTeselas {
   const ConfiguracionTeselas({
     required this.urlPlantilla,
     required this.atribucion,
     required this.proveedor,
+    this.subdominios = const <String>[],
   });
 
   /// Plantilla de URL para `TileLayer`.
   final String urlPlantilla;
 
-  /// Texto de atribución obligatorio («© OpenStreetMap contributors · © CARTO»).
+  /// Texto de atribución obligatorio.
   final String atribucion;
 
-  /// `maptiler` | `carto`: útil para tests y diagnósticos.
+  /// `maptiler` | `osm`: útil para tests y diagnósticos.
   final String proveedor;
 
-  /// Subdominios de Carto (`{s}` en la plantilla).
-  static const List<String> subdominiosCarto = ['a', 'b', 'c', 'd'];
+  /// Subdominios de la plantilla (`{s}`). Vacío = no usar `{s}`.
+  ///
+  /// El raster estándar de OSM pide **no** balancear por subdominio
+  /// (`tile.openstreetmap.org` no expone `{s}`). MapTiler tampoco lo usa.
+  final List<String> subdominios;
 
   /// Configuración por defecto según haya clave o no.
-  ///
-  /// [retina] agrega `@2x` en Carto (pantallas densas): el proveedor sirve
-  /// teselas de doble resolución.
-  factory ConfiguracionTeselas.porDefecto({
-    String? apiKey,
-    bool retina = false,
-  }) {
+  factory ConfiguracionTeselas.porDefecto({String? apiKey}) {
     final clave = (apiKey ?? '').trim();
     if (clave.isNotEmpty) {
       return ConfiguracionTeselas(
@@ -44,12 +45,10 @@ class ConfiguracionTeselas {
       );
     }
 
-    return ConfiguracionTeselas(
-      urlPlantilla:
-          'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}'
-          '${retina ? '@2x' : ''}.png',
-      atribucion: '© OpenStreetMap contributors · © CARTO',
-      proveedor: 'carto',
+    return const ConfiguracionTeselas(
+      urlPlantilla: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      atribucion: '© OpenStreetMap contributors',
+      proveedor: 'osm',
     );
   }
 }

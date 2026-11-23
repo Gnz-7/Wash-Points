@@ -60,6 +60,7 @@ abstract interface class ProveedorMapas {
     bool siguiendo = false,
     ValueChanged<EventoMapa>? alMoverMapa,
     double? alto,
+    ValueChanged<PuntoRuta>? alTocarCoordenada,
   });
 }
 

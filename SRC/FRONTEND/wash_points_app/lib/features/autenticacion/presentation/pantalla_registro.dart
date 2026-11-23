@@ -4,14 +4,17 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/config/entorno.dart';
 import '../../../core/errores/api_exception.dart';
+import '../../../core/mapas/capa_ruta.dart';
+import '../../../core/mapas/selector_ubicacion.dart';
 import 'autenticacion_notifier.dart';
 
 /// Alta de cuenta de cliente o de administrador (T-92, CA-S9.4/CA-S9.5).
 ///
-/// El alta de administrador crea su lavadero en el backend; la ubicación se
-/// toma del centro configurado (D-09.10) porque todavía no hay geolocalización
-/// real. El cliente nunca decide si la cuenta es válida: eso lo responde el
-/// servidor.
+/// El alta de administrador crea su lavadero en el backend y elige la
+/// coordenada del local sobre un mapa ([SelectorUbicacion], slice-21 D-21.15):
+/// antes se enviaba siempre el centro de CABA y todos los lavaderos quedaban
+/// superpuestos. El cliente nunca decide si la cuenta es válida: eso lo
+/// responde el servidor.
 class PantallaRegistro extends ConsumerStatefulWidget {
   const PantallaRegistro({super.key});
 
@@ -27,6 +30,10 @@ class _PantallaRegistroState extends ConsumerState<PantallaRegistro> {
   final _direccion = TextEditingController();
   bool _esAdministrador = false;
   String? _error;
+
+  /// Coordenada elegida en el mapa o mediante GPS. El alta no usa una ubicación
+  /// predeterminada si el administrador no seleccionó una.
+  PuntoRuta? _ubicacion;
 
   @override
   void dispose() {
@@ -54,10 +61,15 @@ class _PantallaRegistroState extends ConsumerState<PantallaRegistro> {
       return;
     }
 
+    if (_esAdministrador && _ubicacion == null) {
+      setState(() => _error = 'Marcá la ubicación de tu lavadero en el mapa.');
+      return;
+    }
+
     setState(() => _error = null);
 
     final notifier = ref.read(autenticacionProvider.notifier);
-    final entorno = ref.read(entornoProvider);
+    final ubicacion = _ubicacion;
 
     final registro = _esAdministrador
         ? await notifier.registrarAdministrador(
@@ -68,8 +80,8 @@ class _PantallaRegistroState extends ConsumerState<PantallaRegistro> {
             direccion: _direccion.text.trim().isEmpty
                 ? null
                 : _direccion.text.trim(),
-            latitud: entorno.centroLatitud,
-            longitud: entorno.centroLongitud,
+            latitud: ubicacion!.latitud,
+            longitud: ubicacion.longitud,
           )
         : await notifier.registrarCliente(
             nombre: nombre,
@@ -92,6 +104,7 @@ class _PantallaRegistroState extends ConsumerState<PantallaRegistro> {
   @override
   Widget build(BuildContext context) {
     final cargando = ref.watch(autenticacionProvider).isLoading;
+    final entorno = ref.watch(entornoProvider);
 
     return Semantics(
       identifier: 'pantalla_registro',
@@ -182,6 +195,15 @@ class _PantallaRegistroState extends ConsumerState<PantallaRegistro> {
                         labelText: 'Dirección (opcional)',
                       ),
                     ),
+                  ),
+                  const SizedBox(height: 16),
+                  SelectorUbicacion(
+                    inicial: _ubicacion ??
+                        PuntoRuta(
+                          latitud: entorno.centroLatitud,
+                          longitud: entorno.centroLongitud,
+                        ),
+                    alElegir: (punto) => setState(() => _ubicacion = punto),
                   ),
                 ],
                 if (_error != null) ...[

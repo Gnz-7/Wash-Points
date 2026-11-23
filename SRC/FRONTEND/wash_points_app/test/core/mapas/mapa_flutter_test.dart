@@ -22,6 +22,7 @@ void main() {
     ValueChanged<EventoMapa>? alMoverMapa,
     double? alto = 400,
     MapaControlador? controlador,
+    ValueChanged<PuntoRuta>? alTocarCoordenada,
     String? apiKey = 'test',
   }) async {
     await tester.pumpWidget(
@@ -52,6 +53,7 @@ void main() {
               alMoverMapa: alMoverMapa,
               alto: alto,
               controlador: controlador,
+              alTocarCoordenada: alTocarCoordenada,
             ),
           ),
         ),
@@ -162,12 +164,13 @@ void main() {
     );
   });
 
-  testWidgets('sin MAPS_API_KEY usa Carto y muestra la atribución',
+  testWidgets('sin MAPS_API_KEY usa el raster de OSM y su atribución',
       (tester) async {
     await montar(tester, apiKey: null);
 
     final teselas = tester.widget<TileLayer>(find.byType(TileLayer));
-    expect(teselas.urlTemplate, contains('basemaps.cartocdn.com'));
+    expect(teselas.urlTemplate, 'https://tile.openstreetmap.org/{z}/{x}/{y}.png');
+    expect(teselas.subdomains, isEmpty);
     expect(
       find.byKey(const ValueKey('atribucion_teselas')),
       findsOneWidget,
@@ -177,7 +180,7 @@ void main() {
     );
     expect(
       (atribucion.attributions.single as TextSourceAttribution).text,
-      '© OpenStreetMap contributors · © CARTO',
+      '© OpenStreetMap contributors',
     );
   });
 
@@ -194,6 +197,24 @@ void main() {
       (atribucion.attributions.single as TextSourceAttribution).text,
       '© MapTiler · © OpenStreetMap contributors',
     );
+  });
+
+  testWidgets('un toque en el mapa emite la coordenada pulsada', (tester) async {
+    PuntoRuta? tocado;
+    await montar(tester, alTocarCoordenada: (punto) => tocado = punto);
+
+    // Lejos del pin (que ocupa el centro) para que el toque llegue al mapa.
+    await tester.tapAt(
+      tester.getCenter(find.byType(FlutterMap)) + const Offset(60, 40),
+    );
+    // flutter_map resuelve el toque recién cuando el reconocedor de doble toque
+    // pierde la arena (~300 ms).
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(tocado, isNotNull);
+    // El punto tocado está cerca del centro de búsqueda.
+    expect(tocado!.latitud, closeTo(-34.6, 0.1));
+    expect(tocado!.longitud, closeTo(-58.38, 0.1));
   });
 
   testWidgets('acepta un controlador externo sin liberarlo', (tester) async {

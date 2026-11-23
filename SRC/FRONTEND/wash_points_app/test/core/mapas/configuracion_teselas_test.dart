@@ -3,21 +3,22 @@ import 'package:wash_points_app/core/mapas/configuracion_teselas.dart';
 
 /// T-231 (slice-21, D-21.8): teselas y atribución por proveedor.
 void main() {
-  test('sin clave usa Carto Voyager con su atribución', () {
+  test('sin clave usa el raster estándar de OSM y su atribución', () {
     final config = ConfiguracionTeselas.porDefecto();
 
-    expect(config.proveedor, 'carto');
-    expect(config.urlPlantilla, contains('basemaps.cartocdn.com'));
-    expect(config.urlPlantilla, contains('/rastertiles/voyager/'));
-    expect(config.urlPlantilla, contains('{s}'));
-    expect(config.urlPlantilla, isNot(contains('@2x')));
-    expect(config.atribucion, '© OpenStreetMap contributors · © CARTO');
+    expect(config.proveedor, 'osm');
+    expect(config.urlPlantilla, 'https://tile.openstreetmap.org/{z}/{x}/{y}.png');
+    expect(config.atribucion, '© OpenStreetMap contributors');
   });
 
-  test('sin clave en pantalla densa pide teselas @2x', () {
-    final config = ConfiguracionTeselas.porDefecto(retina: true);
+  test('el fallback de OSM no balancea por subdominio', () {
+    // `tile.openstreetmap.org` no expone `{s}`: pasarlo deja teselas sin
+    // resolver. Carto exigía key en ese mismo endpoint (bug del 23/11/2026).
+    final config = ConfiguracionTeselas.porDefecto();
 
-    expect(config.urlPlantilla, contains('{y}@2x.png'));
+    expect(config.subdominios, isEmpty);
+    expect(config.urlPlantilla, isNot(contains('{s}')));
+    expect(config.urlPlantilla, isNot(contains('@2x')));
   });
 
   test('con clave usa MapTiler streets-v2 y su atribución', () {
@@ -29,14 +30,22 @@ void main() {
       'https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key=clave-abc',
     );
     expect(config.atribucion, '© MapTiler · © OpenStreetMap contributors');
+    expect(config.subdominios, isEmpty);
   });
 
   test('una clave vacía o con espacios se trata como ausente', () {
-    expect(ConfiguracionTeselas.porDefecto(apiKey: '').proveedor, 'carto');
-    expect(ConfiguracionTeselas.porDefecto(apiKey: '   ').proveedor, 'carto');
+    expect(ConfiguracionTeselas.porDefecto(apiKey: '').proveedor, 'osm');
+    expect(ConfiguracionTeselas.porDefecto(apiKey: '   ').proveedor, 'osm');
   });
 
-  test('expone los cuatro subdominios de Carto', () {
-    expect(ConfiguracionTeselas.subdominiosCarto, ['a', 'b', 'c', 'd']);
+  test('la atribución nunca queda vacía', () {
+    expect(
+      ConfiguracionTeselas.porDefecto().atribucion,
+      isNotEmpty,
+    );
+    expect(
+      ConfiguracionTeselas.porDefecto(apiKey: 'k').atribucion,
+      isNotEmpty,
+    );
   });
 }

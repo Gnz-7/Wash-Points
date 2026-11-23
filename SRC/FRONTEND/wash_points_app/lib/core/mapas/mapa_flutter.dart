@@ -13,8 +13,9 @@ import 'proveedor_mapas.dart';
 
 /// Adaptador de `flutter_map` (D-16.1, slice-21).
 ///
-/// Teselas: MapTiler `streets-v2` con `MAPS_API_KEY`; sin clave, Carto Voyager
-/// como fallback de desarrollo (D-21.8), siempre con atribución visible.
+/// Teselas: MapTiler `streets-v2` con `MAPS_API_KEY`; sin clave, el raster
+/// estándar de OpenStreetMap como fallback de desarrollo (D-21.8), siempre con
+/// atribución visible.
 class MapaFlutter implements ProveedorMapas {
   const MapaFlutter({this.tileProvider, this.apiKey});
 
@@ -52,15 +53,13 @@ class MapaFlutter implements ProveedorMapas {
     bool siguiendo = false,
     ValueChanged<EventoMapa>? alMoverMapa,
     double? alto,
+    ValueChanged<PuntoRuta>? alTocarCoordenada,
   }) {
     final centro = puntos.isEmpty
         ? LatLng(centroLatitud, centroLongitud)
         : LatLng(puntos.first.latitud, puntos.first.longitud);
 
-    final teselas = ConfiguracionTeselas.porDefecto(
-      apiKey: _clave,
-      retina: MediaQuery.devicePixelRatioOf(context) >= 2,
-    );
+    final teselas = ConfiguracionTeselas.porDefecto(apiKey: _clave);
 
     return _MapaWidget(
       puntos: puntos,
@@ -75,6 +74,7 @@ class MapaFlutter implements ProveedorMapas {
       ruta: ruta,
       alMoverMapa: alMoverMapa,
       alto: alto,
+      alTocarCoordenada: alTocarCoordenada,
     );
   }
 
@@ -101,6 +101,7 @@ class _MapaWidget extends StatefulWidget {
     required this.ruta,
     required this.alMoverMapa,
     required this.alto,
+    required this.alTocarCoordenada,
   });
 
   final List<PuntoMapa> puntos;
@@ -115,6 +116,7 @@ class _MapaWidget extends StatefulWidget {
   final CapaRuta? ruta;
   final ValueChanged<EventoMapa>? alMoverMapa;
   final double? alto;
+  final ValueChanged<PuntoRuta>? alTocarCoordenada;
 
   @override
   State<_MapaWidget> createState() => _MapaWidgetState();
@@ -222,7 +224,12 @@ class _MapaWidgetState extends State<_MapaWidget> {
         initialZoom: widget.zoom,
         minZoom: 3,
         maxZoom: 18,
-        onTap: (_, _) => widget.alSeleccionar?.call(''),
+        onTap: (_, punto) {
+          widget.alSeleccionar?.call('');
+          widget.alTocarCoordenada?.call(
+            PuntoRuta(latitud: punto.latitude, longitud: punto.longitude),
+          );
+        },
         onMapEvent: (evento) {
           switch (evento.source) {
             case MapEventSource.dragStart:
@@ -237,7 +244,7 @@ class _MapaWidgetState extends State<_MapaWidget> {
       children: [
         TileLayer(
           urlTemplate: widget.teselas.urlPlantilla,
-          subdomains: ConfiguracionTeselas.subdominiosCarto,
+          subdomains: widget.teselas.subdominios,
           userAgentPackageName: 'com.washpoints.app',
           tileProvider: widget.tileProvider,
         ),

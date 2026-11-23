@@ -1521,7 +1521,7 @@ tarea, la evidencia y la trazabilidad con los criterios de aceptación están en
   pantalla.
 - **`no captura los gestos del mapa`** — El marcador es decorativo: no intercepta arrastre ni zoom.
 
-### `core/mapas/mapa_flutter_test.dart` — Slice 21 (11 tests)
+### `core/mapas/mapa_flutter_test.dart` — Slice 21 (12 tests)
 
 - **`dibuja un pin por lavadero y avisa la selección`** — Cada punto del proveedor se pinta con su
   key (`pin_<id>`) y el toque devuelve el id al llamador.
@@ -1536,8 +1536,8 @@ tarea, la evidencia y la trazabilidad con los criterios de aceptación están en
   `EventoMapa.arrastreIniciado`, que apaga el auto-seguimiento (D-21.6).
 - **`con alto fijo conserva el recuadro; sin alto no lo impone`** — El mapa sigue sirviendo como
   recuadro embebido (slice-16) y como fondo a pantalla completa cuando `alto` es nulo.
-- **`sin MAPS_API_KEY usa Carto y muestra la atribución`** — Sin clave se usan teselas Carto
-  Voyager y la atribución «© OpenStreetMap contributors · © CARTO» (D-21.8).
+- **`sin MAPS_API_KEY usa el raster OSM y muestra la atribución`** — Sin clave se usa
+  `tile.openstreetmap.org` sin subdominios y la atribución «© OpenStreetMap contributors» (D-21.8).
 - **`con MAPS_API_KEY usa MapTiler y su atribución`** — Con clave la URL es MapTiler `streets-v2`
   con la clave incluida y la atribución correspondiente.
 - **`acepta un controlador externo sin liberarlo`** — El mapa no libera el `MapaControlador` que le
@@ -1545,16 +1545,38 @@ tarea, la evidencia y la trazabilidad con los criterios de aceptación están en
 
 ### `core/mapas/configuracion_teselas_test.dart` — Slice 21 (5 tests)
 
-- **`sin clave usa Carto Voyager con su atribución`** — Fallback de desarrollo: `basemaps.cartocdn.com`
-  con `{s}` y atribución de OSM + CARTO.
-- **`sin clave en pantalla densa pide teselas @2x`** — Con `devicePixelRatio >= 2` la plantilla pide
-  la variante `@2x`.
+- **`sin clave usa el raster estándar de OSM y su atribución`** — Fallback de desarrollo con URL
+  exacta y atribución «© OpenStreetMap contributors».
+- **`el fallback de OSM no balancea por subdominio`** — La plantilla no contiene `{s}` ni `@2x`;
+  el servidor estándar es `tile.openstreetmap.org`.
 - **`con clave usa MapTiler streets-v2 y su atribución`** — URL exacta de MapTiler con la clave y
   atribución de MapTiler + OSM.
 - **`una clave vacía o con espacios se trata como ausente`** — Una clave en blanco no produce una
-  URL de MapTiler inválida: cae a Carto.
-- **`expone los cuatro subdominios de Carto`** — `['a', 'b', 'c', 'd']`, los que espera
-  `TileLayer.subdomains`.
+  URL de MapTiler inválida: cae al raster de OSM.
+- **`la atribución nunca queda vacía`** — Ambos proveedores mantienen el crédito requerido.
+
+### `core/mapas/selector_ubicacion_test.dart` — Slice 21 (6 tests)
+
+- **`muestra el mapa con las coordenadas iniciales`** — El pin y el centro reflejan el punto
+  inicial configurado.
+- **`un toque en el mapa emite la coordenada elegida`** — Mover el pin informa el punto al
+  formulario.
+- **`«Usar mi ubicación» mueve el pin a la posición del GPS`** — GPS disponible actualiza mapa y
+  selección.
+- **`sin permiso muestra el motivo y no cambia la coordenada`** — El fallo de ubicación no altera
+  la selección existente.
+- **`con permiso concedido arranca en el GPS sin pedirlo`** — La consulta silenciosa inicial usa
+  la posición disponible.
+- **`sin permiso no consulta el GPS al montarse`** — No se solicita ubicación en el montaje.
+
+### `features/autenticacion/pantalla_registro_test.dart` — Slice 21 (5 tests)
+
+- **`el cliente no ve el selector de ubicación`** y **`el administrador ve el selector sobre el
+  mapa`** — El control sólo aparece para el rol administrador.
+- **`envía la coordenada elegida en el mapa`** y **`«Usar mi ubicación» fija la coordenada del
+  dispositivo`** — El alta transmite el punto elegido.
+- **`sin elegir ubicación no envía coordenadas predeterminadas`** — No se registra con el centro
+  fijo de CABA si no hay selección explícita.
 
 ### `core/rutas/calculador_rutas_osrm_test.dart` — Slice 21 (10 tests)
 

@@ -627,6 +627,7 @@ class MapaFalso implements ProveedorMapas {
     bool siguiendo = false,
     ValueChanged<EventoMapa>? alMoverMapa,
     double? alto,
+    ValueChanged<PuntoRuta>? alTocarCoordenada,
   }) {
     this.puntos = puntos;
     this.posicionUsuario = posicionUsuario;

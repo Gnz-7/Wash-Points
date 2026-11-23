@@ -17,10 +17,12 @@ cliente**:
 
 1. posición del usuario en tiempo real (permiso, seguimiento continuo, punto
    azul con halo y botón flotante para centrar);
-2. teselas más limpias (Carto Voyager sin clave, MapTiler streets-v2 con
-   `MAPS_API_KEY`) con atribución visible;
+2. teselas OSM estándar sin clave y MapTiler streets-v2 con `MAPS_API_KEY`,
+   ambos con atribución visible;
 3. ruta óptima dibujada al seleccionar un lavadero (OSRM con proxy del mismo
-   origen), con distancia y tiempo en la tarjeta, y derivación a Google Maps.
+   origen), con distancia y tiempo en la tarjeta, y derivación a Google Maps;
+4. ubicación del lavadero seleccionada en el registro de administrador, por
+   toque en el mapa o mediante GPS.
 
 **Principio rector:** el cliente sólo **dibuja** y **estima**. La disponibilidad
 (RB-2) sigue viniendo del hub y del endpoint de búsqueda; la reserva (RB-1) se
@@ -42,11 +44,13 @@ experiencia esperada:
    conduce, el mapa no se actualiza y no hay seguimiento.
 3. **El mapa es un recuadro de 200 px** dentro de una `Column`, con la lista
    debajo: ni la lista ni el mapa aprovechan la pantalla.
-4. **Teselas pobres.** Sin `MAPS_API_KEY` el cliente usa OSM rasters por defecto
-   (`tile.openstreetmap.org`), con estética cargada y **sin atribución**, que es
-   un incumplimiento de la política de uso de OSM.
+4. **Teselas sin atribución fiable.** El raster OSM estándar requiere la
+   atribución visible; el fallback Carto existente dejó de servir mapas sin
+   clave.
 5. **No hay noción de ruta.** Al elegir un lavadero el usuario ve una distancia
    en línea recta y no puede abrir la navegación en Google Maps.
+6. **Ubicación fija en el alta.** El registro de administrador enviaba siempre
+   el centro de CABA, superponiendo en el mapa lavaderos de otras ciudades.
 
 ## 2. Alcance y no alcance
 
@@ -59,11 +63,13 @@ experiencia esperada:
   con auto-seguimiento (D-21.6).
 - Layout nuevo del buscador: mapa a pantalla completa, hoja inferior
   arrastrable, FAB (D-21.2).
-- Teselas Carto Voyager / MapTiler con atribución (D-21.8).
+- Teselas raster OSM estándar / MapTiler con atribución (D-21.8).
 - Cálculo de ruta usuario→lavadero con OSRM, caché, timeout, debounce y
   fallback (D-21.9, D-21.10, D-21.12).
 - Proxy `location /osrm/` en `nginx.conf` (D-21.11).
 - Botón «Cómo llegar en Google Maps» (D-21.13).
+- Selector de coordenadas del lavadero en el registro de administrador
+  (D-21.15).
 - Tests de widget y unitarios de todo lo anterior (T-228 … T-237).
 
 **Fuera del alcance**
@@ -174,18 +180,41 @@ seguimiento se apaga (icono `my_location`) para no secuestrarle el mapa. Mientra
 
 Sin círculo de precisión (fuera de alcance) y sin animación de rumbo.
 
-### D-21.8 - Teselas: MapTiler con clave, Carto Voyager sin clave, atribución obligatoria
+### D-21.8 - Teselas: MapTiler con clave, raster de OSM sin clave, atribución obligatoria
 
 **Aprobada.** `ConfiguracionTeselas.porDefecto({String? apiKey})`:
 
 | Caso | `urlPlantilla` | Atribución |
 |------|----------------|------------|
 | Con `MAPS_API_KEY` | `https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key=<clave>` | `© MapTiler · © OpenStreetMap contributors` |
-| Sin clave | `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png` (`s` = `a`…`d`, `{r}` = `@2x` en pantallas densas) | `© OpenStreetMap contributors · © CARTO` |
+| Sin clave | `https://tile.openstreetmap.org/{z}/{x}/{y}.png` (sin `{s}` ni `@2x`) | `© OpenStreetMap contributors` |
 
 Se dibuja con `RichAttributionWidget` dentro del `FlutterMap` (abajo-izquierda,
 colapsable). **La atribución no es opcional**: es condición de uso de ambos
-proveedores y hoy el mapa no tiene ninguna.
+proveedores; el fallback previo no mostraba la atribución correcta de OSM.
+
+> **Corregido el 23/11/2026.** El fallback era Carto Voyager
+> (`{s}.basemaps.cartocdn.com/rastertiles/voyager/...`). Carto empezó a exigir API
+> key: la URL seguía respondiendo `200 image/png` pero devolvía una tesela de 2 KB
+> con el sello «API KEY REQUIRED — carto.com/basemaps/apikey», así que sin
+> `MAPS_API_KEY` el mapa se veía como un lienzo beige vacío en `localhost:8081`.
+> Verificado descargando la misma coordenada en ambos proveedores (Carto: 2049
+> bytes de placeholder; OSM: 38 991 bytes de mapa real). El fallback final es
+> `https://tile.openstreetmap.org/{z}/{x}/{y}.png`, sin `{s}` ni `@2x`, con
+> atribución exacta `© OpenStreetMap contributors`. `subdominios` pasó a ser un
+> campo de la configuración (vacío para OSM y MapTiler, que no usan `{s}`)
+> porque `TileLayer` los recibía fijos con los de Carto.
+
+### D-21.15 - Coordenadas del lavadero en el registro de administrador
+
+`PantallaRegistro` muestra `SelectorUbicacion` sólo para el rol administrador.
+El administrador puede tocar el mapa para mover el pin o elegir «Usar mi
+ubicación»; si el permiso ya estaba concedido, el selector toma la posición
+actual mediante una consulta silenciosa. Una respuesta GPS tardía no pisa una
+selección manual más reciente. El centro configurado puede servir como vista
+inicial del mapa, pero **no se envía al registro**: el formulario exige una
+selección y transmite latitud/longitud al endpoint existente. El cliente no
+geocodifica la dirección ni cambia contratos del backend.
 
 ### D-21.9 - Ruta con OSRM: puerto, caché, timeout y debounce
 
@@ -446,9 +475,9 @@ amplían; la resolución sigue viviendo en `resolver(...)` (puro, testeable).
   `https://www.google.com/maps/dir/?api=1&destination=-34.603700,-58.381600&travelmode=driving`
   (6 decimales fijos, `toStringAsFixed(6)`);
   si el lanzador devuelve `false`, se muestra el aviso.
-- **CA-S21.7** Sin `MAPS_API_KEY` la plantilla es Carto Voyager y la atribución
-  («© OpenStreetMap contributors · © CARTO») está presente; con clave, MapTiler y
-  su atribución.
+- **CA-S21.7** Sin `MAPS_API_KEY` la plantilla es
+  `https://tile.openstreetmap.org/{z}/{x}/{y}.png`, sin subdominios y con
+  atribución «© OpenStreetMap contributors»; con clave, MapTiler y su atribución.
 - **CA-S21.8** En web sin contexto seguro, intentar ubicarse explica el motivo
   («…HTTPS…») sin romper la pantalla ni pedir permiso, y la búsqueda sigue.
 - **CA-S21.9** La suscripción al GPS se cancela en `dispose` y al pasar a
@@ -463,6 +492,10 @@ amplían; la resolución sigue viviendo en `resolver(...)` (puro, testeable).
 - **CA-S21.12** La posición del usuario no se persiste ni se loguea, y las
   coordenadas enviadas a OSRM van redondeadas a 4 decimales (test del adaptador
   con HTTP falso que inspecciona la URL).
+- **CA-S21.13** En el registro, el selector de ubicación aparece sólo para
+  administradores; tocar el mapa mueve el pin y «Usar mi ubicación» selecciona
+  GPS. Se envían las coordenadas elegidas; sin selección el alta no se envía ni
+  usa el centro fijo de CABA.
 
 ## 6. Tareas
 
@@ -487,16 +520,18 @@ amplían; la resolución sigue viviendo en `resolver(...)` (puro, testeable).
 - Ampliar `ProveedorMapas.construir(...)` (D-21.5, §4.2) e implementarlo en
   `MapaFlutter`; `MapaPlaceholder` acepta los mismos parámetros y sigue
   devolviendo su banner.
+- Permitir que el toque del mapa entregue la coordenada bajo el dedo al selector
+  del registro.
 - `MapaControlador` + `MapaControladorFlutter`; `CapaRuta`/`PuntoRuta`/`EventoMapa`.
 - Tests con `TileProvider` falso (PNG 1×1 en memoria, nunca red): pines,
   marcador, `Polyline` (sólida y punteada), centrado por controlador, callback
-  de arrastre, alto a pantalla completa.
+  de arrastre, coordenada tocada, alto a pantalla completa.
 
 ### T-231 — Teselas y atribución
 
 - `ConfiguracionTeselas` (D-21.8) + `RichAttributionWidget`.
-- Tests: URL/atribución con y sin clave; `{r}` sólo en alta densidad; la
-  atribución aparece en el árbol.
+- Tests: URL exacta y atribución con y sin clave, ausencia de subdominios en el
+  fallback OSM y atribución presente en el árbol.
 
 ### T-232 — Calculador de rutas OSRM
 
@@ -556,6 +591,26 @@ amplían; la resolución sigue viviendo en `resolver(...)` (puro, testeable).
 - `AGENTS.md` §5.6 (bullet slice-21 con las trampas encontradas),
   `DOCS/ARCHITECTURE.md` §7.4 (mapas/rutas), `SPECS/README.md` (estado del
   slice) y `DOCS/CATALOGO_TESTS.md` (conteos nuevos).
+- En el cierre final se volvió a ejecutar la suite después de T-238/T-239:
+  baseline de 545, con 12 tests nuevos, total 557.
+
+### T-238 — Corrección del fallback de teselas OSM
+
+- Sustituir Carto Voyager por `tile.openstreetmap.org/{z}/{x}/{y}.png` sin
+  subdominios y con la atribución exacta exigida.
+- Actualizar las pruebas de configuración y del widget de mapa, además de la
+  documentación y evidencia del slice.
+- **CA:** S21.7.
+
+### T-239 — Selector de ubicación para el alta de administrador
+
+- Incorporar `SelectorUbicacion` en `PantallaRegistro` sólo para administradores,
+  con pin movible al tocar y acción «Usar mi ubicación».
+- Transmitir coordenadas elegidas; impedir el alta si no se seleccionó una
+  ubicación, en vez de enviar el centro fijo de CABA.
+- Probar la selección manual, el GPS, la ausencia del selector para clientes y
+  el rechazo de coordenadas predeterminadas.
+- **CA:** S21.13.
 
 ## 7. Riesgos
 
@@ -563,7 +618,7 @@ amplían; la resolución sigue viviendo en `resolver(...)` (puro, testeable).
 |--------|---------|------------|
 | OSRM público sin SLA ni uso comercial garantizado | La ruta falla o el servicio cambia | Caché, timeout 5 s, fallback (D-21.10) y self-host documentado: `location /osrm/` permite apuntar a una instancia propia cambiando una línea |
 | CORS de OSRM no verificado | La web no podría llamarlo directo | Proxy del mismo origen (D-21.11) |
-| Carto Voyager con límites de uso comercial | Bloqueo del proveedor en producción | Carto es el **fallback de desarrollo**; producción usa MapTiler con `MAPS_API_KEY` (misma configuración, un `dart-define`) |
+| Restricciones de uso del raster público OSM | Bloqueo por uso indebido de teselas | Se cumple la política de uso (atribución, sin subdominios) y se limita a tráfico compatible; para producción de mayor volumen se configura MapTiler con `MAPS_API_KEY` |
 | `flutter_secure_storage`/geolocalización web exigen contexto seguro | Por HTTP en IP de LAN no hay GPS ni sesión persistente | Mensaje explícito (D-21.14); la búsqueda por dirección sigue; HTTPS es la salida documentada |
 | El rediseño del layout toca ~10 `testWidgets` | Costo alto y riesgo de regresión visual | Se conservan todas las `ValueKey`/identifiers (CA-S21.11) y se reescribe el test pantalla por pantalla |
 | Stream del GPS abierto tras cerrar la pantalla | Batería y `Timer`s pendientes que rompen tests | Cancelación en `dispose` y `paused` (CA-S21.9), verificado con tests |
@@ -588,14 +643,15 @@ Smoke manual (dispositivo, fuera de la suite):
    llegar» abre Google Maps.
 4. Modo avión (o OSRM inalcanzable): polilínea punteada y «Sin ruta calculada»,
    reserva habilitada.
-5. En web (`http://localhost:8081`) el mapa usa Carto Voyager con atribución; en
+5. En web (`http://localhost:8081`) el mapa usa el raster OSM estándar con
+   atribución; en
    `http://<IP>:8081` la ubicación explica el motivo del contexto no seguro.
 
 Se cierra cuando:
 
-- [x] CA-S21.1 … CA-S21.12 verificados con evidencia en §10.
+- [x] CA-S21.1 … CA-S21.13 verificados con evidencia en §10.
 - [x] `flutter analyze` limpio y suite completa en verde, con el conteo nuevo
-      documentado (baseline 475 → 545).
+      documentado (baseline 475 → 557).
 - [x] `flutter build web --release` y `flutter build apk --debug` exitosos.
 - [x] Ninguna dependencia nueva en `pubspec.yaml`.
 - [x] Ningún cambio en backend, contratos de API, migraciones ni reglas de
@@ -605,8 +661,8 @@ Se cierra cuando:
 - [x] Documentación (AGENTS §5.4/§5.6, ARCHITECTURE §7.4/§7.7, SPECS/README,
       CATALOGO_TESTS) al día.
 - [x] `git diff` sin toques fuera de lo listado en §6 (más el refactor de
-      `esContextoSeguro` de T-228): sólo `lib/core/**` del buscador, tests,
-      `nginx.conf` y documentación.
+      `esContextoSeguro` de T-228 y T-238/T-239): mapas, selector y registro de
+      administrador, tests y documentación; sin cambios de backend.
 
 ## 9. Trazabilidad
 
@@ -618,12 +674,13 @@ Se cierra cuando:
 | CA-S21.4 | D-21.9 | T-232, T-233, T-234, T-235 | `Polyline` en el árbol + textos de distancia/tiempo |
 | CA-S21.5 | D-21.10 | T-232, T-233, T-235 | Fallo de OSRM → punteada + «Sin ruta calculada» |
 | CA-S21.6 | D-21.13 | T-235 | Test de URL exacta con `AbridorUrl` falso |
-| CA-S21.7 | D-21.8 | T-231 | Tests de configuración + atribución en el árbol |
+| CA-S21.7 | D-21.8 | T-231, T-238 | URL OSM estándar, sin subdominios + atribución |
 | CA-S21.8 | D-21.14 | T-228, T-234 | Test con `esWeb`/`origenSeguro` inyectados |
 | CA-S21.9 | D-21.3, D-21.4 | T-228, T-234 | Cancelación en `dispose`/`paused` |
-| CA-S21.10 | — | T-237 | `flutter analyze` + `flutter test` |
+| CA-S21.10 | — | T-237, T-238, T-239 | `flutter analyze` + `flutter test` |
 | CA-S21.11 | D-21.2 | T-234 | Tests reescritos que siguen usando las mismas keys |
 | CA-S21.12 | D-21.12 | T-232 | URL del adaptador con coordenadas de 4 decimales |
+| CA-S21.13 | D-21.15 | T-239 | Tests del selector y del registro: coordenada elegida o rechazo |
 
 RB-1, RB-2 y RB-3 no se ven afectadas: el slice no cambia el flujo de reserva,
 ni la fuente de disponibilidad, ni la validación de comprobantes. Las decisiones
@@ -632,7 +689,7 @@ reserva, que sigue siendo la única puerta de RB-1.
 
 ## 10. Estado de implementación
 
-**Cerrado el 23/11/2026.** T-228 … T-237 implementadas sobre el árbol del
+**Cierre actualizado el 23/11/2026.** T-228 … T-239 implementadas sobre el árbol del
 slice-20. Sin dependencias nuevas en `pubspec.yaml`; sin cambios en backend,
 contratos de API, migraciones ni reglas de negocio (RB-1, RB-2 y RB-3 intactas).
 
@@ -649,16 +706,18 @@ flutter build apk --debug
 | Comando | Salida real | Fecha |
 |---------|-------------|-------|
 | `flutter analyze` | `No issues found!` (10,6 s) | 23/11/2026 |
-| `flutter test` | `+545: All tests passed!` — baseline previo **475**, el slice sumó **+70** | 23/11/2026 |
-| `flutter build web --release` | `√ Built build\web` (`Compiling lib\main.dart for the Web... 180,2s`) | 23/11/2026 |
-| `flutter build apk --debug` | `√ Built build\app\outputs\flutter-apk\app-debug.apk` (`assembleDebug` 276,6 s) | 23/11/2026 |
+| `flutter test` | `+557: All tests passed!` — baseline previo **475**, el slice sumó **+82** | 23/11/2026 |
+| `flutter build web --release` | `√ Built build\web` (`Compiling lib\main.dart for the Web... 202,3s`) | 23/11/2026 |
+| `flutter build apk --debug` | `√ Built build\app\outputs\flutter-apk\app-debug.apk` (`assembleDebug` 73,7 s) | 23/11/2026 |
 
-Los 70 casos nuevos se reparten así: `test/core/ubicacion` (17),
+Los 70 casos del cierre inicial se reparten así: `test/core/ubicacion` (17),
 `test/core/mapas` (20: 11 de `mapa_flutter` + 5 de `configuracion_teselas` + 4
 de `marcador_usuario`), `test/core/rutas` (10), `test/features/busqueda` (34:
 17 de `pantalla_busqueda` reescritos, 9 de `ruta_notifier`, 8 de
 `tarjeta_lavadero_seleccionado`) y `test/core/entorno_test.dart` (+2 sobre el
-`osrmBaseUrl`).
+`osrmBaseUrl`). Los ajustes finales agregan 12 casos: 6 en
+`selector_ubicacion_test`, 5 en `pantalla_registro_test` y 1 toque de mapa en
+`mapa_flutter_test`.
 
 ### 10.2 Evidencia por tarea
 
@@ -666,14 +725,16 @@ de `marcador_usuario`), `test/core/rutas` (10), `test/features/busqueda` (34:
 |-------|-----------|
 | T-228 Servicio de ubicación | `lib/core/ubicacion/*` + `lib/core/config/contexto_seguro.dart`; `test/core/ubicacion` 17 verdes (stream, `distanceFilter: 10`, permiso denegado, contexto no seguro, cancelación) |
 | T-229 Marcador | `lib/core/mapas/marcador_usuario.dart`; `test/core/mapas/marcador_usuario_test.dart` 4 verdes |
-| T-230 Mapa | `lib/core/mapas/{mapa_flutter,mapa_controlador,proveedor_mapas,capa_ruta}.dart`, `alto` opcional; 11 verdes en `mapa_flutter_test.dart` (pines, marcador, polilínea sólida/punteada, arrastre, `Container` vs `SizedBox`) |
-| T-231 Teselas | `lib/core/mapas/configuracion_teselas.dart`; 5 verdes (Carto sin key, `@2x`, MapTiler con key, key vacía, subdominios) + atribución verificada sobre `attributions` del `RichAttributionWidget` |
+| T-230 Mapa | `lib/core/mapas/{mapa_flutter,mapa_controlador,proveedor_mapas,capa_ruta}.dart`, `alto` opcional; pruebas de pines, marcador, polilínea sólida/punteada, arrastre, toque de coordenada y controlador |
+| T-231 Teselas | `lib/core/mapas/configuracion_teselas.dart`; 5 pruebas de teselas y atribución: raster OSM sin subdominios, MapTiler con key, clave vacía y atribución no vacía, verificada sobre `RichAttributionWidget.attributions` |
 | T-232 OSRM | `lib/core/rutas/*`, `Entorno.osrmBaseUrl`; 10 verdes con `HttpClientAdapter` falso (orden `[lon,lat]`, 4 decimales, HTTP ≠ 200, timeout 5 s, `code != Ok`, geometría vacía, caché LRU 8) |
 | T-233 Notifier | `lib/features/busqueda/presentation/ruta_notifier.dart`; 9 verdes (debounce, un cálculo en vuelo, umbral 50 m, fallback Haversine, `limpiar`) |
 | T-234 Layout | `pantalla_busqueda.dart` reescrita (`Stack` + hoja arrastrable + FAB + auto-seguimiento + ciclo de vida); 17 verdes conservando las keys previas |
 | T-235 Tarjeta | `tarjeta_lavadero_seleccionado.dart`, `domain/abridor_url.dart`, `data/abridor_url_launcher.dart`; 8 verdes (formatos `850 m`/`4,8 km`, `8 min`/`1 min`, URL exacta de Google Maps, fallo del abridor) |
 | T-236 Proxy | `nginx.conf` con `location /osrm/`; `DOCS/ARCHITECTURE.md` §7.4/§7.7 y `AGENTS.md` §5.4. **No se ejecutó Docker**: el usuario debe correr `docker compose up -d --build web` para que el contenedor tome el proxy |
 | T-237 Cierre | Esta sección + `AGENTS.md` §5.6, `DOCS/CATALOGO_TESTS.md` y `SPECS/README.md` |
+| T-238 OSM estándar | `configuracion_teselas_test` + `mapa_flutter_test`: URL raster exacta, subdominios vacíos y atribución OSM |
+| T-239 Registro | `selector_ubicacion_test` + `pantalla_registro_test`: toque, GPS, rol administrador y bloqueo sin selección |
 
 ### 10.3 Trazabilidad de casos de aceptación
 
@@ -685,12 +746,13 @@ de `marcador_usuario`), `test/core/rutas` (10), `test/features/busqueda` (34:
 | CA-S21.4 | `calculador_rutas_osrm_test` + `ruta_notifier_test` + `pantalla_busqueda_test` + `tarjeta_lavadero_seleccionado_test` |
 | CA-S21.5 | `ruta_notifier_test` (`error` → `RutaNoCalculada`) + `pantalla_busqueda_test` (fallback punteado) + `tarjeta_lavadero_seleccionado_test` («Sin ruta calculada») |
 | CA-S21.6 | `tarjeta_lavadero_seleccionado_test` (URL exacta con `AbridorUrl` falso) |
-| CA-S21.7 | `configuracion_teselas_test` + `mapa_flutter_test` (atribución) |
+| CA-S21.7 | `configuracion_teselas_test` + `mapa_flutter_test` (OSM estándar y atribución) |
 | CA-S21.8 | `almacen_sesion_test`/`contexto_seguro` (con `esWeb`/`origenSeguro` inyectados) |
 | CA-S21.9 | `pantalla_busqueda_test` (`dispose` y `paused` cancelan la suscripción) |
-| CA-S21.10 | `flutter analyze` limpio + `+545` tests |
+| CA-S21.10 | `flutter analyze` limpio + `+557` tests |
 | CA-S21.11 | `pantalla_busqueda_test` reescrito con las mismas `ValueKey`/identifiers |
 | CA-S21.12 | `calculador_rutas_osrm_test` (URL con coordenadas de 4 decimales) |
+| CA-S21.13 | `selector_ubicacion_test` + `pantalla_registro_test` (toque, GPS y rechazo de ubicación predeterminada) |
 
 ### 10.4 Notas de ejecución
 
@@ -713,9 +775,6 @@ de `marcador_usuario`), `test/core/rutas` (10), `test/features/busqueda` (34:
    una instancia propia (Docker `osrm-backend` + extracto de Argentina) antes de
    abrir al público? Mientras tanto el proxy permite cambiar de destino sin
    tocar el cliente.
-2. **Carto Voyager.** Se usa sólo como *fallback* de desarrollo; el uso comercial
-   de sus teselas requiere plan/licencia. ¿Se contrata un plan de MapTiler para
-   producción (una key, cero cambios de código) o se evalúa otro proveedor?
 3. **Geolocalización en la web servida por IP.** Igual que el almacén de sesión
    (slice-20, 19/11), el navegador sólo permite geolocalización en contexto
    seguro. Con la web por HTTP en la LAN de prueba no habrá punto azul en el

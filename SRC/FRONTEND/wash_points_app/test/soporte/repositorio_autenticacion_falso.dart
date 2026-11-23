@@ -12,6 +12,11 @@ class RepositorioAutenticacionFalso implements RepositorioAutenticacion {
   int registrosCliente = 0;
   int registrosAdministrador = 0;
 
+  /// Coordenadas recibidas en cada alta de administrador (slice-21 D-21.15).
+  final List<double> latitudes = <double>[];
+  final List<double> longitudes = <double>[];
+  final List<String?> direcciones = <String?>[];
+
   @override
   Future<Sesion> iniciarSesion({
     required String usuario,
@@ -42,6 +47,9 @@ class RepositorioAutenticacionFalso implements RepositorioAutenticacion {
     String? direccion,
   }) async {
     registrosAdministrador++;
+    latitudes.add(latitud);
+    longitudes.add(longitud);
+    direcciones.add(direccion);
     return _resolver();
   }
 
