@@ -1,6 +1,9 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../ubicacion/posicion_usuario.dart';
+import 'capa_ruta.dart';
+import 'mapa_controlador.dart';
 import 'mapa_flutter.dart';
 import 'mapa_placeholder.dart';
 
@@ -51,6 +54,12 @@ abstract interface class ProveedorMapas {
     required double centroLongitud,
     String? seleccionadoId,
     ValueChanged<String>? alSeleccionar,
+    MapaControlador? controlador,
+    PosicionUsuario? posicionUsuario,
+    CapaRuta? ruta,
+    bool siguiendo = false,
+    ValueChanged<EventoMapa>? alMoverMapa,
+    double? alto,
   });
 }
 

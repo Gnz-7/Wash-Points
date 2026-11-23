@@ -13,6 +13,7 @@ void main() {
 
       expect(entorno.apiBaseUrl, 'http://localhost:8081');
       expect(entorno.hubUrl, 'http://localhost:8081/hubs');
+      expect(entorno.osrmBaseUrl, 'http://localhost:8081/osrm');
       expect(
         entorno.hubDisponibilidad,
         Uri.parse('http://localhost:8081/hubs/disponibilidad'),
@@ -61,6 +62,18 @@ void main() {
       expect(entorno.apiBaseUrl, 'http://192.168.0.10:8080');
     });
 
+    test('OSRM_BASE_URL tiene prioridad sobre el proxy derivado', () {
+      final entorno = Entorno.resolver(
+        esWeb: false,
+        origenWeb: '',
+        esAndroid: false,
+        osrmConfigurada: 'http://router.local:5000',
+      );
+
+      expect(entorno.osrmBaseUrl, 'http://router.local:5000');
+      expect(entorno.apiBaseUrl, 'http://localhost:8080');
+    });
+
     test('el define de HUB_URL tiene prioridad sobre el hub derivado', () {
       final entorno = Entorno.resolver(
         esWeb: false,
@@ -83,7 +96,7 @@ void main() {
       late Entorno entorno;
       expect(() => entorno = Entorno.desdeDartDefine(), returnsNormally);
       expect(entorno.apiBaseUrl, startsWith('http'));
-      expect(entorno.hubUrl, entorno.apiBaseUrl + '/hubs');
+      expect(entorno.hubUrl, '${entorno.apiBaseUrl}/hubs');
     });
   });
 }

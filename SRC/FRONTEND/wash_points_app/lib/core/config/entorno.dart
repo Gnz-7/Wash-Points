@@ -18,6 +18,7 @@ class Entorno {
   const Entorno({
     required this.apiBaseUrl,
     required this.hubUrl,
+    required this.osrmBaseUrl,
     required this.centroLatitud,
     required this.centroLongitud,
     required this.radioMetrosPorDefecto,
@@ -33,6 +34,7 @@ class Entorno {
   factory Entorno.desdeDartDefine() {
     const apiConfigurada = String.fromEnvironment('API_BASE_URL');
     const hubConfigurado = String.fromEnvironment('HUB_URL');
+    const osrmConfigurado = String.fromEnvironment('OSRM_BASE_URL');
 
     // `kIsWeb` es constante de compilación y `Uri.base` no es simulable en
     // tests: la resolución vive en [resolver] con los valores inyectados.
@@ -42,13 +44,14 @@ class Entorno {
     // schemes http and https». Evaluarlo siempre rompía el alta y el login del
     // APK dentro del handler del botón (19/11): la excepción no capturada
     // dejaba la pantalla sin spinner, sin mensaje y sin request.
-    final esWeb = kIsWeb;
+    const esWeb = kIsWeb;
     return resolver(
       esWeb: esWeb,
       origenWeb: esWeb ? Uri.base.origin : '',
       esAndroid: defaultTargetPlatform == TargetPlatform.android,
       apiConfigurada: apiConfigurada,
       hubConfigurado: hubConfigurado,
+      osrmConfigurada: osrmConfigurado,
     );
   }
 
@@ -60,6 +63,7 @@ class Entorno {
     required bool esAndroid,
     String apiConfigurada = '',
     String hubConfigurado = '',
+    String osrmConfigurada = '',
   }) {
     final apiPorDefecto = esWeb
         ? origenWeb
@@ -71,6 +75,9 @@ class Entorno {
     return Entorno(
       apiBaseUrl: api,
       hubUrl: hubConfigurado.isEmpty ? '$api/hubs' : hubConfigurado,
+      // Proxy `/osrm/` del mismo origen (slice-21, D-21.11); `OSRM_BASE_URL`
+      // permite apuntar a otro servicio en desarrollo.
+      osrmBaseUrl: osrmConfigurada.isEmpty ? '$api/osrm' : osrmConfigurada,
       centroLatitud:
           double.tryParse(const String.fromEnvironment('CENTRO_LATITUD')) ??
               -34.6037,
@@ -87,6 +94,9 @@ class Entorno {
 
   /// Base de los hubs de SignalR, sin barra final.
   final String hubUrl;
+
+  /// Base del proxy de rutas OSRM (slice-21, D-21.11), sin barra final.
+  final String osrmBaseUrl;
 
   /// Latitud del centro de búsqueda por defecto (D-10.10: CABA).
   final double centroLatitud;

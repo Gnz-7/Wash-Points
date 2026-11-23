@@ -2,6 +2,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../ubicacion/posicion_usuario.dart';
+import 'capa_ruta.dart';
+import 'mapa_controlador.dart';
 import 'proveedor_mapas.dart';
 
 /// Mapa de referencia sin proveedor real (D-09.9).
@@ -30,6 +33,14 @@ class MapaPlaceholder implements ProveedorMapas {
     required double centroLongitud,
     String? seleccionadoId,
     ValueChanged<String>? alSeleccionar,
+    MapaControlador? controlador,
+    // El placeholder no dibuja posición ni ruta (D-16.6): recibe los parámetros
+    // para cumplir el contrato y sigue mostrando el lienzo de referencia.
+    PosicionUsuario? posicionUsuario,
+    CapaRuta? ruta,
+    bool siguiendo = false,
+    ValueChanged<EventoMapa>? alMoverMapa,
+    double? alto,
   }) {
     final tema = Theme.of(contexto);
 

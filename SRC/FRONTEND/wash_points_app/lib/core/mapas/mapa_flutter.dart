@@ -4,10 +4,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../ubicacion/posicion_usuario.dart';
+import 'capa_ruta.dart';
+import 'configuracion_teselas.dart';
+import 'mapa_controlador.dart';
+import 'marcador_usuario.dart';
 import 'proveedor_mapas.dart';
 
-/// Adaptador de `flutter_map` (D-16.1). Las teselas salen de MapTiler cuando
-/// hay `MAPS_API_KEY`; sin key se usa OSM público, apto sólo para desarrollo.
+/// Adaptador de `flutter_map` (D-16.1, slice-21).
+///
+/// Teselas: MapTiler `streets-v2` con `MAPS_API_KEY`; sin clave, Carto Voyager
+/// como fallback de desarrollo (D-21.8), siempre con atribución visible.
 class MapaFlutter implements ProveedorMapas {
   const MapaFlutter({this.tileProvider, this.apiKey});
 
@@ -18,6 +25,9 @@ class MapaFlutter implements ProveedorMapas {
   final String? apiKey;
 
   static const _claveEntorno = String.fromEnvironment('MAPS_API_KEY');
+
+  /// Azul de la ruta y del marcador (D-21.7, §4.2).
+  static const Color azulRuta = Color(0xFF1A73E8);
 
   String get _clave => apiKey ?? _claveEntorno;
 
@@ -36,10 +46,21 @@ class MapaFlutter implements ProveedorMapas {
     required double centroLongitud,
     String? seleccionadoId,
     ValueChanged<String>? alSeleccionar,
+    MapaControlador? controlador,
+    PosicionUsuario? posicionUsuario,
+    CapaRuta? ruta,
+    bool siguiendo = false,
+    ValueChanged<EventoMapa>? alMoverMapa,
+    double? alto,
   }) {
     final centro = puntos.isEmpty
         ? LatLng(centroLatitud, centroLongitud)
         : LatLng(puntos.first.latitud, puntos.first.longitud);
+
+    final teselas = ConfiguracionTeselas.porDefecto(
+      apiKey: _clave,
+      retina: MediaQuery.devicePixelRatioOf(context) >= 2,
+    );
 
     return _MapaWidget(
       puntos: puntos,
@@ -47,10 +68,13 @@ class MapaFlutter implements ProveedorMapas {
       zoom: _zoomParaRadio(radioMetros),
       seleccionadoId: seleccionadoId,
       alSeleccionar: alSeleccionar,
-      urlTeselas: _clave.isEmpty
-          ? 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
-          : 'https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key=$_clave',
+      teselas: teselas,
       tileProvider: tileProvider,
+      controlador: controlador,
+      posicionUsuario: posicionUsuario,
+      ruta: ruta,
+      alMoverMapa: alMoverMapa,
+      alto: alto,
     );
   }
 
@@ -70,8 +94,13 @@ class _MapaWidget extends StatefulWidget {
     required this.zoom,
     required this.seleccionadoId,
     required this.alSeleccionar,
-    required this.urlTeselas,
+    required this.teselas,
     required this.tileProvider,
+    required this.controlador,
+    required this.posicionUsuario,
+    required this.ruta,
+    required this.alMoverMapa,
+    required this.alto,
   });
 
   final List<PuntoMapa> puntos;
@@ -79,15 +108,26 @@ class _MapaWidget extends StatefulWidget {
   final double zoom;
   final String? seleccionadoId;
   final ValueChanged<String>? alSeleccionar;
-  final String urlTeselas;
+  final ConfiguracionTeselas teselas;
   final TileProvider? tileProvider;
+  final MapaControlador? controlador;
+  final PosicionUsuario? posicionUsuario;
+  final CapaRuta? ruta;
+  final ValueChanged<EventoMapa>? alMoverMapa;
+  final double? alto;
 
   @override
   State<_MapaWidget> createState() => _MapaWidgetState();
 }
 
 class _MapaWidgetState extends State<_MapaWidget> {
-  final MapController _controlador = MapController();
+  /// Controlador entregado por la pantalla (D-21.5) o creado por el mapa.
+  late final MapaControladorFlutter _propio = MapaControladorFlutter();
+
+  MapController get _nativo => switch (widget.controlador) {
+    final MapaControladorFlutter controlador => controlador.controlador,
+    _ => _propio.controlador,
+  };
 
   @override
   void didUpdateWidget(covariant _MapaWidget anterior) {
@@ -97,7 +137,7 @@ class _MapaWidgetState extends State<_MapaWidget> {
 
     for (final punto in widget.puntos) {
       if (punto.id == id) {
-        _controlador.move(LatLng(punto.latitud, punto.longitud), widget.zoom);
+        _nativo.move(LatLng(punto.latitud, punto.longitud), widget.zoom);
         break;
       }
     }
@@ -105,7 +145,10 @@ class _MapaWidgetState extends State<_MapaWidget> {
 
   @override
   void dispose() {
-    _controlador.dispose();
+    // Sólo se libera el controlador propio: el de la pantalla lo libera ella.
+    if (widget.controlador == null) {
+      _propio.dispose();
+    }
     super.dispose();
   }
 
@@ -136,35 +179,96 @@ class _MapaWidgetState extends State<_MapaWidget> {
           ),
         ),
       );
-    }).toList(growable: false);
+    }).toList();
+
+    final posicion = widget.posicionUsuario;
+    if (posicion != null) {
+      marcadores.add(
+        Marker(
+          point: LatLng(posicion.latitud, posicion.longitud),
+          width: MarcadorUsuario.diametroHalo,
+          height: MarcadorUsuario.diametroHalo,
+          alignment: Alignment.center,
+          child: const MarcadorUsuario(),
+        ),
+      );
+    }
+
+    final ruta = widget.ruta;
+    final capasRuta = ruta == null || ruta.puntos.length < 2
+        ? const <Widget>[]
+        : <Widget>[
+            PolylineLayer(
+              key: const ValueKey('polilinea_ruta'),
+              polylines: [
+                Polyline(
+                  points: ruta.puntos
+                      .map((punto) => LatLng(punto.latitud, punto.longitud))
+                      .toList(growable: false),
+                  strokeWidth: 5,
+                  color: MapaFlutter.azulRuta,
+                  pattern: ruta.punteada
+                      ? StrokePattern.dashed(segments: const [12, 8])
+                      : const StrokePattern.solid(),
+                ),
+              ],
+            ),
+          ];
+
+    final mapa = FlutterMap(
+      mapController: _nativo,
+      options: MapOptions(
+        initialCenter: widget.centro,
+        initialZoom: widget.zoom,
+        minZoom: 3,
+        maxZoom: 18,
+        onTap: (_, _) => widget.alSeleccionar?.call(''),
+        onMapEvent: (evento) {
+          switch (evento.source) {
+            case MapEventSource.dragStart:
+              widget.alMoverMapa?.call(EventoMapa.arrastreIniciado);
+            case MapEventSource.multiFingerGestureStart:
+              widget.alMoverMapa?.call(EventoMapa.gestoMultipleIniciado);
+            default:
+              break;
+          }
+        },
+      ),
+      children: [
+        TileLayer(
+          urlTemplate: widget.teselas.urlPlantilla,
+          subdomains: ConfiguracionTeselas.subdominiosCarto,
+          userAgentPackageName: 'com.washpoints.app',
+          tileProvider: widget.tileProvider,
+        ),
+        ...capasRuta,
+        MarkerLayer(markers: marcadores),
+        RichAttributionWidget(
+          key: const ValueKey('atribucion_teselas'),
+          showFlutterMapAttribution: false,
+          attributions: [
+            TextSourceAttribution(widget.teselas.atribucion),
+          ],
+        ),
+      ],
+    );
+
+    // A pantalla completa (alto nulo) el mapa ocupa el espacio que le da el
+    // padre y no lleva marco; con alto fijo conserva el recuadro del slice-16.
+    final alto = widget.alto;
+    if (alto == null) {
+      return SizedBox(key: const ValueKey('mapa_flutter'), child: mapa);
+    }
 
     return Container(
       key: const ValueKey('mapa_flutter'),
-      height: 200,
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      height: alto,
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: tema.colorScheme.outlineVariant),
       ),
-      child: FlutterMap(
-        mapController: _controlador,
-        options: MapOptions(
-          initialCenter: widget.centro,
-          initialZoom: widget.zoom,
-          minZoom: 3,
-          maxZoom: 18,
-          onTap: (_, _) => widget.alSeleccionar?.call(''),
-        ),
-        children: [
-          TileLayer(
-            urlTemplate: widget.urlTeselas,
-            userAgentPackageName: 'com.washpoints.app',
-            tileProvider: widget.tileProvider,
-          ),
-          MarkerLayer(markers: marcadores),
-        ],
-      ),
+      child: mapa,
     );
   }
 

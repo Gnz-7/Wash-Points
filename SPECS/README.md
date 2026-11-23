@@ -38,6 +38,7 @@ siendo `OVERVIEW.md`; la del diseño técnico, `DOCS/ARCHITECTURE.md`.
 | 18 | [slice-18-metricas-tiempo-real.md](./slice-18-metricas-tiempo-real.md) | Métricas en tiempo real (CU-09 / US-A08 CA-8.3) | Implementado y verificado | backend 544/544; Flutter 441/441 |
 | 19 | [slice-19-cierre-documental.md](./slice-19-cierre-documental.md) | Cierre documental y sincronización de la documentación | Implementado y verificado | backend 544/544; Flutter 441/441; `flutter analyze` limpio |
 | 20 | [slice-20-despliegue-autonomo-mock-qr.md](./slice-20-despliegue-autonomo-mock-qr.md) | Despliegue autónomo (OAuth de Mercado Pago por lavadero, Checkout Pro, suscripción mock, migración automática, web) y escáner QR (CU-03, CU-09 / RB-1, RB-2, RB-3) | Implementado y verificado | backend 601/601; Flutter 468/468; `flutter analyze` limpio; `docker compose up -d --build` sin credenciales |
+| 21 | [slice-21-geolocalizacion-y-rutas.md](./slice-21-geolocalizacion-y-rutas.md) | Geolocalización en tiempo real, mapa estilo Google Maps y rutas con OSRM (CU-01, CU-02 / US-C07) | Implementado y verificado (23/11/2026) | Flutter 545/545 (+70 sobre el baseline 475); `flutter analyze` limpio; `flutter build web --release` y `flutter build apk --debug` OK; Docker no ejecutado (pendiente `docker compose up -d --build web` para el proxy `/osrm/`) |
 
 ## Notas
 

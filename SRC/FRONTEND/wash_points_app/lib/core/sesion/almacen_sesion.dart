@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../config/contexto_seguro.dart';
 import 'almacen_sesion_memoria.dart';
 import 'sesion.dart';
 
@@ -75,20 +76,9 @@ AlmacenSesion fabricaAlmacenSesion({
   AlmacenSesion? seguro,
   AlmacenSesion? memoria,
 }) {
-  if (esWeb && !_esContextoSeguro(base)) {
+  if (esWeb && !esContextoSeguro(base)) {
     return memoria ?? AlmacenSesionMemoria();
   }
 
   return seguro ?? AlmacenSesionSeguro();
-}
-
-/// Réplica de la regla del navegador para contextos seguros: HTTPS en
-/// cualquier host, HTTP sólo en `localhost`/loopback.
-bool _esContextoSeguro(Uri base) {
-  if (base.scheme == 'https') {
-    return true;
-  }
-
-  final host = base.host.toLowerCase();
-  return host == 'localhost' || host == '127.0.0.1' || host == '::1';
 }

@@ -12,6 +12,7 @@ void main() {
   const entorno = Entorno(
     apiBaseUrl: 'http://localhost:8080',
     hubUrl: 'http://localhost:8080/hubs',
+    osrmBaseUrl: 'http://localhost:8080/osrm',
     centroLatitud: -34.6037,
     centroLongitud: -58.3816,
     radioMetrosPorDefecto: 5000,

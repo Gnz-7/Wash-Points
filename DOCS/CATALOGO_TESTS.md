@@ -1,8 +1,8 @@
 # Catálogo de pruebas - Wash Points
 
 Referencia funcional de la suite del backend: **601 tests** (320 unitarios y 281 de integración),
-verificados en verde el 15/11/2026 sobre el árbol del slice-20. La suite Flutter suma **468 tests**
-(`flutter test`), verificados el 15/11/2026 sobre el mismo árbol con `flutter analyze` limpio.
+verificados en verde el 15/11/2026 sobre el árbol del slice-20. La suite Flutter suma **545 tests**
+(`flutter test`), verificados el 23/11/2026 sobre el árbol del slice-21 con `flutter analyze` limpio.
 
 - **Propósito.** Que cualquier persona del equipo —sin leer código— entienda qué comportamiento
   del sistema está protegido por cada prueba y qué se rompe si esa prueba falla.
@@ -20,7 +20,8 @@ verificados en verde el 15/11/2026 sobre el árbol del slice-20. La suite Flutte
   tiempo real; 13 = catálogo y onboarding; 14 = ciclo del cliente, cancelación y reembolsos;
   15 = pagos reales y ejecución de reembolsos; 16 = mapa, GPS y geocodificación;
   17 = horarios de atención, reglas temporales y servicios por puesto; 18 = métricas en tiempo real;
-  20 = despliegue autónomo: OAuth de Mercado Pago por lavadero, suscripción mock y escáner QR.
+  20 = despliegue autónomo: OAuth de Mercado Pago por lavadero, suscripción mock y escáner QR;
+  21 = geolocalización en tiempo real, mapa estilo Google Maps y rutas con OSRM.
 
 > **Cobertura del catálogo.** Todas las pruebas del backend están desglosadas caso por caso: los
 > 295 tests unitarios y los 249 de integración. El slice-19 (T-213) reconcilió este documento con
@@ -1452,6 +1453,201 @@ en los tests de reserva adaptados
 - **`ElLavaderoPrevioAlSlice20QuedaConSuscripcionActiva`** — La migración `Slice20SuscripcionVinculacion`
   backfillea `suscripcion_activa = true` a los lavaderos existentes: el despliegue no los deja sin
   poder operar.
+
+---
+
+## 4. Pruebas nuevas del slice-21 (geolocalización, mapa y rutas)
+
+El slice-21 llevó la suite Flutter de 475 a **545 tests**, todos en verde el 23/11/2026 junto a
+`flutter analyze` limpio y los builds `flutter build web --release` y `flutter build apk --debug`.
+Los archivos de abajo son los que el slice-21 creó o modificó, con su conteo actual (el total de
+la suite pasó de 475 a 545). Cubren el seguimiento del GPS y el punto azul, la capa de rutas con
+OSRM y su degradación explícita, las teselas y la atribución del mapa, la tarjeta del lavadero
+seleccionado con «Cómo llegar», y el layout del buscador a pantalla completa. El reparto por
+tarea, la evidencia y la trazabilidad con los criterios de aceptación están en
+`SPECS/slice-21-geolocalizacion-y-rutas.md` §10. Además de los archivos de abajo,
+`core/entorno_test.dart` sumó casos para `osrmBaseUrl` (proxy derivado de la API y prioridad de
+`OSRM_BASE_URL`).
+
+### `core/ubicacion/servicio_ubicacion_test.dart` — Slice 21 (2 tests)
+
+- **`sólo está disponible con coordenadas`** — Un resultado «disponible» sin latitud/longitud no
+  se publica como posición válida: la pantalla nunca centra el mapa en un punto inventado.
+- **`cada estado explica qué puede hacer el cliente`** — Cada resultado no disponible trae mensaje
+  accionable y las banderas que la UI necesita (`denegadaPermanentemente`, `puedeAbrirAjustes`)
+  para decidir entre avisar o ofrecer «Abrir ajustes».
+
+### `core/ubicacion/servicio_ubicacion_geolocator_test.dart` — Slice 21 (12 tests)
+
+- **`en web sin HTTPS explica el motivo y no toca la plataforma`** — Fuera de un contexto seguro
+  el servicio responde no disponible sin llamar a `geolocator` (el navegador igual lo bloquearía).
+- **`GPS apagado devuelve servicioApagado sin pedir permiso`** — Con la ubicación del sistema
+  apagada no se abre el diálogo de permisos: se informa y se corta.
+- **`permiso denegado en el diálogo no abre el seguimiento`** — Denegar una vez deja el seguimiento
+  cerrado; no se insiste dentro de la misma acción.
+- **`permiso bloqueado no insiste con el diálogo`** — Un permiso bloqueado (`deniedForever`) marca
+  `denegadaPermanentemente` en vez de volver a pedirlo.
+- **`emite la última conocida y luego cada movimiento`** — El stream arranca con la posición
+  cacheada por la plataforma y sigue con cada actualización (CA-S21.1).
+- **`sin última conocida arranca con el primer fix`** — Sin caché, el primer fix es el primer valor.
+- **`un error de plataforma termina el stream con noDisponible`** — Un error del plugin se degrada
+  a un evento no disponible y cierra el stream; nunca deja la suscripción colgada.
+- **`cancelar la suscripción cierra el stream de la plataforma`** — `cancel()` dispara `onCancel` y
+  corta la fuente (CA-S21.9): no quedan streams abiertos al salir de la pantalla.
+- **`devuelve las coordenadas con permiso concedido`** — `obtenerPosicion()` entrega latitud,
+  longitud y precisión para la búsqueda puntual.
+- **`sin lectura puntual devuelve noDisponible`** — Si la plataforma no da lectura, el resultado es
+  no disponible en vez de una excepción hacia la UI.
+- **`permisoConcedido es silencioso y refleja el permiso actual`** — `permisoConcedido()` consulta
+  el permiso **sin** abrir diálogo; es el disparador silencioso de `initState` (CA-S21.2).
+- **`abrir ajustes está disponible en móvil y no en web`** — `abrirAjustes()` sólo aplica donde el
+  sistema tiene pantalla de ajustes de ubicación.
+
+### `core/ubicacion/posicion_usuario_test.dart` — Slice 21 (3 tests)
+
+- **`distanciaA usa la fórmula del semiverseno`** — La distancia entre dos posiciones se calcula en
+  metros con la misma fórmula que usa el `RutaNotifier` para el umbral de 50 m.
+- **`la distancia a sí misma es cero`** — Caso borde del cálculo, sin NaN por redondeo.
+- **`conserva la precisión y el momento informados`** — La posición no pierde la precisión ni la
+  marca temporal que entrega la plataforma.
+
+### `core/mapas/marcador_usuario_test.dart` — Slice 21 (4 tests)
+
+- **`el halo mide 44 px y es azul al 15 %`** — El halo del punto azul mantiene el tamaño mínimo
+  táctil y la transparencia del diseño.
+- **`el punto mide 18 px, es azul y tiene borde blanco de 3 px`** — El punto interior conserva las
+  medidas y el contraste sobre teselas claras y oscuras.
+- **`expone la etiqueta accesible «Tu ubicación»`** — El marcador es legible por lectores de
+  pantalla.
+- **`no captura los gestos del mapa`** — El marcador es decorativo: no intercepta arrastre ni zoom.
+
+### `core/mapas/mapa_flutter_test.dart` — Slice 21 (11 tests)
+
+- **`dibuja un pin por lavadero y avisa la selección`** — Cada punto del proveedor se pinta con su
+  key (`pin_<id>`) y el toque devuelve el id al llamador.
+- **`sin posición del usuario no hay marcador azul`** — Sin posición no se inventa un punto azul.
+- **`con posición del usuario dibuja el marcador`** — Con posición aparece `marcador_usuario`.
+- **`sin ruta no hay polilínea`** — Sin selección ni ruta no se dibuja capa de líneas.
+- **`una ruta real dibuja una polilínea sólida`** — La geometría de OSRM se pinta sólida, con el
+  azul de la ruta y grosor 5 (D-21.7).
+- **`el fallback dibuja la polilínea punteada`** — El fallback usuario→lavadero usa
+  `StrokePattern.dashed(segments: [12, 8])` (D-21.10): se distingue de una ruta real.
+- **`el arrastre avisa que el usuario movió el mapa`** — `onMapEvent` traduce `dragStart` a
+  `EventoMapa.arrastreIniciado`, que apaga el auto-seguimiento (D-21.6).
+- **`con alto fijo conserva el recuadro; sin alto no lo impone`** — El mapa sigue sirviendo como
+  recuadro embebido (slice-16) y como fondo a pantalla completa cuando `alto` es nulo.
+- **`sin MAPS_API_KEY usa Carto y muestra la atribución`** — Sin clave se usan teselas Carto
+  Voyager y la atribución «© OpenStreetMap contributors · © CARTO» (D-21.8).
+- **`con MAPS_API_KEY usa MapTiler y su atribución`** — Con clave la URL es MapTiler `streets-v2`
+  con la clave incluida y la atribución correspondiente.
+- **`acepta un controlador externo sin liberarlo`** — El mapa no libera el `MapaControlador` que le
+  pasa la pantalla; la propiedad del ciclo de vida queda en quien lo creó (D-21.5).
+
+### `core/mapas/configuracion_teselas_test.dart` — Slice 21 (5 tests)
+
+- **`sin clave usa Carto Voyager con su atribución`** — Fallback de desarrollo: `basemaps.cartocdn.com`
+  con `{s}` y atribución de OSM + CARTO.
+- **`sin clave en pantalla densa pide teselas @2x`** — Con `devicePixelRatio >= 2` la plantilla pide
+  la variante `@2x`.
+- **`con clave usa MapTiler streets-v2 y su atribución`** — URL exacta de MapTiler con la clave y
+  atribución de MapTiler + OSM.
+- **`una clave vacía o con espacios se trata como ausente`** — Una clave en blanco no produce una
+  URL de MapTiler inválida: cae a Carto.
+- **`expone los cuatro subdominios de Carto`** — `['a', 'b', 'c', 'd']`, los que espera
+  `TileLayer.subdomains`.
+
+### `core/rutas/calculador_rutas_osrm_test.dart` — Slice 21 (10 tests)
+
+- **`parsea la ruta y respeta el orden [longitud, latitud] de GeoJSON`** — OSRM responde
+  `[lon, lat]` y el adaptador invierte el orden una sola vez: un error acá dibujaría la ruta en el
+  hemisferio equivocado.
+- **`arma la URL con longitud,latitud y 4 decimales`** — La petición usa `{lon},{lat};{lon},{lat}`
+  con 4 decimales (≈11 m) y `overview=full&geometries=geojson` (D-21.12).
+- **`acepta una base con barra final sin duplicarla`** — `baseUrl` normalizada: nunca `//route/...`.
+- **`un HTTP distinto de 200 no está disponible`** — Cualquier status distinto de 200 se traduce a
+  `RutaNoDisponibleException`, no a una ruta vacía.
+- **`un timeout no está disponible`** — Pasados 5 s la petición se abandona y la excepción es la
+  misma que cualquier otro fallo.
+- **`code distinto de Ok no está disponible`** — Un `code: NoRoute` de OSRM degrada explícitamente.
+- **`una geometría vacía no está disponible`** — Sin coordenadas no se construye una `RutaCalculada`.
+- **`la segunda consulta idéntica sale de la caché`** — El LRU evita repetir la misma llamada.
+- **`un movimiento por debajo de 4 decimales comparte caché`** — El redondeo a 4 decimales agrupa
+  movimientos imperceptibles en la misma entrada.
+- **`la caché respeta su capacidad`** — Con más de 8 entradas se descarta la más antigua (LRU).
+
+### `features/busqueda/ruta_notifier_test.dart` — Slice 21 (9 tests)
+
+- **`sin selección no hay ruta`** — El estado inicial es `RutaSinSeleccion`; no hay cálculo.
+- **`la selección calcula de inmediato y publica la ruta`** — Elegir un lavadero con posición
+  conocida lanza el cálculo sin esperar el debounce.
+- **`seleccionar sin posición conocida no calcula y degrada explícito`** — Sin origen no se inventa
+  una ruta: el estado es `RutaNoCalculada` y la tarjeta dice «Sin ruta calculada».
+- **`un movimiento menor a 50 m no recalcula`** — El umbral evita recalcular por ruido del GPS.
+- **`un movimiento mayor a 50 m recalcula tras el debounce`** — Pasado el umbral se reprograma con
+  300 ms de espera.
+- **`el fallo publica noCalculada con la distancia en línea recta`** — Si OSRM falla, la tarjeta
+  sigue mostrando una distancia estimada y el mapa dibuja el fallback punteado.
+- **`limpiar cancela el debounce y vuelve a sin selección`** — Deseleccionar no deja un timer vivo
+  que dispare un cálculo huérfano.
+- **`un pedido durante el cálculo se recalcula al terminar`** — Un solo cálculo en vuelo con
+  coalescencia: si llega un destino nuevo mientras se calcula, se repite al terminar.
+- **`mientras recalcula conserva la ruta anterior`** — `RutaCalculando(anterior)` mantiene la
+  polilínea anterior en pantalla: la UI no parpadea entre cálculos.
+
+### `features/busqueda/tarjeta_lavadero_seleccionado_test.dart` — Slice 21 (8 tests)
+
+- **`la URL de Google Maps usa 6 decimales y el modo conducción`** — `urlGoogleMaps` genera
+  `https://www.google.com/maps/dir/?api=1&destination=<lat>,<lng>&travelmode=driving` con
+  `toStringAsFixed(6)`.
+- **`la distancia usa metros enteros o kilómetros con coma`** — Formato «850 m» / «4,8 km», con
+  coma decimal en español.
+- **`la duración se redondea al minuto y nunca es 0 min`** — `max(1, round(s/60))`: un trayecto de
+  20 s dice «1 min», nunca «0 min».
+- **`con ruta muestra distancia, tiempo y la ocupación`** — La tarjeta publica `ruta_distancia`,
+  `ruta_duracion` y «N de M libres» del lavadero elegido.
+- **`sin ruta dice «Sin ruta calculada» y la reserva sigue activa`** — El fallback de OSRM no
+  bloquea `abrir_lavadero_<id>`: la seña y la reserva no dependen del mapa (RB-1 intacta).
+- **`mientras recalcula conserva la ruta anterior`** — La fila de ruta no desaparece entre cálculos.
+- **`«Cómo llegar» abre exactamente la URL de Google Maps`** — `boton_como_llegar` delega en el
+  puerto `AbridorUrl` con la URL del destino seleccionado.
+- **`si el lanzador falla muestra el aviso`** — Un `false` del lanzador muestra «No se pudo abrir
+  Google Maps» en vez de fallar en silencio.
+
+### `features/busqueda/pantalla_busqueda_test.dart` — Slice 21 (17 tests)
+
+- **`mientras busca muestra el estado de carga`** — El estado pendiente pinta `estado_cargando`
+  dentro de la hoja, sin borrar el mapa.
+- **`con resultados muestra el mapa, la hoja y una tarjeta por lavadero`** — El layout nuevo
+  (`Stack` + `DraggableScrollableSheet`) conserva la lista completa.
+- **`sin resultados ofrece ampliar el radio y lo duplica`** — El vacío mantiene la acción de
+  ampliar radio (slice-07) dentro de la hoja.
+- **`un 403 se muestra como error claro, no como lista vacía`** — Un fallo de autorización no se
+  confunde con «no hay lavaderos».
+- **`un error de red se distingue del vacío y permite reintentar`** — El error de red tiene su
+  propio estado y botón de reintento.
+- **`la búsqueda por dirección usa el texto y conserva el radio`** — La fila flotante busca por
+  dirección sin perder el radio elegido.
+- **`con ubicación concedida busca en el GPS, pinta el punto y sigue`** — Con permiso, la búsqueda
+  usa la posición, dibuja el marcador azul y activa el auto-seguimiento (CA-S21.1, CA-S21.5).
+- **`sin permiso de ubicación avisa y no pierde la búsqueda`** — Un permiso denegado muestra el
+  aviso (con «Abrir ajustes» si corresponde) sin descartar los resultados visibles.
+- **`tocar un pin selecciona el lavadero y muestra su tarjeta`** — La selección en el mapa abre la
+  tarjeta del lavadero y expande la hoja.
+- **`sin mapa disponible muestra el banner y conserva la lista`** — Con el mapa no disponible
+  (placeholder) aparece `banner_mapa_no_disponible` y la lista funciona igual.
+- **`el FAB centra y activa el seguimiento de la posición`** — `boton_centrar_mapa` vuelve a
+  centrar en la posición y reactiva el auto-seguimiento.
+- **`arrastrar el mapa desactiva el auto-seguimiento`** — Un arrastre manual apaga el seguimiento:
+  el mapa no «pelea» con el usuario (D-21.6).
+- **`al pasar a segundo plano se cancela el seguimiento`** — `paused` cancela la suscripción al GPS
+  (CA-S21.9), sin dejar streams abiertos al volver.
+- **`montar sin permiso no pide nada ni muestra errores`** — En `initState` sólo se consulta el
+  permiso de forma silenciosa (CA-S21.2): no hay diálogo ni aviso al abrir la pantalla.
+- **`seleccionar con posición dibuja la ruta calculada`** — La polilínea sólida aparece cuando el
+  calculador responde.
+- **`si OSRM falla dibuja el fallback punteado y lo informa`** — El fallo de rutas no rompe la
+  pantalla: línea punteada y «Sin ruta calculada».
+- **`seleccionar sin posición no inventa una ruta`** — Sin origen no se dibuja ni ruta ni fallback.
 
 
 
