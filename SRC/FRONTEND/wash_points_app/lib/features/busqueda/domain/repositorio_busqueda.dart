@@ -19,4 +19,15 @@ abstract interface class RepositorioBusqueda {
     required String direccion,
     required int radioMetros,
   });
+
+  /// Busca por nombre de lavadero o, si no hay coincidencias, por dirección
+  /// (slice-21, D-21.17).
+  ///
+  /// El backend decide el modo y lo publica en [ResultadoBusqueda.modo].
+  Future<ResultadoBusqueda> buscarPorTexto({
+    required String texto,
+    required double latitud,
+    required double longitud,
+    required int radioMetros,
+  });
 }

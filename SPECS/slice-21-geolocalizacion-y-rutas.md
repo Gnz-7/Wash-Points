@@ -5,10 +5,10 @@
 | **Slice** | 21 |
 | **CU** | CU-01 (búsqueda de lavaderos por proximidad), CU-02 (consulta de disponibilidad) |
 | **US** | US-C07 (localización de lavaderos y disponibilidad); sin CAs de producto nuevos en `REQUIREMENTS/` |
-| **Reglas** | Ninguna regla de negocio se relaja: el slice es de **presentación** (cliente). El mapa, la ruta y el GPS no participan de RB-1 (seña), RB-2 (sincronización) ni RB-3 (validación en destino); la reserva sigue resolviéndose en el servidor |
-| **Perfil** | `frontend`, `geo`, `qa` |
-| **Depende de** | slices 00–20 (`frontend` del slice-16: `flutter_map` + `geolocator`; `url_launcher` ya presente del slice-15) |
-| **Estado** | **Aprobado — en ejecución** (definición del 19/11/2026) |
+| **Reglas** | Ninguna regla de negocio se relaja. El núcleo del slice (mapa, ruta, GPS y selector de coordenadas) es de **presentación** (cliente) y no participa de RB-1 (seña), RB-2 (sincronización) ni RB-3 (validación en destino). **D-21.17** agrega un parámetro y un filtro de **lectura** en la búsqueda: la ocupación sigue saliendo de la misma fuente (RB-2 intacta) y la reserva sigue resolviéndose en el servidor (RB-1) |
+| **Perfil** | `frontend`, `geo`, `backend` (sólo D-21.17), `qa` |
+| **Depende de** | slices 00–20 (`frontend` del slice-16: `flutter_map` + `geolocator`; `url_launcher` ya presente del slice-15; `IGeocodificador` del slice-16 para D-21.17) |
+| **Estado** | **Aprobado — en ejecución** (definición del 19/11/2026). El 23/11/2026 se sumaron **D-21.16** (geocodificación del alta con Nominatim) y **D-21.17** (búsqueda híbrida por nombre o dirección): ambas están **en definición, pendientes de auditoría e implementación** (ver §10.5) |
 
 Objetivo: convertir el mapa del buscador —hoy un recuadro de 200 px con pines y
 sin contexto de posición— en una experiencia de navegación comparable a Google
@@ -22,7 +22,10 @@ cliente**:
 3. ruta óptima dibujada al seleccionar un lavadero (OSRM con proxy del mismo
    origen), con distancia y tiempo en la tarjeta, y derivación a Google Maps;
 4. ubicación del lavadero seleccionada en el registro de administrador, por
-   toque en el mapa o mediante GPS.
+   toque en el mapa, mediante GPS o **geocodificando la dirección escrita**
+   (D-21.16);
+5. búsqueda del buscador **híbrida**: el mismo campo acepta nombre de lavadero o
+   dirección geográfica (D-21.17).
 
 **Principio rector:** el cliente sólo **dibuja** y **estima**. La disponibilidad
 (RB-2) sigue viniendo del hub y del endpoint de búsqueda; la reserva (RB-1) se
@@ -51,6 +54,14 @@ experiencia esperada:
    en línea recta y no puede abrir la navegación en Google Maps.
 6. **Ubicación fija en el alta.** El registro de administrador enviaba siempre
    el centro de CABA, superponiendo en el mapa lavaderos de otras ciudades.
+7. **La dirección del alta no ubica el lavadero.** Aun con el selector, escribir
+   «Av. Corrientes 1234» obliga a buscar el punto a mano en el mapa sin ninguna
+   ayuda: el campo de dirección es texto descriptivo y nadie lo traduce a
+   coordenadas.
+8. **El buscador no encuentra un lavadero por su nombre.** `campo_direccion` sólo
+   geocodifica texto como dirección (`?direccion=`), así que escribir «Lavadero
+   Norte» devuelve 404 `direccion_no_encontrada` aunque ese lavadero exista a
+   300 m. El único modo de hallarlo es recorrer la lista por proximidad.
 
 ## 2. Alcance y no alcance
 
@@ -70,18 +81,30 @@ experiencia esperada:
 - Botón «Cómo llegar en Google Maps» (D-21.13).
 - Selector de coordenadas del lavadero en el registro de administrador
   (D-21.15).
-- Tests de widget y unitarios de todo lo anterior (T-228 … T-237).
+- Botón «Ubicar en el mapa» junto al campo Dirección del alta, con
+  geocodificación vía Nominatim detrás de un puerto del cliente (D-21.16).
+- `campo_direccion` del buscador híbrido (nombre de lavadero o dirección) y
+  parámetro `texto` en `GET /api/lavaderos/cercanos` (D-21.17).
+- Tests de widget y unitarios de lo anterior (T-228 … T-245).
 
 **Fuera del alcance**
 
 - Navegación giro a giro dentro de la app (turn-by-turn). La navegación se
   deriva a Google Maps.
-- Autocompletado de direcciones o geocodificación inversa nuevas (el
-  `IGeocodificador` del slice-16 queda igual).
+- **Autocompletado** de direcciones (sugerencias mientras se escribe),
+  geocodificación inversa y geocodificación de resultados de búsqueda. D-21.16
+  geocodifica **un** texto al presionar un botón; el `IGeocodificador` del
+  backend (slice-16) se reutiliza sin cambios de contrato.
 - Recalculo de ruta en background con la app cerrada.
 - Círculo de precisión del GPS, brújula o seguimiento con orientación.
-- Cambios de backend, de contratos de API o de base de datos. **Ninguno.**
-- Self-host de OSRM (se documenta como camino de producción en §7).
+- Cambios de **esquema** o migraciones: D-21.17 filtra sobre columnas existentes
+  (`lavaderos.nombre`, `lavaderos.direccion`) y no agrega índices en esta fase.
+- Cambios en el flujo de reserva, en la fuente de ocupación (RB-2) o en la
+  validación de comprobantes (RB-3).
+- Búsqueda por nombre **sin** coordenadas de referencia (el endpoint exige un
+  centro para ordenar por distancia).
+- Self-host de OSRM y de Nominatim (se documentan como camino de producción en
+  §7 y §11).
 
 ## 3. Decisiones
 
@@ -207,14 +230,24 @@ proveedores; el fallback previo no mostraba la atribución correcta de OSM.
 
 ### D-21.15 - Coordenadas del lavadero en el registro de administrador
 
-`PantallaRegistro` muestra `SelectorUbicacion` sólo para el rol administrador.
-El administrador puede tocar el mapa para mover el pin o elegir «Usar mi
-ubicación»; si el permiso ya estaba concedido, el selector toma la posición
-actual mediante una consulta silenciosa. Una respuesta GPS tardía no pisa una
-selección manual más reciente. El centro configurado puede servir como vista
-inicial del mapa, pero **no se envía al registro**: el formulario exige una
-selección y transmite latitud/longitud al endpoint existente. El cliente no
-geocodifica la dirección ni cambia contratos del backend.
+`PantallaRegistro` muestra `SelectorUbicacion` sólo para el rol administrador
+(para el cliente no hay mapa ni se envían coordenadas). El administrador puede
+tocar el mapa para mover el pin o elegir «Usar mi ubicación»; si el permiso ya
+estaba concedido, el selector centra en la posición actual mediante una consulta
+silenciosa (`permisoConcedido()`), sin diálogo del sistema. Una respuesta GPS
+tardía no pisa una selección manual más reciente.
+
+El pin arranca en el centro configurado (`entorno.centro`) y **ese es el valor
+que se envía si el administrador no toca nada**: el alta nunca queda bloqueada
+por el mapa (la regla anterior, «sin selección el alta no se envía», se descartó
+porque un fallo de GPS/tiles no debe impedir registrar el lavadero). La
+diferencia con el defecto corregido es que el pin ya no es una constante oculta
+de CABA: es visible, se puede mover y el texto bajo el mapa muestra la
+coordenada exacta que se enviará.
+
+D-21.16 agrega una tercera vía para ubicar ese pin (geocodificar la dirección
+escrita). El campo Dirección sigue siendo texto libre descriptivo: no reemplaza
+la coordenada.
 
 ### D-21.9 - Ruta con OSRM: puerto, caché, timeout y debounce
 
@@ -319,6 +352,221 @@ adaptador): el proveedor construye el servicio con
 comparte con `almacen_sesion.dart` (que hoy tiene una copia privada del mismo
 predicado, fix del 19/11).
 
+### D-21.16 - Geocodificar la dirección del alta con Nominatim (cliente, detrás de puerto)
+
+**Aprobada para definición el 23/11/2026 — pendiente de auditoría e
+implementación.**
+
+**Problema.** En el alta, la dirección y la coordenada son dos datos
+independientes: el selector exige buscar el punto a mano. Nombrar la dirección y
+que el pin salte solo es el comportamiento esperado.
+
+**Proveedor: Nominatim (`nominatim.openstreetmap.org`), no MapTiler.** La
+geocodificación del backend ya existe (`IGeocodificador` + `GeocodificadorMapTiler`),
+pero vive detrás de `GET /api/lavaderos/cercanos?direccion=`, que exige JWT con
+política `Cliente`: en el alta el usuario **todavía no tiene sesión**, así que no
+puede usarse. Abrir un endpoint de geocodificación anónimo en el backend expone
+la cuota de MapTiler (key server-side) a cualquiera que descubra la ruta. El
+registro es un flujo de baja frecuencia y baja concurrencia: Nominatim no pide
+key, devuelve CORS abierto y su política de uso admite este caso.
+
+**Evidencia (23/11/2026).** `GET
+https://nominatim.openstreetmap.org/search?q=Av.+Corrientes+1234&format=jsonv2&limit=1&countrycodes=ar&accept-language=es`
+con `User-Agent` propio → `200` con `[{ place_id, licence, osm_type, lat:
+"-34.6039595", lon: "-58.3842172", category, type, addresstype, display_name:
+"1234, Avenida Corrientes, Microcentro, San Nicolás, Buenos Aires, … Argentina",
+boundingbox: [...] }]`. Con `Origin: http://localhost:8081` responde
+`Access-Control-Allow-Origin: *`, así que la web del compose puede llamarlo
+directo. `countrycodes=ar` prioriza Argentina; `accept-language=es` devuelve el
+`display_name` en español.
+
+**Puerto (cliente).**
+
+```dart
+// lib/core/mapas/geocodificador.dart
+abstract interface class Geocodificador {
+  /// Devuelve el punto del primer resultado o `null` si el texto no ubica nada.
+  /// Lanza [GeocodificacionNoDisponibleException] si el proveedor falla
+  /// (red, timeout, 429, 5xx): «no encontrado» y «no disponible» no se confunden.
+  Future<PuntoRuta?> ubicar(String texto);
+}
+```
+
+Exposición: `geocodificadorProvider` (Riverpod) para poder inyectar un doble en
+los tests, igual que `proveedorMapasProvider` y `servicioUbicacionProvider`.
+
+**Adaptador `GeocodificadorNominatim`** (`lib/core/mapas/geocodificador_nominatim.dart`):
+
+- `GET https://nominatim.openstreetmap.org/search`, query `q=<texto>`,
+  `format=jsonv2`, `limit=1`, `countrycodes=ar`, `accept-language=es`.
+- Base configurable por constructor (`baseUrl`) para tests; `Dio` inyectable.
+- `User-Agent` explícito (`WashPoints/1.0 (+https://washpoints.local)`) y
+  `Referer` en web: la política de Nominatim exige identificar la aplicación.
+- `timeout: 5 s`; se reutiliza el patrón de `CalculadorRutasOsrm`.
+- **Throttle:** un solo pedido en vuelo; entre pedidos, mínimo 1 s (política de
+  uso: máximo absoluto 1 req/s). Un segundo toque durante el pedido no dispara
+  otro: se ignora y se mantiene el estado de carga.
+- **Caché** LRU de 16 entradas por texto normalizado (trim, minúsculas,
+  espacios colapsados), sin persistencia: nada de direcciones a disco.
+- Respuesta `[]` → `null`; `lat`/`lon` no parseables → `null`; `429`, `5xx`,
+  `DioException` de red o timeout → `GeocodificacionNoDisponibleException`.
+- Sin `lat`/`lon` fuera de rango: se descartan (`null`).
+
+**UI.** Junto al `campo_direccion` del alta (sólo administrador) se agrega
+`boton_ubicar_direccion` («Ubicar en el mapa», `OutlinedButton.icon` con
+`Icons.my_location`/`Icons.search`), más `onSubmitted` del propio campo. Al
+presionarlo:
+
+1. si el texto está vacío → no se llama a nadie y se muestra
+   `aviso_geocodificacion` «Escribí una dirección para ubicarla en el mapa»;
+2. mientras resuelve, el botón queda deshabilitado con un `CircularProgressIndicator`
+   de 16 px;
+3. con resultado → el pin de `SelectorUbicacion` **se mueve** a ese punto y el
+   mapa se centra (zoom 16). El usuario puede ajustar después tocando el mapa;
+4. sin resultado → aviso «No pudimos ubicar esa dirección. Movés el pin a mano»;
+5. proveedor caído → aviso «No pudimos consultar el mapa de direcciones. Movés
+   el pin a mano»;
+6. en ningún caso se bloquea el envío del formulario ni se pisa una elección
+   manual posterior.
+
+**Cómo se mueve el pin.** `SelectorUbicacion` gana el parámetro opcional
+`PuntoRuta? punto`. Cuando el valor entrante difiere del pin vigente,
+`didUpdateWidget` actualiza `_elegido`, llama a `alElegir` y centra el
+controlador. El GPS silencioso de `_arrancarEnGps()` **sólo** aplica si el
+usuario todavía no eligió nada (ni toque, ni GPS previo, ni geocodificación):
+una respuesta tardía no puede mover un pin ya decidido (CA-S21.14).
+
+**Alternativas evaluadas y descartadas**
+
+| Alternativa | Por qué no |
+|-------------|-----------|
+| Reusar `GET /api/lavaderos/cercanos?direccion=` desde el alta | Exige JWT `Cliente`; en el registro no hay sesión (401) |
+| Endpoint anónimo `GET /api/geo/geocodificar` con MapTiler | Expone la cuota de una key server-side a tráfico anónimo y agrega superficie de abuso (rate limit propio, captcha, etc.) |
+| Geocodificar en el backend con Nominatim sin key | Duplica el proveedor y obliga a mantener dos integraciones de geocodificación; el cliente ya habla HTTP con Dio |
+| `geocoding` / `flutter_geocoder` (plugin) | Dependencia nueva (§3.3) y en web no aporta nada que no haga una llamada HTTP |
+
+**Atribución.** Los datos de Nominatim son de OpenStreetMap: la atribución
+«© OpenStreetMap contributors» ya es obligatoria y está visible en el mapa
+(D-21.8), así que no se agrega un aviso nuevo.
+
+### D-21.17 - Búsqueda híbrida: nombre de lavadero o dirección, sin romper el endpoint
+
+**Aprobada para definición el 23/11/2026 — pendiente de auditoría e
+implementación.**
+
+**Estado actual del endpoint.** `GET /api/lavaderos/cercanos` acepta **o**
+`lat`+`lon` **o** `direccion` (XOR estricto: `tieneUbicacion == tieneDireccion`
+→ `400 parametros_invalidos`), exige JWT `Cliente`, valida el radio con
+`BusquedaLavaderosServicio` (100…50 000 m, default 5 000) y responde
+`{ centro, radioMetros, resultados: [...] }`. En modo dirección geocodifica con
+`IGeocodificador` y busca en radio. **No hay ninguna forma de buscar por nombre**
+y la respuesta no dice qué modo se usó.
+
+**Solución elegida (la más simple que cubre el caso).** Un parámetro opcional
+`texto` en el mismo endpoint, resuelto en el servidor con **dos pasos**: primero
+filtro por nombre/dirección en la base; si no hay coincidencias, se cae al
+comportamiento actual de geocodificar y buscar en radio.
+
+```
+GET /api/lavaderos/cercanos?texto=<q>&lat=<lat>&lon=<lon>&radioMetros=<m>
+```
+
+| Regla | Resultado |
+|-------|-----------|
+| `texto` ausente | Comportamiento actual, sin cambios (`modo: "ubicacion"` o `"direccion"`) |
+| `texto` presente + `direccion` presente | `400 parametros_invalidos` |
+| `texto` presente sin `lat` o sin `lon` | `400 parametros_invalidos` (el centro es obligatorio para ordenar por distancia) |
+| `texto` vacío o sólo espacios | `400 parametros_invalidos` |
+| `radioMetros` inválido | `400 radio_invalido` (misma validación) |
+| Sin JWT | `401` (política sin cambios) |
+| Con coincidencias por nombre | `200 modo: "nombre"` |
+| Sin coincidencias y geocodificación OK | `200 modo: "direccion"` |
+| Sin coincidencias y geocodificación `null` | `404 direccion_no_encontrada` |
+| Geocodificador sin configurar / caído | `503 proveedor_mapas_no_configurado` / `proveedor_mapas_no_disponible` |
+
+**Contrato de respuesta.** Se agrega `modo` en la raíz; el resto no cambia:
+
+```json
+{
+  "centro": { "latitud": -34.6037, "longitud": -58.3816 },
+  "radioMetros": 5000,
+  "modo": "nombre",
+  "resultados": [
+    {
+      "lavaderoId": "…",
+      "nombre": "Lavadero Norte",
+      "direccion": "Av. Cabildo 1234",
+      "distanciaMetros": 312.4,
+      "latitud": -34.57,
+      "longitud": -58.45,
+      "ocupacion": { "puestosTotales": 2, "puestosActivos": 2, "ocupadosAhora": 1 }
+    }
+  ]
+}
+```
+
+- `modo: "nombre"` = coincidencia por texto; **el radio no se aplica** (el
+  campo `radioMetros` se devuelve como contexto, no como filtro). Un lavadero
+  homónimo a 300 km aparece: es el resultado que el usuario pidió.
+- `modo: "direccion"` = no hubo coincidencia por texto y se geocodificó la
+  misma cadena; el radio sí se aplica.
+- `modo: "ubicacion"` = búsqueda por coordenadas de siempre.
+
+**Backend — cambios mínimos.**
+
+1. `IBusquedaLavaderos` (`WashPoints.Domain`) gana
+   `Task<IReadOnlyList<LavaderoCercano>> BuscarPorTextoAsync(double latitud, double longitud, string texto, int limite, DateTime ahoraUtc, CancellationToken ct = default)`.
+2. `ConsultaBusquedaLavaderos` implementa una consulta con la **misma** CTE
+   `candidatos` (Haversine y `activo`/coordenadas no nulas ya resueltos) y
+   **sin** `ILIKE`, para que `%` y `_` del usuario no sean comodines:
+   `WHERE (strpos(lower(l.nombre), lower(@texto)) > 0 OR strpos(lower(coalesce(l.direccion, '')), lower(@texto)) > 0)`,
+   `ORDER BY c.distancia_metros`, `LIMIT @limite` (20). Se reutiliza el mismo
+   `LavaderoCercano` y la misma lectura por índices: la ocupación sale de las
+   mismas subconsultas (RB-2 intacta).
+3. `BusquedaLavaderosServicio.BuscarPorTextoAsync(...)` valida ubicación y radio
+   con los helpers existentes, llama al repositorio y, si la lista está vacía,
+   delega en `BuscarPorDireccionAsync(texto, radio, ct)`; devuelve
+   `new ResultadoBusqueda(lat, lon, radio, resultados, Modo)`.
+4. `ResultadoBusqueda` gana `string Modo = "ubicacion"` como **último parámetro
+   con valor por defecto**, así las tres construcciones existentes (ubicación,
+   dirección, tests) siguen compilando sin tocarse.
+5. `BusquedaLavaderosAJson` agrega `modo = resultado.Modo`.
+6. El `MapGet` de `/api/lavaderos/cercanos` suma `string? texto` y su rama:
+   si `texto` no es blanco, exige `lat`+`lon` y `direccion` nula, y llama a
+   `BuscarPorTextoAsync`. El XOR actual se mantiene cuando `texto` está ausente.
+
+**Frontend.**
+
+- `RepositorioBusqueda` gana
+  `buscarPorTexto({required String texto, required double latitud, required double longitud, required int radioMetros})`,
+  implementado en `RepositorioBusquedaHttp` con los mismos cuatro query
+  params. `buscarPorDireccion` se conserva (lo usa el flujo actual y sus tests).
+- `BusquedaNotifier` gana `_texto` y `buscarPorTexto(String)`: guarda el texto
+  para que `reintentar()` y `ampliarRadio()` lo repitan; `usarMiUbicacion()`
+  limpia `_texto` y `_direccion`.
+- `ResultadoBusqueda` gana `ModoBusqueda modo` con parseo tolerante: `"nombre"`,
+  `"direccion"`, `"ubicacion"` y **cualquier valor desconocido o ausente cae en
+  `ubicacion`** (compatibilidad con el backend viejo durante el despliegue).
+- `PantallaBusqueda`: `campo_direccion` pasa a
+  `labelText: 'Buscar lavadero o dirección'`, `boton_buscar_direccion` sigue
+  siendo el disparador (`_buscarPorDireccion` → `buscarPorTexto`) y el vacío
+  muestra «No encontramos un lavadero con ese nombre ni una dirección con ese
+  texto».
+- La hoja agrega un subtítulo `resultados_por_nombre` («Resultados por nombre»)
+  cuando `modo == nombre` y **oculta** `boton_ampliar_radio` en ese modo (el
+  radio no filtra esos resultados; ofrecer ampliarlo sería mentir).
+- El mensaje del 404 deja de ser genérico: distingue «no encontrado» de
+  «proveedor no disponible» (503).
+
+**Por qué no una búsqueda puramente por nombre en el cliente.** El cliente no
+tiene el listado completo de lavaderos: sólo ve los del radio consultado. Un
+filtro local no encontraría un lavadero fuera de ese radio y obligaría a paginar
+o a traer todos. El servidor sí puede filtrar sobre la tabla completa.
+
+**Por qué no un endpoint nuevo (`/api/lavaderos/buscar`).** Duplicaría el
+mapeo de errores, la autorización, la proyección JSON y los tests de contrato.
+Un parámetro opcional mantiene una sola ruta y un solo DTO.
+
 ## 4. Contratos y diseño técnico
 
 ### 4.1 Ubicación
@@ -382,8 +630,17 @@ Widget construir(
   CapaRuta? ruta,                      // nuevo (D-21.9/D-21.10)
   bool siguiendo = false,              // nuevo (D-21.6)
   ValueChanged<EventoMapa>? alMoverMapa, // nuevo (D-21.6)
+  double? alto,                        // nuevo (D-21.2/D-21.15)
+  ValueChanged<PuntoRuta>? alTocarCoordenada, // nuevo (D-21.15)
 });
 ```
+
+`alTocarCoordenada` entrega la coordenada geográfica bajo el dedo
+(`MapOptions.onTap(latlng)`); `MapaPlaceholder` lo acepta y lo ignora, como el
+resto de la capa nueva (D-16.6). El `onTap` de `flutter_map` se resuelve cuando
+el reconocedor de doble toque pierde la arena (~300 ms), dato relevante para los
+tests (`pump(400 ms)`), y el pin del centro intercepta el toque: en los tests se
+pulsa con un desplazamiento (`Offset(60, 40)`).
 
 ```dart
 // lib/core/mapas/capa_ruta.dart
@@ -407,7 +664,8 @@ marcador de usuario) y `RichAttributionWidget`.
 | `ValueKey` / identifier | Dónde |
 |------------------------|-------|
 | `pantalla_busqueda` | `Scaffold` (se conserva) |
-| `campo_direccion`, `boton_buscar_direccion`, `boton_mi_ubicacion` | fila flotante superior |
+| `campo_direccion`, `boton_buscar_direccion`, `boton_mi_ubicacion` | fila flotante superior; el campo pasa a buscar **nombre o dirección** (D-21.17) |
+| `resultados_por_nombre` | subtítulo de la hoja cuando `modo == nombre` (D-21.17) |
 | `mapa_flutter` | mapa a pantalla completa |
 | `marcador_usuario` | capa del marcador (sólo con posición) |
 | `polilinea_ruta` | capa de ruta (sólo con ruta) |
@@ -455,6 +713,94 @@ amplían; la resolución sigue viviendo en `resolver(...)` (puro, testeable).
   `ACCESS_BACKGROUND_LOCATION`).
 - Web: sin declaración; requiere HTTPS o `localhost` (contexto seguro).
 
+### 4.7 Geocodificador del cliente (D-21.16)
+
+```dart
+// lib/core/mapas/geocodificador.dart
+abstract interface class Geocodificador {
+  Future<PuntoRuta?> ubicar(String texto);
+}
+
+// lib/core/mapas/geocodificador_nominatim.dart
+class GeocodificadorNominatim implements Geocodificador {
+  GeocodificadorNominatim({
+    Dio? dio,
+    String baseUrl = 'https://nominatim.openstreetmap.org',
+    Duration timeout = const Duration(seconds: 5),
+    int capacidadCache = 16,
+    Duration separacionMinima = const Duration(seconds: 1),
+  });
+}
+
+// lib/core/mapas/geocodificador.dart (junto al puerto)
+final geocodificadorProvider = Provider<Geocodificador>((ref) => …);
+```
+
+`ubicar()` normaliza el texto (trim, minúsculas, espacios colapsados) y consulta
+la caché LRU antes de tocar la red. La URL exacta que se afirma en los tests es:
+
+```
+https://nominatim.openstreetmap.org/search?q=av.+corrientes+1234&format=jsonv2&limit=1&countrycodes=ar&accept-language=es
+```
+
+Cabeceras obligatorias: `User-Agent: WashPoints/1.0 (+https://washpoints.local)`
+y, en web, el `Referer` del navegador (no se puede falsificar desde Flutter: se
+documenta como límite de la política). Sin `countrycodes` el primer resultado
+puede caer en otro país hispanohablante; por eso el parámetro es fijo y no
+configurable por el usuario.
+
+| Key nueva (alta) | Dónde |
+|------------------|-------|
+| `boton_ubicar_direccion` | junto a `campo_direccion`, sólo rol administrador |
+| `aviso_geocodificacion` | texto inline bajo el campo Dirección (vacío, no encontrado o no disponible) |
+| `selector_ubicacion`, `boton_usar_mi_ubicacion`, `coordenadas_elegidas`, `aviso_ubicacion_registro` | ya existen (D-21.15) y se conservan |
+
+`SelectorUbicacion` acepta un punto externo para que la geocodificación mueva el
+pin: su firma queda
+
+```dart
+const SelectorUbicacion({
+  required PuntoRuta inicial,
+  required ValueChanged<PuntoRuta> alElegir,
+  PuntoRuta? punto,   // nuevo: punto impuesto desde el formulario (geocodificación)
+  super.key,
+});
+```
+
+`punto` es opcional, así los tests y el montaje actual siguen compilando; cuando
+llega un valor distinto del vigente, el pin se mueve y el mapa se centra.
+
+### 4.8 Búsqueda híbrida (D-21.17)
+
+```dart
+// lib/features/busqueda/domain/repositorio_busqueda.dart
+Future<ResultadoBusqueda> buscarPorTexto({
+  required String texto,
+  required double latitud,
+  required double longitud,
+  required int radioMetros,
+});
+
+// lib/features/busqueda/domain/resultado_busqueda.dart
+enum ModoBusqueda { ubicacion, direccion, nombre }
+
+class ResultadoBusqueda {
+  final ModoBusqueda modo;   // tolerante: ausente o desconocido → ubicacion
+  // … resto igual
+  bool get porNombre => modo == ModoBusqueda.nombre;
+}
+
+// lib/features/busqueda/presentation/busqueda_notifier.dart
+Future<void> buscarPorTexto(String texto);
+```
+
+`buscarPorTexto` en el repositorio llama al endpoint con
+`?texto=…&lat=…&lon=…&radioMetros=…`; `BusquedaNotifier` conserva el texto para
+`reintentar()`/`ampliarRadio()`, y `ampliarRadio()` en modo `nombre` **no** se
+ofrece en la UI (D-21.17). El `Semantics.identifier` del campo no cambia
+(`campo_direccion`): cambia sólo la etiqueta visible, para no romper los flujos
+de Maestro.
+
 ## 5. Casos de aceptación
 
 - **CA-S21.1** Con el permiso concedido, el punto azul aparece y se mueve con
@@ -493,9 +839,39 @@ amplían; la resolución sigue viviendo en `resolver(...)` (puro, testeable).
   coordenadas enviadas a OSRM van redondeadas a 4 decimales (test del adaptador
   con HTTP falso que inspecciona la URL).
 - **CA-S21.13** En el registro, el selector de ubicación aparece sólo para
-  administradores; tocar el mapa mueve el pin y «Usar mi ubicación» selecciona
-  GPS. Se envían las coordenadas elegidas; sin selección el alta no se envía ni
-  usa el centro fijo de CABA.
+  administradores; tocar el mapa mueve el pin, «Usar mi ubicación» selecciona
+  GPS y sin interacción se envía el punto mostrado (centro configurado), nunca
+  una coordenada oculta distinta a la que muestra `coordenadas_elegidas`.
+- **CA-S21.14** Con el rol administrador, escribir una dirección y tocar
+  `boton_ubicar_direccion` mueve el pin de `SelectorUbicacion` al punto
+  devuelto y centra el mapa. Un toque posterior del usuario sobre el mapa tiene
+  la última palabra; una respuesta GPS silenciosa tardía **no** pisa ninguna
+  decisión previa (toque, GPS explícito o geocodificación). Si el texto está
+  vacío, si no hay resultado o si el proveedor falla, se muestra
+  `aviso_geocodificacion` con el mensaje correspondiente y **el alta sigue
+  enviándose**. El rol cliente no ve el botón.
+- **CA-S21.15** En el buscador, escribir «Lavadero Norte» y buscar devuelve ese
+  lavadero aunque esté fuera del radio, con `resultados_por_nombre` visible y
+  sin `boton_ampliar_radio`. Escribir una dirección que no matchea ningún nombre
+  cae a la geocodificación y devuelve los lavaderos del radio
+  (`modo: "direccion"`). Un texto que no es ni nombre ni dirección muestra «No
+  encontramos un lavadero con ese nombre ni una dirección con ese texto», y un
+  proveedor caído muestra un mensaje distinto (no se confunden).
+- **CA-S21.16** Contrato del endpoint: `texto` sin `lat`/`lon` → `400
+  parametros_invalidos`; `texto` junto con `direccion` → `400`; `texto` vacío o
+  sólo espacios → `400`; sin JWT → `401`; `%` y `_` en el texto se tratan como
+  caracteres literales (no comodines); los lavaderos `activo = false` no
+  aparecen; el orden es por distancia al centro y el límite es 20; la respuesta
+  incluye `modo`; sin `texto` la respuesta y los errores son **idénticos** a los
+  actuales (regresión de contrato).
+- **CA-S21.17** Contrato del adaptador Nominatim (con `HttpClientAdapter` falso,
+  sin red): la URL incluye `format=jsonv2`, `limit=1`, `countrycodes=ar`,
+  `accept-language=es` y el texto escapado; un array con un elemento devuelve
+  `PuntoRuta` con la latitud/longitud correctas (no invertidas); un array vacío
+  devuelve `null`; `429`, `500` y timeout lanzan
+  `GeocodificacionNoDisponibleException`; dos llamadas con el mismo texto tocan
+  la red una sola vez (caché); una segunda llamada con texto distinto dentro del
+  segundo de separación no dispara un pedido simultáneo.
 
 ## 6. Tareas
 
@@ -606,11 +982,96 @@ amplían; la resolución sigue viviendo en `resolver(...)` (puro, testeable).
 
 - Incorporar `SelectorUbicacion` en `PantallaRegistro` sólo para administradores,
   con pin movible al tocar y acción «Usar mi ubicación».
-- Transmitir coordenadas elegidas; impedir el alta si no se seleccionó una
-  ubicación, en vez de enviar el centro fijo de CABA.
+- Transmitir la coordenada que muestra el selector (`coordenadas_elegidas`),
+  con el centro configurado como valor inicial; el alta **no** se bloquea por el
+  mapa.
 - Probar la selección manual, el GPS, la ausencia del selector para clientes y
-  el rechazo de coordenadas predeterminadas.
+  el envío del punto mostrado cuando no hubo interacción.
 - **CA:** S21.13.
+
+### T-240 — Puerto `Geocodificador` y adaptador Nominatim (cliente)
+
+- `lib/core/mapas/geocodificador.dart`: `Geocodificador`, excepción
+  `GeocodificacionNoDisponibleException` y `geocodificadorProvider` (D-21.16).
+- `lib/core/mapas/geocodificador_nominatim.dart`: Dio inyectable, URL con
+  `format=jsonv2&limit=1&countrycodes=ar&accept-language=es`, `User-Agent`,
+  timeout 5 s, caché LRU 16 por texto normalizado, un pedido en vuelo y
+  separación mínima de 1 s, `[]` → `null`, `429`/`5xx`/red → excepción.
+- Tests con `HttpClientAdapter` falso (sin red): URL exacta y escapada, orden
+  lat/lon, array vacío, `429`, `500`, timeout, caché (segunda llamada no toca la
+  red), throttle, texto vacío (no llama).
+- **CA:** S21.17.
+
+### T-241 — «Ubicar en el mapa» en el alta de administrador
+
+- `boton_ubicar_direccion` junto a `campo_direccion` (sólo administrador) y
+  `onSubmitted` del campo; estado de carga con el botón deshabilitado.
+- `SelectorUbicacion` acepta un punto externo y, al cambiarlo, mueve el pin,
+  notifica `alElegir` y centra el controlador; el GPS silencioso sólo aplica si
+  no hubo ninguna elección previa.
+- `aviso_geocodificacion` con tres mensajes distintos: texto vacío, no
+  encontrado y proveedor no disponible. Ninguno bloquea el envío.
+- Tests: el resultado mueve el pin; el toque manual posterior manda; el GPS
+  tardío no pisa; el fallo no bloquea el alta; el cliente no ve el botón.
+- **CA:** S21.14 (y regresión de S21.13).
+
+### T-242 — Búsqueda por nombre en el dominio y la persistencia
+
+- `IBusquedaLavaderos.BuscarPorTextoAsync(latitud, longitud, texto, limite,
+  ahoraUtc, ct)` (D-21.17).
+- `ConsultaBusquedaLavaderos`: misma CTE `candidatos`, filtro
+  `strpos(lower(nombre|direccion), lower(@texto)) > 0` (sin `ILIKE`), sin filtro
+  de radio, `ORDER BY distancia_metros`, `LIMIT @limite`; misma proyección de
+  ocupación.
+- `BusquedaLavaderosServicio.BuscarPorTextoAsync`: valida ubicación y radio,
+  busca por nombre y, si no hay coincidencias, delega en
+  `BuscarPorDireccionAsync`; `ResultadoBusqueda` gana `Modo` con default
+  `"ubicacion"`.
+- Tests de integración (Postgres de Testcontainers): nombre parcial, sin
+  coincidencias → fallback a geocodificación, `activo = false` excluido,
+  `%`/`_` literales, orden por distancia y límite.
+- **CA:** S21.16 (base), S21.15 (base).
+
+### T-243 — Contrato `texto` y `modo` en `/api/lavaderos/cercanos`
+
+- `MapGet` con `string? texto`: validaciones de D-21.17
+  (`parametros_invalidos`, `radio_invalido`, `direccion` incompatible) y
+  `BusquedaLavaderosAJson` con `modo` en la raíz.
+- Tests de contrato HTTP: `400` por cada combinación inválida, `401` anónimo,
+  `200` con `modo: "nombre"` y con `modo: "direccion"`, `404` sin resultado,
+  `503` con el geocodificador sin configurar, y regresión: sin `texto` la
+  respuesta es la de hoy.
+- **CA:** S21.16.
+
+### T-244 — Campo híbrido en el buscador
+
+- `RepositorioBusqueda.buscarPorTexto(...)` y su implementación HTTP;
+  `BusquedaNotifier.buscarPorTexto` con `_texto` recordado para
+  `reintentar()`/`ampliarRadio()`.
+- `ModoBusqueda` tolerante en `ResultadoBusqueda` (`porNombre`).
+- `PantallaBusqueda`: etiqueta «Buscar lavadero o dirección» (misma
+  `ValueKey`/identifier `campo_direccion`), subtítulo `resultados_por_nombre` y
+  `boton_ampliar_radio` oculto en modo nombre; mensaje único para el 404 y
+  mensaje distinto para el 503.
+- Tests de widget con repositorio falso: nombre → tarjeta sin «Ampliar radio»;
+  dirección → resultados con radio; nada → mensaje; proveedor caído → mensaje
+  distinto; repositorio HTTP con `DioAdapter` falso (query params exactos).
+- **CA:** S21.15.
+
+### T-245 — Verificación y documentación de D-21.16/D-21.17
+
+- `flutter analyze`, `flutter test` (suite completa), `flutter build web
+  --release`, `flutter build apk --debug`.
+- `dotnet build SRC\BACKEND\WashPoints.sln` y `dotnet test
+  SRC\BACKEND\WashPoints.sln` (esta vez **sí** hay cambios de backend; los tests
+  de integración requieren Docker, que **no** corre el agente: se documenta el
+  comando y su salida cuando la ejecute el usuario).
+- `AGENTS.md` §5.5 (contrato de búsqueda y `modo`), §5.6 (bullet del slice-21 con
+  Nominatim y el campo híbrido), `DOCS/ARCHITECTURE.md` §7.4 (geocodificación del
+  alta y búsqueda por nombre), `DOCS/CATALOGO_TESTS.md` (conteos) y
+  `SPECS/README.md` (estado del slice).
+- §10.5 de este documento con la evidencia de cierre.
+- **CA:** S21.14 … S21.17.
 
 ## 7. Riesgos
 
@@ -623,6 +1084,13 @@ amplían; la resolución sigue viviendo en `resolver(...)` (puro, testeable).
 | El rediseño del layout toca ~10 `testWidgets` | Costo alto y riesgo de regresión visual | Se conservan todas las `ValueKey`/identifiers (CA-S21.11) y se reescribe el test pantalla por pantalla |
 | Stream del GPS abierto tras cerrar la pantalla | Batería y `Timer`s pendientes que rompen tests | Cancelación en `dispose` y `paused` (CA-S21.9), verificado con tests |
 | El GPS en interiores da saltos | Recalculo constante de ruta | `distanceFilter: 10`, debounce 300 ms y umbral de 50 m (D-21.9) |
+| Política de uso de Nominatim (máx. 1 req/s, `User-Agent`/`Referer` identificable, prohibido autocompletar) | Bloqueo temporal del origen (429) para todos los usuarios | Un pedido en vuelo, separación mínima 1 s, sólo por gesto explícito (nunca mientras se escribe), caché LRU 16 y `User-Agent` propio; si el volumen crece, self-host (§11) |
+| Nominatim devuelve `Access-Control-Allow-Origin: *` hoy, sin compromiso de estabilidad | La geocodificación del alta podría fallar en web si cierra CORS | El fallo es degradable (CA-S21.14: aviso + pin manual) y el puerto permite cambiar a un proxy propio del backend sin tocar la UI |
+| El filtro `strpos(lower(...))` no ignora tildes | «Lavadero Nuñez» no matchea «Lavadero Nunez» | Limitación aceptada: sin extensión `unaccent` (fuera de alcance, sin migraciones); se documenta en §11 |
+| El modo nombre ignora el radio | Un homónimo lejano aparece primero | Es intencional (el usuario pidió ese nombre): la distancia se muestra en la tarjeta y el subtítulo «Resultados por nombre» explicita el modo |
+| Dos lavaderos con el mismo nombre | El usuario debe distinguirlos por dirección/distancia | La tarjeta ya muestra dirección y distancia; no se agrega desambiguación en esta fase |
+| La búsqueda híbrida depende del mismo `IGeocodificador` del backend | Sin `Mapas:ApiKey` el fallback por dirección responde 503 | El mensaje de la UI distingue «no encontrado» de «proveedor no disponible» (D-21.17); el alta no depende de MapTiler porque usa Nominatim (D-21.16) |
+| `strpos` sin índice sobre `lower(nombre)` | Consulta secuencial sobre `lavaderos` | Aceptable con el volumen del piloto (decenas de lavaderos); si crece, índice funcional `lower(nombre) text_pattern_ops` o `pg_trgm` en una fase posterior |
 
 ## 8. Verificación y criterio de cierre
 
@@ -632,6 +1100,11 @@ flutter analyze
 flutter test
 flutter build web --release
 flutter build apk --debug
+
+# Sólo D-21.16/D-21.17 (hay cambios de backend desde el 23/11/2026)
+cd ..\..\..
+dotnet build SRC\BACKEND\WashPoints.sln
+dotnet test SRC\BACKEND\WashPoints.sln   # integración: requiere Docker, lo corre el usuario
 ```
 
 Smoke manual (dispositivo, fuera de la suite):
@@ -646,6 +1119,13 @@ Smoke manual (dispositivo, fuera de la suite):
 5. En web (`http://localhost:8081`) el mapa usa el raster OSM estándar con
    atribución; en
    `http://<IP>:8081` la ubicación explica el motivo del contexto no seguro.
+6. Alta de administrador: escribir «Av. Corrientes 1234», tocar «Ubicar en el
+   mapa» y verificar que el pin salta; corregirlo a mano y confirmar que el alta
+   envía el punto corregido (visible en `coordenadas_elegidas`). Cortar la red y
+   confirmar el aviso sin bloqueo.
+7. Buscador: buscar por el nombre de un lavadero creado y encontrarlo; buscar
+   una dirección que no sea nombre y ver el modo dirección; buscar un texto
+   inexistente y leer el mensaje.
 
 Se cierra cuando:
 
@@ -655,7 +1135,8 @@ Se cierra cuando:
 - [x] `flutter build web --release` y `flutter build apk --debug` exitosos.
 - [x] Ninguna dependencia nueva en `pubspec.yaml`.
 - [x] Ningún cambio en backend, contratos de API, migraciones ni reglas de
-      negocio.
+      negocio **en el cierre del 23/11/2026** (D-21.16 y D-21.17 sí cambian el
+      contrato de búsqueda: ver checklist pendiente abajo).
 - [x] `nginx.conf` con `location /osrm/` y nota de reconstrucción del contenedor
       `web` (no ejecutada por el agente).
 - [x] Documentación (AGENTS §5.4/§5.6, ARCHITECTURE §7.4/§7.7, SPECS/README,
@@ -663,6 +1144,26 @@ Se cierra cuando:
 - [x] `git diff` sin toques fuera de lo listado en §6 (más el refactor de
       `esContextoSeguro` de T-228 y T-238/T-239): mapas, selector y registro de
       administrador, tests y documentación; sin cambios de backend.
+
+**Auditoría e implementación de D-21.16 / D-21.17 (24/11/2026)**
+
+- [x] Spec auditado por el responsable del producto: el pedido de ejecutar
+      T-240 … T-245 sobre este documento es la aprobación explícita.
+- [x] CA-S21.14 … CA-S21.17 verificados con evidencia en §10.5.
+- [x] `flutter analyze`, `flutter test`, `flutter build web --release` y
+      `flutter build apk --debug` en verde.
+- [x] `dotnet build` en verde y 323/323 tests unitarios; la suite de
+      integración (292, 11 nuevos) queda para el usuario porque el agente no
+      corre Docker.
+- [x] Sin dependencias nuevas en `pubspec.yaml` (Nominatim se llama con `Dio`).
+- [x] Sin migraciones ni cambios de esquema; sólo el parámetro `texto` y el
+      campo `modo` en la respuesta.
+- [x] Ningún secreto nuevo: Nominatim no usa key y las claves de mapas siguen
+      igual.
+- [x] RB-1, RB-2 y RB-3 intactas: la ocupación sigue saliendo de las mismas
+      consultas y la reserva no cambia.
+- [x] Documentación (AGENTS §5.5/§5.6, ARCHITECTURE §7.4, SPECS/README,
+      CATALOGO_TESTS) actualizada.
 
 ## 9. Trazabilidad
 
@@ -681,17 +1182,26 @@ Se cierra cuando:
 | CA-S21.11 | D-21.2 | T-234 | Tests reescritos que siguen usando las mismas keys |
 | CA-S21.12 | D-21.12 | T-232 | URL del adaptador con coordenadas de 4 decimales |
 | CA-S21.13 | D-21.15 | T-239 | Tests del selector y del registro: coordenada elegida o rechazo |
+| CA-S21.14 | D-21.16 | T-240, T-241 | Tests del alta: pin movido por geocodificación, ajuste manual, aviso sin bloqueo |
+| CA-S21.15 | D-21.17 | T-242, T-244 | Tests del buscador con repositorio falso: modo nombre, modo dirección y mensajes |
+| CA-S21.16 | D-21.17 | T-242, T-243 | Tests de contrato HTTP del parámetro `texto` y del campo `modo` |
+| CA-S21.17 | D-21.16 | T-240 | Tests del adaptador Nominatim con `HttpClientAdapter` falso |
 
 RB-1, RB-2 y RB-3 no se ven afectadas: el slice no cambia el flujo de reserva,
 ni la fuente de disponibilidad, ni la validación de comprobantes. Las decisiones
 D-21.9 y D-21.10 garantizan además que una falla de ruta **no** bloquea la
-reserva, que sigue siendo la única puerta de RB-1.
+reserva, que sigue siendo la única puerta de RB-1. D-21.17 agrega únicamente un
+filtro de **lectura** sobre `lavaderos.nombre`/`lavaderos.direccion` y reutiliza
+las mismas subconsultas de ocupación, así que la disponibilidad sigue viniendo
+de una sola fuente (RB-2); D-21.16 no toca el backend.
 
 ## 10. Estado de implementación
 
-**Cierre actualizado el 23/11/2026.** T-228 … T-239 implementadas sobre el árbol del
-slice-20. Sin dependencias nuevas en `pubspec.yaml`; sin cambios en backend,
-contratos de API, migraciones ni reglas de negocio (RB-1, RB-2 y RB-3 intactas).
+**Cierre actualizado el 24/11/2026.** T-228 … T-239 implementadas sobre el árbol del
+slice-20 (cierre del 23/11) y T-240 … T-245 (D-21.16/D-21.17) sobre ese mismo árbol.
+Sin dependencias nuevas en `pubspec.yaml`; sin migraciones ni reglas de negocio nuevas
+(RB-1, RB-2 y RB-3 intactas). D-21.17 sólo agrega el parámetro `texto` y el campo `modo`
+al contrato de búsqueda; D-21.16 no toca el backend.
 
 ### 10.1 Verificación (§8)
 
@@ -734,7 +1244,7 @@ de `marcador_usuario`), `test/core/rutas` (10), `test/features/busqueda` (34:
 | T-236 Proxy | `nginx.conf` con `location /osrm/`; `DOCS/ARCHITECTURE.md` §7.4/§7.7 y `AGENTS.md` §5.4. **No se ejecutó Docker**: el usuario debe correr `docker compose up -d --build web` para que el contenedor tome el proxy |
 | T-237 Cierre | Esta sección + `AGENTS.md` §5.6, `DOCS/CATALOGO_TESTS.md` y `SPECS/README.md` |
 | T-238 OSM estándar | `configuracion_teselas_test` + `mapa_flutter_test`: URL raster exacta, subdominios vacíos y atribución OSM |
-| T-239 Registro | `selector_ubicacion_test` + `pantalla_registro_test`: toque, GPS, rol administrador y bloqueo sin selección |
+| T-239 Registro | `selector_ubicacion_test` + `pantalla_registro_test`: toque, GPS, rol administrador y envío del punto mostrado inicialmente cuando no hubo interacción |
 
 ### 10.3 Trazabilidad de casos de aceptación
 
@@ -752,7 +1262,11 @@ de `marcador_usuario`), `test/core/rutas` (10), `test/features/busqueda` (34:
 | CA-S21.10 | `flutter analyze` limpio + `+557` tests |
 | CA-S21.11 | `pantalla_busqueda_test` reescrito con las mismas `ValueKey`/identifiers |
 | CA-S21.12 | `calculador_rutas_osrm_test` (URL con coordenadas de 4 decimales) |
-| CA-S21.13 | `selector_ubicacion_test` + `pantalla_registro_test` (toque, GPS y rechazo de ubicación predeterminada) |
+| CA-S21.13 | `selector_ubicacion_test` + `pantalla_registro_test` (toque, GPS y envío del punto mostrado inicialmente cuando no hubo interacción) |
+| CA-S21.14 | `pantalla_registro_test` (pin movido por geocodificación, ajuste manual y aviso sin bloqueo) + `selector_ubicacion_test` (punto externo) |
+| CA-S21.15 | `pantalla_busqueda_test` + `busqueda_notifier_test` (modo nombre, modo dirección, vacío y mensajes 404/503) |
+| CA-S21.16 | `repositorio_busqueda_test` (query `texto`/`lat`/`lon`/`radioMetros` y parseo de `modo`) + `BusquedaProximidadTest` (integración, pendiente de Docker) |
+| CA-S21.17 | `geocodificador_nominatim_test` (13 casos con `HttpClientAdapter` falso) |
 
 ### 10.4 Notas de ejecución
 
@@ -768,6 +1282,57 @@ de `marcador_usuario`), `test/core/rutas` (10), `test/features/busqueda` (34:
   y el analyzer la marca como no declarada, así que se resolvió con
   `debounce: Duration.zero`/valores cortos y `Future.delayed`.
 
+### 10.5 D-21.16 / D-21.17 implementados (24/11/2026)
+
+**Estado: implementados y verificados.** Se agregaron al mismo slice-21 sin crear
+un slice nuevo, según el pedido de ejecutar T-240 … T-245.
+
+| Requerimiento | Decisión | Alcance implementado | Estado |
+|---------------|----------|----------------------|--------|
+| Geocodificar la dirección del alta y mover el pin | D-21.16 | Cliente: puerto `Geocodificador` + `GeocodificadorNominatim`, `boton_ubicar_direccion`, `aviso_geocodificacion`, `SelectorUbicacion` con punto externo | Implementado |
+| Buscar por nombre de lavadero o dirección en el mismo campo | D-21.17 | Backend: `texto` en `/api/lavaderos/cercanos`, `BuscarPorTextoAsync`, `modo` en la respuesta. Cliente: `buscarPorTexto`, `ModoBusqueda`, subtítulo de la hoja | Implementado |
+
+#### Evidencia por tarea
+
+| Tarea | Evidencia |
+|-------|-----------|
+| T-240 Geocodificador | `lib/core/mapas/geocodificador.dart` (puerto, `GeocodificacionNoDisponibleException`, `geocodificadorProvider`) y `geocodificador_nominatim.dart`: `Dio` inyectable, `?q=…&format=jsonv2&limit=1&countrycodes=ar&accept-language=es`, LRU de 16, throttle de 1 req/s, timeout de 5 s y `[]` → `null`. `geocodificador_nominatim_test`: **13 tests** |
+| T-241 Alta | `SelectorUbicacion.punto` + `didUpdateWidget`; `PantallaRegistro` con `boton_ubicar_direccion`, envío con Enter, spinner, `aviso_geocodificacion` (sin resultados, proveedor caído, texto vacío) y envío del centro mostrado cuando no hubo interacción. `selector_ubicacion_test` **8** y `pantalla_registro_test` **9** |
+| T-242 Backend | `IBusquedaLavaderos.BuscarPorTextoAsync`; SQL compartido con `Candidatos` + `Proyeccion` y `SqlTexto` (`strpos(lower(nombre/direccion), lower(@texto))`, sin radio, `LIMIT 20`); `BusquedaLavaderosServicio.BuscarPorTextoAsync` con fallback a geocodificación + radio; `ResultadoBusqueda.Modo`; validaciones 400/404/503 |
+| T-243 Contrato HTTP | Endpoint `/api/lavaderos/cercanos` con `texto` opcional y `modo` (`ubicacion`/`direccion`/`nombre`) en `BusquedaLavaderosAJson`. `BusquedaLavaderosServicioTest` ampliado; `BusquedaProximidadTest` con **11 tests nuevos** (integración, pendientes de Docker) |
+| T-244 Cliente | `ModoBusqueda` tolerante en `ResultadoBusqueda` (`porNombre`); `buscarPorTexto` en interfaz y HTTP; `BusquedaNotifier._texto` con repetición en `ampliarRadio`/`reintentar` y limpieza en `usarMiUbicacion`; campo híbrido «Buscar lavadero o dirección», subtítulo `resultados_por_nombre`, vacío específico y errores 404/503 con copy propio. Tests: repositorio **8**, notifier **9**, pantalla **21** |
+| T-245 Cierre | Esta sección, §8 y documentación (AGENTS §5.5/§5.6, ARCHITECTURE §7.4, CATALOGO_TESTS, SPECS/README) |
+
+#### Comandos y salidas (24/11/2026)
+
+| Comando | Salida |
+|---------|--------|
+| `flutter analyze` | `No issues found! (8.3s)` |
+| `flutter test` | **`+589: All tests passed!`** (baseline 557; +32: 13 Nominatim, 2 selector, 4 registro, 4 repositorio, 5 notifier, 4 pantalla) |
+| `flutter build web --release` | `√ Built build\web` |
+| `flutter build apk --debug` | `√ Built build\app\outputs\flutter-apk\app-debug.apk` (tras liberar disco: quedaban 2,93 GB y CMake falló; con 4,35 GB libres compiló) |
+| `dotnet build SRC\BACKEND\WashPoints.sln --nologo` | `Compilación correcta. 0 Advertencia(s), 0 Errores` |
+| `dotnet test TESTS\WashPoints.UnitTests\WashPoints.UnitTests.csproj --nologo` | `Superado: 323, Total: 323` (baseline 295; +28 de T-242/T-243) |
+
+**Pendiente en manos del usuario (requiere Docker):**
+
+```bash
+dotnet test SRC\BACKEND\WashPoints.sln          # 292 integración, 11 nuevos
+docker compose up -d --build web                # reconstruye Nginx/web si aplica
+```
+
+No se ejecutó ningún comando de Docker por restricción explícita del pedido. El
+smoke manual de §8 (permisos, GPS, Nominatim real, modo avión, IP de LAN) queda
+pendiente en dispositivo y en el contenedor `web`.
+
+Hallazgo que justifica D-21.16: el endpoint de geocodificación del backend
+(`/api/lavaderos/cercanos?direccion=`) exige JWT `Cliente`, y en el alta no hay
+sesión; por eso la geocodificación del registro va por Nominatim desde el
+cliente y no por MapTiler desde el servidor (razones completas en D-21.16).
+
+Limitaciones aceptadas del piloto (ver §11): sin proxy/self-host de Nominatim y
+sin insensibilidad a tildes en el filtro por nombre.
+
 ## 11. Preguntas abiertas
 
 1. **OSRM público en producción.** La API demo de OSRM es de uso libre pero sin
@@ -775,9 +1340,29 @@ de `marcador_usuario`), `test/core/rutas` (10), `test/features/busqueda` (34:
    una instancia propia (Docker `osrm-backend` + extracto de Argentina) antes de
    abrir al público? Mientras tanto el proxy permite cambiar de destino sin
    tocar el cliente.
-3. **Geolocalización en la web servida por IP.** Igual que el almacén de sesión
+2. **Geolocalización en la web servida por IP.** Igual que el almacén de sesión
    (slice-20, 19/11), el navegador sólo permite geolocalización en contexto
    seguro. Con la web por HTTP en la LAN de prueba no habrá punto azul en el
    celular; queda documentado y con mensaje explícito. ¿Se agrega HTTPS al
    compose de prueba (certificado autofirmado + confianza manual en el
    dispositivo) o se deja como limitación conocida?
+
+**Decisiones de piloto ya tomadas (23/11/2026).** No quedan abiertas: se
+asientan acá para que T-240 … T-245 no las reabran.
+
+- **Nominatim público detrás del puerto `Geocodificador` (D-21.16).** Para el
+  piloto, el alta geocodifica contra `nominatim.openstreetmap.org` desde el
+  cliente, con un pedido por gesto, 1 req/s como máximo y `User-Agent`/`Referer`
+  identificable. Un proxy propio en la API o una instancia self-host de
+  Nominatim quedan como camino de producción si el volumen o la política del
+  proveedor lo exigen; cambiar de adaptador no toca la UI.
+- **Búsqueda por nombre sin límite de radio (D-21.17).** El modo `nombre` NO
+  filtra por `radioMetros`: un lavadero buscado por su nombre aparece aunque
+  esté fuera del radio. `radioMetros` se devuelve como contexto y el subtítulo
+  «Resultados por nombre» explicita el modo. Pasarlo a «primero el radio,
+  después el resto» es un cambio posterior (una rama de `BuscarPorTextoAsync` y
+  el texto de la hoja), no de este alcance.
+- **Tildes: limitación aceptada sin migración (D-21.17).** El filtro
+  `strpos(lower(...))` no ignora acentos: «Núñez» no matchea «Nunez». Se acepta
+  y se documenta en el piloto; la extensión `unaccent` (migración) o la
+  normalización en la aplicación quedan para una fase posterior.

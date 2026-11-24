@@ -28,6 +28,7 @@ class BusquedaNotifier extends AsyncNotifier<ResultadoBusqueda> {
   double? _latitud;
   double? _longitud;
   String? _direccion;
+  String? _texto;
 
   @override
   Future<ResultadoBusqueda> build() {
@@ -35,6 +36,7 @@ class BusquedaNotifier extends AsyncNotifier<ResultadoBusqueda> {
     _latitud = entorno.centroLatitud;
     _longitud = entorno.centroLongitud;
     _direccion = null;
+    _texto = null;
 
     return _buscar(
       entorno.centroLatitud,
@@ -68,10 +70,36 @@ class BusquedaNotifier extends AsyncNotifier<ResultadoBusqueda> {
 
     final radio = _radioVigente();
     _direccion = texto;
+    _texto = null;
     state = const AsyncLoading<ResultadoBusqueda>();
     state = await AsyncValue.guard(
       () => ref.read(repositorioBusquedaProvider).buscarPorDireccion(
             direccion: texto,
+            radioMetros: radio,
+          ),
+    );
+  }
+
+  /// Busca por nombre de lavadero o dirección (slice-21, D-21.17).
+  ///
+  /// El texto se recuerda: [ampliarRadio] y [reintentar] repiten la misma
+  /// consulta antes que la búsqueda por coordenadas.
+  Future<void> buscarPorTexto(String texto) async {
+    final termino = texto.trim();
+    if (termino.isEmpty) {
+      return;
+    }
+
+    final radio = _radioVigente();
+    final entorno = ref.read(entornoProvider);
+    _texto = termino;
+    _direccion = null;
+    state = const AsyncLoading<ResultadoBusqueda>();
+    state = await AsyncValue.guard(
+      () => ref.read(repositorioBusquedaProvider).buscarPorTexto(
+            texto: termino,
+            latitud: _latitud ?? entorno.centroLatitud,
+            longitud: _longitud ?? entorno.centroLongitud,
             radioMetros: radio,
           ),
     );
@@ -92,6 +120,7 @@ class BusquedaNotifier extends AsyncNotifier<ResultadoBusqueda> {
 
     final radio = _radioVigente();
     _direccion = null;
+    _texto = null;
     state = const AsyncLoading<ResultadoBusqueda>();
     state = await AsyncValue.guard(
       () => _buscar(resultado.latitud!, resultado.longitud!, radio),
@@ -106,6 +135,19 @@ class BusquedaNotifier extends AsyncNotifier<ResultadoBusqueda> {
 
   Future<void> _recargar(int radioMetros) async {
     state = const AsyncLoading<ResultadoBusqueda>();
+
+    if (_texto != null) {
+      final entorno = ref.read(entornoProvider);
+      state = await AsyncValue.guard(
+        () => ref.read(repositorioBusquedaProvider).buscarPorTexto(
+              texto: _texto!,
+              latitud: _latitud ?? entorno.centroLatitud,
+              longitud: _longitud ?? entorno.centroLongitud,
+              radioMetros: radioMetros,
+            ),
+      );
+      return;
+    }
 
     if (_direccion != null) {
       state = await AsyncValue.guard(
@@ -135,6 +177,7 @@ class BusquedaNotifier extends AsyncNotifier<ResultadoBusqueda> {
     _latitud = latitud;
     _longitud = longitud;
     _direccion = null;
+    _texto = null;
 
     return ref.read(repositorioBusquedaProvider).buscarCercanos(
           latitud: latitud,

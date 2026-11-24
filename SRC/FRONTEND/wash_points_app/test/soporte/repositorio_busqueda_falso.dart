@@ -25,6 +25,10 @@ class RepositorioBusquedaFalso implements RepositorioBusqueda {
   final List<({String direccion, int radioMetros})> pedidosDireccion =
       <({String direccion, int radioMetros})>[];
 
+  final List<({String texto, double latitud, double longitud, int radioMetros})>
+      pedidosTexto =
+      <({String texto, double latitud, double longitud, int radioMetros})>[];
+
   final Completer<void> _nunca = Completer<void>();
 
   @override
@@ -88,6 +92,46 @@ class RepositorioBusquedaFalso implements RepositorioBusqueda {
     return ResultadoBusqueda(
       latitud: -34.6037,
       longitud: -58.3816,
+      radioMetros: radioMetros,
+      lavaderos: const <LavaderoCercano>[],
+    );
+  }
+
+  @override
+  Future<ResultadoBusqueda> buscarPorTexto({
+    required String texto,
+    required double latitud,
+    required double longitud,
+    required int radioMetros,
+  }) async {
+    pedidosTexto.add((
+      texto: texto,
+      latitud: latitud,
+      longitud: longitud,
+      radioMetros: radioMetros,
+    ));
+
+    if (pendiente) {
+      await _nunca.future;
+    }
+
+    if (error != null) {
+      throw error!;
+    }
+
+    final indice =
+        pedidos.length + pedidosDireccion.length + pedidosTexto.length - 1;
+    if (indice < resultados.length) {
+      return resultados[indice];
+    }
+
+    if (resultados.isNotEmpty) {
+      return resultados.last;
+    }
+
+    return ResultadoBusqueda(
+      latitud: latitud,
+      longitud: longitud,
       radioMetros: radioMetros,
       lavaderos: const <LavaderoCercano>[],
     );

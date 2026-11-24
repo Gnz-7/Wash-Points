@@ -16,13 +16,13 @@ import 'proveedor_mapas.dart';
 /// constante por una coordenada real elegida sobre el mapa: se toca el mapa
 /// para mover el pin o se usa la posición del dispositivo.
 ///
-/// No geocodifica: el campo de dirección del registro sigue siendo texto libre
-/// descriptivo y la búsqueda por dirección del buscador es la que resuelve
-/// coordenadas a partir de un texto.
+/// No geocodifica por sí mismo: recibe la coordenada geocodificada por el
+/// formulario en [punto] (slice-21, D-21.16) o deja que el usuario mueva el pin.
 class SelectorUbicacion extends ConsumerStatefulWidget {
   const SelectorUbicacion({
     required this.inicial,
     required this.alElegir,
+    this.punto,
     super.key,
   });
 
@@ -31,6 +31,10 @@ class SelectorUbicacion extends ConsumerStatefulWidget {
 
   /// Notifica cada cambio de coordenada al formulario que lo contiene.
   final ValueChanged<PuntoRuta> alElegir;
+
+  /// Punto externo que el pin debe reflejar (por ejemplo, el resultado de
+  /// ubicar la dirección escrita en el alta).
+  final PuntoRuta? punto;
 
   @override
   ConsumerState<SelectorUbicacion> createState() => _SelectorUbicacionState();
@@ -49,6 +53,29 @@ class _SelectorUbicacionState extends ConsumerState<SelectorUbicacion> {
   void initState() {
     super.initState();
     unawaited(_arrancarEnGps());
+  }
+
+  @override
+  void didUpdateWidget(covariant SelectorUbicacion oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final punto = widget.punto;
+    if (punto == null) return;
+    if (punto.latitud == _elegido.latitud &&
+        punto.longitud == _elegido.longitud) {
+      return;
+    }
+
+    // Un punto externo (geocodificación del alta) manda sobre el pin vigente.
+    // No se usa setState: el widget ya se está reconstruyendo y este build
+    // toma el valor actualizado. El aviso al formulario se difiere para no
+    // disparar setState en otro widget durante el build.
+    _revisionSeleccion++;
+    _elegido = punto;
+    _mapa.centrar(punto.latitud, punto.longitud, zoom: 16);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      widget.alElegir(punto);
+    });
   }
 
   @override

@@ -122,11 +122,11 @@ class _PantallaBusquedaState extends ConsumerState<PantallaBusqueda>
     );
   }
 
-  Future<void> _buscarPorDireccion() async {
+  Future<void> _buscarPorTexto() async {
     FocusScope.of(context).unfocus();
     await ref
         .read(busquedaProvider.notifier)
-        .buscarPorDireccion(_direccion.text);
+        .buscarPorTexto(_direccion.text);
   }
 
   /// Gesto explícito: sí puede pedir permiso y sí informa el motivo.
@@ -353,9 +353,9 @@ class _PantallaBusquedaState extends ConsumerState<PantallaBusqueda>
                 key: const ValueKey('campo_direccion'),
                 controller: _direccion,
                 textInputAction: TextInputAction.search,
-                onSubmitted: (_) => _buscarPorDireccion(),
+                onSubmitted: (_) => _buscarPorTexto(),
                 decoration: const InputDecoration(
-                  hintText: 'Buscar por dirección',
+                  labelText: 'Buscar lavadero o dirección',
                   isDense: true,
                   border: InputBorder.none,
                   prefixIcon: Icon(Icons.search),
@@ -364,8 +364,8 @@ class _PantallaBusquedaState extends ConsumerState<PantallaBusqueda>
             ),
             IconButton(
               key: const ValueKey('boton_buscar_direccion'),
-              tooltip: 'Buscar por dirección',
-              onPressed: _buscarPorDireccion,
+              tooltip: 'Buscar por nombre o dirección',
+              onPressed: _buscarPorTexto,
               icon: const Icon(Icons.travel_explore),
             ),
             IconButton(
@@ -430,8 +430,8 @@ class _PantallaBusquedaState extends ConsumerState<PantallaBusqueda>
         ),
       ],
       error: (error, _) => <Widget>[
-        SizedBox(
-          height: 220,
+        ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 220),
           child: _EstadoError(
             error: error,
             alReintentar: () => ref.read(busquedaProvider.notifier).reintentar(),
@@ -439,11 +439,26 @@ class _PantallaBusquedaState extends ConsumerState<PantallaBusqueda>
         ),
       ],
       data: (resultado) {
+        final encabezado = resultado.porNombre
+            ? <Widget>[
+                Padding(
+                  key: const ValueKey('resultados_por_nombre'),
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                  child: Text(
+                    'Resultados por nombre',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+              ]
+            : const <Widget>[];
+
         if (resultado.vacio) {
           return <Widget>[
+            ...encabezado,
             SizedBox(
               height: 280,
               child: _EstadoVacio(
+                porNombre: resultado.porNombre,
                 alAmpliar: () =>
                     ref.read(busquedaProvider.notifier).ampliarRadio(),
               ),
@@ -452,6 +467,7 @@ class _PantallaBusquedaState extends ConsumerState<PantallaBusqueda>
         }
 
         return <Widget>[
+          ...encabezado,
           for (final lavadero in resultado.lavaderos)
             // El seleccionado vive en su propia tarjeta (arriba): repetirlo en
             // la lista duplicaría `abrir_lavadero_<id>`.
@@ -521,9 +537,12 @@ class _AsaHoja extends StatelessWidget {
 }
 
 class _EstadoVacio extends StatelessWidget {
-  const _EstadoVacio({required this.alAmpliar});
+  const _EstadoVacio({required this.alAmpliar, this.porNombre = false});
 
   final VoidCallback alAmpliar;
+
+  /// Un resultado por nombre no depende del radio: ampliarlo no ayuda.
+  final bool porNombre;
 
   @override
   Widget build(BuildContext context) => Center(
@@ -536,22 +555,25 @@ class _EstadoVacio extends StatelessWidget {
               const Icon(Icons.search_off, size: 48),
               const SizedBox(height: 12),
               Text(
-                'No hay lavaderos en este radio.',
+                porNombre
+                    ? 'No encontramos lavaderos con ese nombre.'
+                    : 'No hay lavaderos en este radio.',
                 style: Theme.of(context).textTheme.titleMedium,
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 8),
-              const Text(
+              if (!porNombre) const Text(
                 'Probá ampliar la búsqueda para encontrar más locales.',
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                key: const ValueKey('boton_ampliar_radio'),
-                onPressed: alAmpliar,
-                icon: const Icon(Icons.zoom_out_map),
-                label: const Text('Ampliar el radio de búsqueda'),
-              ),
+              if (!porNombre) const SizedBox(height: 16),
+              if (!porNombre)
+                FilledButton.icon(
+                  key: const ValueKey('boton_ampliar_radio'),
+                  onPressed: alAmpliar,
+                  icon: const Icon(Icons.zoom_out_map),
+                  label: const Text('Ampliar el radio de búsqueda'),
+                ),
             ],
           ),
         ),
@@ -564,11 +586,25 @@ class _EstadoError extends StatelessWidget {
   final Object error;
   final VoidCallback alReintentar;
 
+  /// D-21.17: el 404 de la búsqueda híbrida es «ni nombre ni dirección», y el
+  /// proveedor caído (503) es otra cosa: no se confunden.
+  String get _mensaje {
+    final excepcion = error;
+    if (excepcion is! ApiException) return 'Ocurrió un error inesperado.';
+    if (excepcion.codigo == CodigoError.direccionNoEncontrada) {
+      return 'No encontramos un lavadero con ese nombre ni una dirección con '
+          'ese texto.';
+    }
+    if (excepcion.estado == 503) {
+      return 'La búsqueda de direcciones no está disponible en este momento. '
+          'Probá de nuevo en unos minutos.';
+    }
+    return excepcion.mensaje;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final mensaje = error is ApiException
-        ? (error as ApiException).mensaje
-        : 'Ocurrió un error inesperado.';
+    final mensaje = _mensaje;
 
     return Center(
       key: const ValueKey('estado_error'),

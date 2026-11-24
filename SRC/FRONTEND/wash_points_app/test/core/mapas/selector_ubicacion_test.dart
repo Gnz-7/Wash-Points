@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -167,6 +169,115 @@ void main() {
 
     expect(servicio.pedidosObtener, 0);
   });
+
+  testWidgets('un punto externo mueve el pin y avisa al formulario',
+      (tester) async {
+    final elegidos = <PuntoRuta>[];
+    final mapa = _MapaTocable();
+    final clave = GlobalKey<_AnfitrionState>();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          proveedorMapasProvider.overrideWithValue(mapa),
+          servicioUbicacionProvider.overrideWithValue(ServicioUbicacionFalso()),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: _Anfitrion(
+                key: clave,
+                inicial: inicial,
+                elegidos: elegidos,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    clave.currentState!.mover(
+      const PuntoRuta(latitud: -31.4, longitud: -64.2),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Lat -31.40000, lon -64.20000'), findsOneWidget);
+    expect(mapa.puntos.single.latitud, -31.4);
+    expect(elegidos.single.latitud, -31.4);
+    expect(elegidos.single.longitud, -64.2);
+  });
+
+  testWidgets('un GPS que llega tarde no pisa la elección manual',
+      (tester) async {
+    final elegidos = <PuntoRuta>[];
+    final servicio = _ServicioLento();
+    await montar(
+      tester,
+      servicio: servicio,
+      mapa: _MapaTocable(),
+      elegidos: elegidos,
+    );
+
+    // El permiso todavía no respondió: el usuario ya eligió a mano.
+    await tester.tap(find.byKey(const ValueKey('mapa_tocable')));
+    await tester.pumpAndSettle();
+
+    servicio.liberarPermiso();
+    await tester.pumpAndSettle();
+
+    expect(elegidos, hasLength(1));
+    expect(elegidos.single.latitud, -34.5);
+    expect(find.text('Lat -34.50000, lon -58.40000'), findsOneWidget);
+    expect(servicio.pedidosObtener, 0);
+  });
+}
+
+class _Anfitrion extends StatefulWidget {
+  const _Anfitrion({
+    super.key,
+    required this.inicial,
+    required this.elegidos,
+  });
+
+  final PuntoRuta inicial;
+  final List<PuntoRuta> elegidos;
+
+  @override
+  State<_Anfitrion> createState() => _AnfitrionState();
+}
+
+class _AnfitrionState extends State<_Anfitrion> {
+  PuntoRuta? punto;
+
+  void mover(PuntoRuta nuevo) => setState(() => punto = nuevo);
+
+  @override
+  Widget build(BuildContext context) => SelectorUbicacion(
+        inicial: widget.inicial,
+        punto: punto,
+        alElegir: widget.elegidos.add,
+      );
+}
+
+/// Servicio cuyo permiso silencioso queda pendiente hasta [liberarPermiso].
+class _ServicioLento extends ServicioUbicacionFalso {
+  _ServicioLento()
+      : super(
+          permiso: true,
+          resultado: const ResultadoUbicacion(
+            estado: EstadoUbicacion.concedida,
+            latitud: -31.4,
+            longitud: -64.2,
+          ),
+        );
+
+  final Completer<bool> _permiso = Completer<bool>();
+
+  void liberarPermiso() => _permiso.complete(true);
+
+  @override
+  Future<bool> permisoConcedido() => _permiso.future;
 }
 
 /// Puerto de mapa que expone un botón para simular el toque del usuario.

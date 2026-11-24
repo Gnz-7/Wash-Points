@@ -362,6 +362,203 @@ public sealed class BusquedaProximidadTest : IClassFixture<ContenedorPostgres>, 
         Assert.NotNull(respuesta.Resultados);
     }
 
+    // ------------------------------------------- búsqueda híbrida (D-21.17)
+
+    [Fact]
+    public async Task LaBusquedaPorNombreIgnoraElRadio()
+    {
+        await SembrarLavaderoAsync("Lavadero Muy Lejos", -34.95, -58.90);
+
+        using var api = CrearApi();
+        using var cliente = api.CrearClienteDeCliente();
+
+        var http = await cliente.GetAsync(UrlTexto("lavadero muy lejos", radioMetros: 1000));
+
+        Assert.Equal(HttpStatusCode.OK, http.StatusCode);
+        var respuesta = await http.Content.ReadFromJsonAsync<RespuestaBusqueda>();
+        Assert.NotNull(respuesta);
+        Assert.Equal("nombre", respuesta!.Modo);
+        Assert.Equal("Lavadero Muy Lejos", Assert.Single(respuesta.Resultados).Nombre);
+    }
+
+    [Fact]
+    public async Task LaBusquedaPorTextoEncuentraPorLaDireccionDelLavadero()
+    {
+        var sembrado = await SembrarLavaderoAsync(
+            "Lavadero Norte", -34.6040, -58.3820, "Av. Corrientes 1234");
+
+        using var api = CrearApi();
+        using var cliente = api.CrearClienteDeCliente();
+
+        var http = await cliente.GetAsync(UrlTexto("corrientes 1234"));
+
+        Assert.Equal(HttpStatusCode.OK, http.StatusCode);
+        var respuesta = await http.Content.ReadFromJsonAsync<RespuestaBusqueda>();
+        Assert.NotNull(respuesta);
+        Assert.Equal("nombre", respuesta!.Modo);
+        Assert.Equal(sembrado.LavaderoId, Assert.Single(respuesta.Resultados).LavaderoId);
+    }
+
+    [Fact]
+    public async Task SinCoincidenciasPorNombreSeCaeAGeocodificacion()
+    {
+        await SembrarLavaderoAsync("Cerca", -34.6040, -58.3820);
+        var geocodificador = new GeocodificadorFijo(new Coordenadas(LatCentro, LonCentro));
+
+        using var api = CrearApi(servicios =>
+            servicios.AddScoped<IGeocodificador>(_ => geocodificador));
+        using var cliente = api.CrearClienteDeCliente();
+
+        var http = await cliente.GetAsync(UrlTexto("Av. Inexistente 9999"));
+
+        Assert.Equal(HttpStatusCode.OK, http.StatusCode);
+        var respuesta = await http.Content.ReadFromJsonAsync<RespuestaBusqueda>();
+        Assert.NotNull(respuesta);
+        Assert.Equal("direccion", respuesta!.Modo);
+        Assert.Equal("Av. Inexistente 9999", geocodificador.UltimaDireccion);
+    }
+
+    [Fact]
+    public async Task SinCoincidenciasYGeocodificacionNulaDevuelve404()
+    {
+        await SembrarLavaderoAsync("Cerca", -34.6040, -58.3820);
+        var geocodificador = new GeocodificadorFijo(null);
+
+        using var api = CrearApi(servicios =>
+            servicios.AddScoped<IGeocodificador>(_ => geocodificador));
+        using var cliente = api.CrearClienteDeCliente();
+
+        var http = await cliente.GetAsync(UrlTexto("Calle inexistente 9999"));
+
+        Assert.Equal(HttpStatusCode.NotFound, http.StatusCode);
+        var error = await http.Content.ReadFromJsonAsync<RespuestaError>();
+        Assert.Equal("direccion_no_encontrada", error!.Error);
+    }
+
+    [Fact]
+    public async Task LaBusquedaSinTextoConservaElModoUbicacion()
+    {
+        await SembrarLavaderoAsync("Cerca", -34.6040, -58.3820);
+
+        using var api = CrearApi();
+        using var cliente = api.CrearClienteDeCliente();
+
+        var http = await cliente.GetAsync(Url(LatCentro, LonCentro, 5000));
+
+        Assert.Equal(HttpStatusCode.OK, http.StatusCode);
+        var respuesta = await http.Content.ReadFromJsonAsync<RespuestaBusqueda>();
+        Assert.NotNull(respuesta);
+        Assert.Equal("ubicacion", respuesta!.Modo);
+        Assert.Single(respuesta.Resultados);
+    }
+
+    [Fact]
+    public async Task LosComodinesDelTextoSonLiterales()
+    {
+        await SembrarLavaderoAsync("Lavadero 100% Norte", -34.6040, -58.3820);
+        await SembrarLavaderoAsync("Lavadero 100X Norte", -34.6050, -58.3830);
+
+        using var api = CrearApi();
+        using var cliente = api.CrearClienteDeCliente();
+
+        var http = await cliente.GetAsync(UrlTexto("100% norte"));
+
+        Assert.Equal(HttpStatusCode.OK, http.StatusCode);
+        var respuesta = await http.Content.ReadFromJsonAsync<RespuestaBusqueda>();
+        Assert.NotNull(respuesta);
+        Assert.Equal(
+            "Lavadero 100% Norte",
+            Assert.Single(respuesta!.Resultados).Nombre);
+    }
+
+    [Fact]
+    public async Task UnLavaderoInactivoNoSeEncuentraPorNombre()
+    {
+        await SembrarLavaderoAsync("Lavadero Cerrado", -34.6040, -58.3820, activo: false);
+
+        using var api = CrearApi(servicios =>
+            servicios.AddScoped<IGeocodificador>(_ => new GeocodificadorFijo(null)));
+        using var cliente = api.CrearClienteDeCliente();
+
+        var http = await cliente.GetAsync(UrlTexto("lavadero cerrado"));
+
+        Assert.Equal(HttpStatusCode.NotFound, http.StatusCode);
+    }
+
+    [Fact]
+    public async Task LaBusquedaPorTextoOrdenaPorDistanciaYLimitaA20()
+    {
+        for (var i = 0; i < 25; i++)
+        {
+            // Cada lavadero queda a una latitud levemente distinta: el orden se
+            // vuelve predecible y el 21.º ya no entra.
+            await SembrarLavaderoAsync(
+                $"Lavadero Cadena {i:00}", LatCentro + (i * 0.0005), LonCentro);
+        }
+
+        using var api = CrearApi();
+        using var cliente = api.CrearClienteDeCliente();
+
+        var http = await cliente.GetAsync(UrlTexto("cadena"));
+
+        Assert.Equal(HttpStatusCode.OK, http.StatusCode);
+        var respuesta = await http.Content.ReadFromJsonAsync<RespuestaBusqueda>();
+        Assert.NotNull(respuesta);
+        Assert.Equal(20, respuesta!.Resultados.Count);
+        Assert.Equal("Lavadero Cadena 00", respuesta.Resultados[0].Nombre);
+        Assert.Equal("Lavadero Cadena 19", respuesta.Resultados[19].Nombre);
+    }
+
+    [Fact]
+    public async Task LaBusquedaPorTextoExigeUbicacion()
+    {
+        using var api = CrearApi();
+        using var cliente = api.CrearClienteDeCliente();
+
+        var http = await cliente.GetAsync(
+            "/api/lavaderos/cercanos?texto=Lavadero&radioMetros=5000");
+
+        Assert.Equal(HttpStatusCode.BadRequest, http.StatusCode);
+        var error = await http.Content.ReadFromJsonAsync<RespuestaError>();
+        Assert.Equal("parametros_invalidos", error!.Error);
+    }
+
+    [Fact]
+    public async Task LaBusquedaPorTextoNoAdmiteDireccionJuntoConTexto()
+    {
+        using var api = CrearApi();
+        using var cliente = api.CrearClienteDeCliente();
+
+        var http = await cliente.GetAsync(
+            $"{UrlTexto("Lavadero")}&direccion=Av.%20Rivadavia%201234");
+
+        Assert.Equal(HttpStatusCode.BadRequest, http.StatusCode);
+    }
+
+    [Fact]
+    public async Task UnTextoVacioDevuelve400()
+    {
+        using var api = CrearApi();
+        using var cliente = api.CrearClienteDeCliente();
+
+        var http = await cliente.GetAsync(UrlTexto(""));
+
+        Assert.Equal(HttpStatusCode.BadRequest, http.StatusCode);
+        var error = await http.Content.ReadFromJsonAsync<RespuestaError>();
+        Assert.Equal("parametros_invalidos", error!.Error);
+    }
+
+    [Fact]
+    public async Task LaBusquedaPorTextoExigeSesion()
+    {
+        using var api = CrearApi();
+        using var cliente = api.CrearClienteSinToken();
+
+        var http = await cliente.GetAsync(UrlTexto("Lavadero"));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, http.StatusCode);
+    }
+
     // ------------------------------------------------------------------ apoyo
 
     private static string Url(double latitud, double longitud, int radioMetros) =>
@@ -369,7 +566,21 @@ public sealed class BusquedaProximidadTest : IClassFixture<ContenedorPostgres>, 
             CultureInfo.InvariantCulture,
             $"/api/lavaderos/cercanos?lat={latitud}&lon={longitud}&radioMetros={radioMetros}");
 
-    private sealed record RespuestaBusqueda(Centro Centro, int RadioMetros, List<LavaderoCercanoDto> Resultados);
+    private static string UrlTexto(
+        string texto,
+        double latitud = LatCentro,
+        double longitud = LonCentro,
+        int radioMetros = 5000) =>
+        string.Create(
+            CultureInfo.InvariantCulture,
+            $"/api/lavaderos/cercanos?texto={Uri.EscapeDataString(texto)}"
+            + $"&lat={latitud}&lon={longitud}&radioMetros={radioMetros}");
+
+    private sealed record RespuestaBusqueda(
+        Centro Centro,
+        int RadioMetros,
+        string Modo,
+        List<LavaderoCercanoDto> Resultados);
 
     private sealed record Centro(double Latitud, double Longitud);
 
@@ -390,5 +601,20 @@ public sealed class BusquedaProximidadTest : IClassFixture<ContenedorPostgres>, 
     {
         public Task<Coordenadas?> GeocodificarAsync(string direccion, CancellationToken ct = default) =>
             throw new ProveedorMapasNoDisponibleException("El proveedor de mapas no respondió.");
+    }
+
+    private sealed class GeocodificadorFijo : IGeocodificador
+    {
+        private readonly Coordenadas? _resultado;
+
+        public GeocodificadorFijo(Coordenadas? resultado) => _resultado = resultado;
+
+        public string? UltimaDireccion { get; private set; }
+
+        public Task<Coordenadas?> GeocodificarAsync(string direccion, CancellationToken ct = default)
+        {
+            UltimaDireccion = direccion;
+            return Task.FromResult(_resultado);
+        }
     }
 }

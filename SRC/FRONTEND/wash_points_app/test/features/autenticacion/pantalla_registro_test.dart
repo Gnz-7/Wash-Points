@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wash_points_app/core/errores/api_exception.dart';
 import 'package:wash_points_app/core/mapas/capa_ruta.dart';
+import 'package:wash_points_app/core/mapas/geocodificador.dart';
 import 'package:wash_points_app/core/mapas/mapa_controlador.dart';
 import 'package:wash_points_app/core/mapas/proveedor_mapas.dart';
 import 'package:wash_points_app/core/sesion/sesion_provider.dart';
@@ -12,6 +13,7 @@ import 'package:wash_points_app/features/autenticacion/presentation/autenticacio
 import 'package:wash_points_app/features/autenticacion/presentation/pantalla_registro.dart';
 
 import '../../soporte/almacen_sesion_falso.dart';
+import '../../soporte/geocodificador_falso.dart';
 import '../../soporte/repositorio_autenticacion_falso.dart';
 import '../../soporte/servicio_ubicacion_falso.dart';
 
@@ -22,6 +24,7 @@ void main() {
     WidgetTester tester,
     RepositorioAutenticacionFalso repositorio, {
     ServicioUbicacionFalso? servicio,
+    GeocodificadorFalso? geocodificador,
   }) async {
     await tester.pumpWidget(
       ProviderScope(
@@ -31,6 +34,9 @@ void main() {
           proveedorMapasProvider.overrideWithValue(_MapaTocable()),
           servicioUbicacionProvider.overrideWithValue(
             servicio ?? ServicioUbicacionFalso(),
+          ),
+          geocodificadorProvider.overrideWithValue(
+            geocodificador ?? GeocodificadorFalso(),
           ),
         ],
         child: const MaterialApp(home: PantallaRegistro()),
@@ -79,6 +85,10 @@ void main() {
     await montar(tester, RepositorioAutenticacionFalso());
 
     expect(find.byKey(const ValueKey('selector_ubicacion')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('boton_ubicar_direccion')),
+      findsNothing,
+    );
   });
 
   testWidgets('el administrador ve el selector sobre el mapa', (tester) async {
@@ -114,19 +124,19 @@ void main() {
     expect(repositorio.longitudes.single, -58.4);
   });
 
-  testWidgets('sin elegir ubicación no envía coordenadas predeterminadas',
+  testWidgets('sin elegir ubicación envía el punto que muestra el mapa',
       (tester) async {
-    final repositorio = RepositorioAutenticacionFalso();
+    final repositorio = RepositorioAutenticacionFalso(
+      error: const ApiException(CodigoError.usuarioYaExiste, estado: 409),
+    );
     await montar(tester, repositorio);
     await completarDatosAdministrador(tester);
 
     await enviar(tester);
 
-    expect(repositorio.registrosAdministrador, 0);
-    expect(
-      find.text('Marcá la ubicación de tu lavadero en el mapa.'),
-      findsOneWidget,
-    );
+    expect(repositorio.registrosAdministrador, 1);
+    expect(repositorio.latitudes.single, -34.6037);
+    expect(repositorio.longitudes.single, -58.3816);
   });
 
   testWidgets('«Usar mi ubicación» fija la coordenada del dispositivo',
@@ -153,6 +163,113 @@ void main() {
 
     expect(repositorio.latitudes.single, -32.95);
     expect(repositorio.longitudes.single, -60.65);
+  });
+
+  testWidgets('ubica la dirección escrita y envía esa coordenada',
+      (tester) async {
+    final repositorio = RepositorioAutenticacionFalso(
+      error: const ApiException(CodigoError.usuarioYaExiste, estado: 409),
+    );
+    final geocodificador = GeocodificadorFalso(
+      punto: const PuntoRuta(latitud: -34.6, longitud: -58.4),
+    );
+    await montar(
+      tester,
+      repositorio,
+      geocodificador: geocodificador,
+    );
+    await completarDatosAdministrador(tester);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('campo_direccion')),
+      'Av. Corrientes 1234',
+    );
+    await tocar(tester, 'boton_ubicar_direccion');
+
+    expect(geocodificador.llamadas, 1);
+    expect(geocodificador.textos.single, 'Av. Corrientes 1234');
+    expect(find.text('Lat -34.60000, lon -58.40000'), findsOneWidget);
+
+    await enviar(tester);
+
+    expect(repositorio.latitudes.single, -34.6);
+    expect(repositorio.longitudes.single, -58.4);
+  });
+
+  testWidgets('una dirección sin resultado avisa y no bloquea el alta',
+      (tester) async {
+    final repositorio = RepositorioAutenticacionFalso(
+      error: const ApiException(CodigoError.usuarioYaExiste, estado: 409),
+    );
+    await montar(tester, repositorio);
+    await completarDatosAdministrador(tester);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('campo_direccion')),
+      'Calle inexistente 9999',
+    );
+    await tocar(tester, 'boton_ubicar_direccion');
+
+    expect(
+      find.text('No pudimos ubicar esa dirección. Movés el pin a mano'),
+      findsOneWidget,
+    );
+
+    await enviar(tester);
+
+    expect(repositorio.registrosAdministrador, 1);
+    expect(repositorio.latitudes.single, -34.6037);
+    expect(repositorio.longitudes.single, -58.3816);
+  });
+
+  testWidgets('un proveedor caído avisa y no bloquea el alta', (tester) async {
+    final repositorio = RepositorioAutenticacionFalso(
+      error: const ApiException(CodigoError.usuarioYaExiste, estado: 409),
+    );
+    await montar(
+      tester,
+      repositorio,
+      geocodificador: GeocodificadorFalso(
+        error: GeocodificacionNoDisponibleException(),
+      ),
+    );
+    await completarDatosAdministrador(tester);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('campo_direccion')),
+      'Av. Corrientes 1234',
+    );
+    await tocar(tester, 'boton_ubicar_direccion');
+
+    expect(
+      find.text(
+        'No pudimos consultar el mapa de direcciones. Movés el pin a mano',
+      ),
+      findsOneWidget,
+    );
+
+    await enviar(tester);
+
+    expect(repositorio.registrosAdministrador, 1);
+  });
+
+  testWidgets('sin dirección no consulta al proveedor y avisa', (tester) async {
+    final geocodificador = GeocodificadorFalso();
+    await montar(
+      tester,
+      RepositorioAutenticacionFalso(),
+      geocodificador: geocodificador,
+    );
+    await tester.tap(find.text('Lavadero'));
+    await tester.pumpAndSettle();
+
+    await tocar(tester, 'boton_ubicar_direccion');
+
+    expect(geocodificador.llamadas, 0);
+    expect(
+      find.text('Escribí una dirección para ubicarla en el mapa'),
+      findsOneWidget,
+    );
   });
 }
 

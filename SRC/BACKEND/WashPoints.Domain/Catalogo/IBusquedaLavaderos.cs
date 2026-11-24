@@ -17,4 +17,17 @@ public interface IBusquedaLavaderos
         int radioMetros,
         DateTime ahoraUtc,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Lavaderos activos cuyo nombre o dirección contienen <paramref name="texto"/>
+    /// (sin distinción de mayúsculas), **sin filtro de radio**, ordenados por
+    /// distancia creciente al punto de referencia (D-21.17).
+    /// </summary>
+    Task<IReadOnlyList<LavaderoCercano>> BuscarPorTextoAsync(
+        double latitud,
+        double longitud,
+        string texto,
+        int limite,
+        DateTime ahoraUtc,
+        CancellationToken ct = default);
 }

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wash_points_app/core/errores/api_exception.dart';
 import 'package:wash_points_app/features/busqueda/data/repositorio_busqueda_http.dart';
+import 'package:wash_points_app/features/busqueda/domain/resultado_busqueda.dart';
 
 import '../../soporte/cliente_api_falso.dart';
 
@@ -9,10 +10,12 @@ void main() {
   Map<String, dynamic> respuesta({
     int radioMetros = 5000,
     List<Map<String, dynamic>>? resultados,
+    String? modo,
   }) =>
       <String, dynamic>{
         'centro': <String, dynamic>{'latitud': -34.6037, 'longitud': -58.3816},
         'radioMetros': radioMetros,
+        'modo': ?modo,
         'resultados': resultados ??
             <Map<String, dynamic>>[
               <String, dynamic>{
@@ -129,5 +132,77 @@ void main() {
         ),
       ),
     );
+  });
+
+  group('búsqueda híbrida (D-21.17)', () {
+    test('manda texto, centro y radio en el mismo endpoint', () async {
+      final api = ClienteApiFalso(
+        respuestaGet: respuesta(modo: 'nombre'),
+      );
+      final repositorio = RepositorioBusquedaHttp(api);
+
+      await repositorio.buscarPorTexto(
+        texto: 'Lavadero Norte',
+        latitud: -34.6037,
+        longitud: -58.3816,
+        radioMetros: 5000,
+      );
+
+      expect(api.llamadasGet, hasLength(1));
+      expect(api.llamadasGet.single.ruta, '/api/lavaderos/cercanos');
+      expect(api.llamadasGet.single.parametros, <String, dynamic>{
+        'texto': 'Lavadero Norte',
+        'lat': -34.6037,
+        'lon': -58.3816,
+        'radioMetros': 5000,
+      });
+    });
+
+    test('modo nombre se expone como porNombre', () async {
+      final api = ClienteApiFalso(respuestaGet: respuesta(modo: 'nombre'));
+      final repositorio = RepositorioBusquedaHttp(api);
+
+      final resultado = await repositorio.buscarPorTexto(
+        texto: 'Lavadero',
+        latitud: -34.6037,
+        longitud: -58.3816,
+        radioMetros: 5000,
+      );
+
+      expect(resultado.modo, ModoBusqueda.nombre);
+      expect(resultado.porNombre, isTrue);
+    });
+
+    test('modo direccion no se confunde con nombre', () async {
+      final api = ClienteApiFalso(respuestaGet: respuesta(modo: 'direccion'));
+      final repositorio = RepositorioBusquedaHttp(api);
+
+      final resultado = await repositorio.buscarPorTexto(
+        texto: 'Corrientes 1234',
+        latitud: -34.6037,
+        longitud: -58.3816,
+        radioMetros: 5000,
+      );
+
+      expect(resultado.modo, ModoBusqueda.direccion);
+      expect(resultado.porNombre, isFalse);
+    });
+
+    test('sin modo o con un modo desconocido cae en ubicacion', () async {
+      final api = ClienteApiFalso(
+        respuestaGet: respuesta(modo: 'desconocido'),
+      );
+      final repositorio = RepositorioBusquedaHttp(api);
+
+      final resultado = await repositorio.buscarPorTexto(
+        texto: 'Lavadero',
+        latitud: -34.6037,
+        longitud: -58.3816,
+        radioMetros: 5000,
+      );
+
+      expect(resultado.modo, ModoBusqueda.ubicacion);
+      expect(resultado.porNombre, isFalse);
+    });
   });
 }

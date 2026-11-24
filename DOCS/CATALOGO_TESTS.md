@@ -1,8 +1,8 @@
 # Catálogo de pruebas - Wash Points
 
-Referencia funcional de la suite del backend: **601 tests** (320 unitarios y 281 de integración),
-verificados en verde el 15/11/2026 sobre el árbol del slice-20. La suite Flutter suma **545 tests**
-(`flutter test`), verificados el 23/11/2026 sobre el árbol del slice-21 con `flutter analyze` limpio.
+Referencia funcional de la suite del backend: **615 tests** (323 unitarios verificados el 24/11/2026
+y 292 de integración, pendientes de Docker al cierre). La suite Flutter suma **589 tests**
+(`flutter test`), verificados el 24/11/2026 sobre el árbol del slice-21 con `flutter analyze` limpio.
 
 - **Propósito.** Que cualquier persona del equipo —sin leer código— entienda qué comportamiento
   del sistema está protegido por cada prueba y qué se rompe si esa prueba falla.
@@ -31,7 +31,7 @@ verificados en verde el 15/11/2026 sobre el árbol del slice-20. La suite Flutte
 
 ---
 
-## 1. Pruebas Unitarias (320 en total; 320 detalladas abajo)
+## 1. Pruebas Unitarias (323 en total; 323 detalladas abajo)
 
 Prueban una pieza aislada del sistema, sin base de datos ni red. Son las más rápidas y las que
 primero señalan que una regla del dominio cambió.
@@ -697,7 +697,7 @@ primero señalan que una regla del dominio cambió.
 
 ---
 
-## 2. Pruebas de Integración (281 en total; 281 detalladas abajo)
+## 2. Pruebas de Integración (292 en total; 292 detalladas abajo)
 
 Levantan la API completa contra una base PostgreSQL real y ejercitan el sistema de punta a punta:
 petición, reglas de negocio, persistencia y respuesta.
@@ -746,7 +746,7 @@ petición, reglas de negocio, persistencia y respuesta.
 - **`TokenVigenteDeAdministracionEsAceptado`** — *Slice 05.* El administrador con sesión vigente opera su
   panel sin trabas.
 
-### `BusquedaProximidadTest.cs` — Slice 07 (13 tests)
+### `BusquedaProximidadTest.cs` — Slice 07/21 (24 tests)
 
 - **`DevuelveLosLavaderosDentroDelRadioOrdenadosPorDistancia`** — *Slice 07.* El cliente ve primero lo más
   cercano, que es el criterio con el que elige.
@@ -1458,12 +1458,13 @@ en los tests de reserva adaptados
 
 ## 4. Pruebas nuevas del slice-21 (geolocalización, mapa y rutas)
 
-El slice-21 llevó la suite Flutter de 475 a **545 tests**, todos en verde el 23/11/2026 junto a
+El slice-21 llevó la suite Flutter de 475 a **589 tests** (557 al cierre del 23/11 y 32 más con D-21.16/D-21.17), todos en verde el 24/11/2026 junto a
 `flutter analyze` limpio y los builds `flutter build web --release` y `flutter build apk --debug`.
 Los archivos de abajo son los que el slice-21 creó o modificó, con su conteo actual (el total de
-la suite pasó de 475 a 545). Cubren el seguimiento del GPS y el punto azul, la capa de rutas con
+la suite pasó de 475 a 589). Cubren el seguimiento del GPS y el punto azul, la capa de rutas con
 OSRM y su degradación explícita, las teselas y la atribución del mapa, la tarjeta del lavadero
-seleccionado con «Cómo llegar», y el layout del buscador a pantalla completa. El reparto por
+seleccionado con «Cómo llegar», el layout del buscador a pantalla completa, la geocodificación del
+alta con Nominatim y la búsqueda híbrida por nombre o dirección. El reparto por
 tarea, la evidencia y la trazabilidad con los criterios de aceptación están en
 `SPECS/slice-21-geolocalizacion-y-rutas.md` §10. Además de los archivos de abajo,
 `core/entorno_test.dart` sumó casos para `osrmBaseUrl` (proxy derivado de la API y prioridad de
@@ -1555,7 +1556,7 @@ tarea, la evidencia y la trazabilidad con los criterios de aceptación están en
   URL de MapTiler inválida: cae al raster de OSM.
 - **`la atribución nunca queda vacía`** — Ambos proveedores mantienen el crédito requerido.
 
-### `core/mapas/selector_ubicacion_test.dart` — Slice 21 (6 tests)
+### `core/mapas/selector_ubicacion_test.dart` — Slice 21 (8 tests)
 
 - **`muestra el mapa con las coordenadas iniciales`** — El pin y el centro reflejan el punto
   inicial configurado.
@@ -1569,7 +1570,7 @@ tarea, la evidencia y la trazabilidad con los criterios de aceptación están en
   la posición disponible.
 - **`sin permiso no consulta el GPS al montarse`** — No se solicita ubicación en el montaje.
 
-### `features/autenticacion/pantalla_registro_test.dart` — Slice 21 (5 tests)
+### `features/autenticacion/pantalla_registro_test.dart` — Slice 21 (9 tests)
 
 - **`el cliente no ve el selector de ubicación`** y **`el administrador ve el selector sobre el
   mapa`** — El control sólo aparece para el rol administrador.
@@ -1635,7 +1636,7 @@ tarea, la evidencia y la trazabilidad con los criterios de aceptación están en
 - **`si el lanzador falla muestra el aviso`** — Un `false` del lanzador muestra «No se pudo abrir
   Google Maps» en vez de fallar en silencio.
 
-### `features/busqueda/pantalla_busqueda_test.dart` — Slice 21 (17 tests)
+### `features/busqueda/pantalla_busqueda_test.dart` — Slice 21 (21 tests)
 
 - **`mientras busca muestra el estado de carga`** — El estado pendiente pinta `estado_cargando`
   dentro de la hoja, sin borrar el mapa.
@@ -1670,6 +1671,57 @@ tarea, la evidencia y la trazabilidad con los criterios de aceptación están en
 - **`si OSRM falla dibuja el fallback punteado y lo informa`** — El fallo de rutas no rompe la
   pantalla: línea punteada y «Sin ruta calculada».
 - **`seleccionar sin posición no inventa una ruta`** — Sin origen no se dibuja ni ruta ni fallback.
+- **`la búsqueda híbrida usa el texto y conserva el radio`** — El campo «Buscar lavadero o
+  dirección» manda `texto`, `lat`, `lon` y `radioMetros` al repositorio, sin perder el radio.
+- **`un resultado por nombre muestra el subtítulo y no ofrece ampliar radio`** — `modo: nombre`
+  pinta `resultados_por_nombre` y oculta `boton_ampliar_radio`.
+- **`un nombre sin coincidencias muestra el vacío específico`** — El vacío dice «No encontramos
+  lavaderos con ese nombre.» y tampoco ofrece ampliar radio.
+- **`un 404 de dirección muestra el mensaje combinado`** — `direccionNoEncontrada` explica que no
+  hubo coincidencias ni por nombre ni por dirección.
+- **`un 503 de geocodificación avisa que el proveedor no está disponible`** — El error de proveedor
+  caído tiene copy propio y no se confunde con el 404.
+
+### `core/mapas/geocodificador_nominatim_test.dart` — Slice 21 (13 tests)
+
+Cubren el adaptador Nominatim del alta (D-21.16) con `HttpClientAdapter` falso, sin salir a la red:
+
+- **URL y parámetros** — `?q=…&format=jsonv2&limit=1&countrycodes=ar&accept-language=es` sobre la
+  base de Nominatim.
+- **Respuesta válida** — El primer resultado se convierte en coordenadas.
+- **Lista vacía** — `[]` devuelve `null`, no un punto inventado.
+- **Errores y timeout** — HTTP no-200, cuerpo inválido o timeout de 5 s lanzan
+  `GeocodificacionNoDisponibleException`.
+- **Caché LRU** — Se reutiliza la última consulta y se descartan las entradas viejas (16).
+- **Throttle** — Un pedido en vuelo bloquea el segundo y se respeta la separación mínima de 1 req/s.
+- **`User-Agent`** — Sólo se envía fuera de web (el navegador lo prohíbe).
+
+### `features/busqueda/repositorio_busqueda_test.dart` — Slice 21 (+4 tests)
+
+- **Query exacta de `buscarPorTexto`** — `texto`, `lat`, `lon` y `radioMetros` viajan a
+  `/api/lavaderos/cercanos`.
+- **Parseo de `modo: nombre`** — `ResultadoBusqueda.modo` y `porNombre` reflejan el modo.
+- **`modo: direccion`** — No se confunde con el modo nombre.
+- **`modo` ausente o desconocido** — Se degrada a `ModoBusqueda.ubicacion` sin romper el parseo.
+
+### `features/busqueda/busqueda_notifier_test.dart` — Slice 21 (+5 tests)
+
+- **Texto recortado** — `buscarPorTexto` hace trim y usa el centro y el radio vigentes.
+- **Texto vacío** — No dispara ninguna petición.
+- **Ampliar radio** — Repite la búsqueda por texto con el radio nuevo, sin caer a coordenadas.
+- **Reintentar** — Repite el mismo texto y radio tras un error.
+- **`usarMiUbicacion` limpia el texto** — La siguiente recarga vuelve a `buscarCercanos`.
+
+### `core/mapas/selector_ubicacion_test.dart` y `features/autenticacion/pantalla_registro_test.dart` — Slice 21 (+6 tests)
+
+- **Punto externo** — `SelectorUbicacion.punto` aplica la coordenada geocodificada en
+  `didUpdateWidget` y mueve el pin sin rehacer el widget.
+- **«Ubicar en el mapa»** — El botón geocodifica la dirección escrita, muestra el spinner y mueve el
+  pin.
+- **Avisos de geocodificación** — Sin resultados, proveedor caído y texto vacío tienen mensajes
+  distintos y no bloquean el alta.
+- **Sin interacción** — El alta envía el centro mostrado inicialmente (D-21.15 corregida), nunca lo
+  rechaza por falta de punto.
 
 
 

@@ -59,12 +59,14 @@ void main() {
   ResultadoBusqueda resultadoCon({
     required int radioMetros,
     List<LavaderoCercano> lavaderos = const <LavaderoCercano>[],
+    ModoBusqueda modo = ModoBusqueda.ubicacion,
   }) =>
       ResultadoBusqueda(
         latitud: entorno.centroLatitud,
         longitud: entorno.centroLongitud,
         radioMetros: radioMetros,
         lavaderos: lavaderos,
+        modo: modo,
       );
 
   Future<MapaFalso> montar(
@@ -198,10 +200,14 @@ void main() {
     expect(repositorio.pedidos, hasLength(2));
   });
 
-  testWidgets('la búsqueda por dirección usa el texto y conserva el radio',
+  testWidgets('la búsqueda híbrida usa el texto y conserva el radio',
       (tester) async {
     final repositorio = RepositorioBusquedaFalso(
       resultados: <ResultadoBusqueda>[
+        resultadoCon(
+          radioMetros: 5000,
+          lavaderos: <LavaderoCercano>[lavadero],
+        ),
         resultadoCon(
           radioMetros: 5000,
           lavaderos: <LavaderoCercano>[lavadero],
@@ -217,12 +223,103 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('boton_buscar_direccion')));
     await tester.pumpAndSettle();
 
-    expect(repositorio.pedidosDireccion, hasLength(1));
-    expect(
-      repositorio.pedidosDireccion.single.direccion,
-      'Av. Corrientes 1234',
+    expect(repositorio.pedidosTexto, hasLength(1));
+    final pedido = repositorio.pedidosTexto.single;
+    expect(pedido.texto, 'Av. Corrientes 1234');
+    expect(pedido.latitud, -34.6037);
+    expect(pedido.longitud, -58.3816);
+    expect(pedido.radioMetros, 5000);
+  });
+
+  testWidgets('un resultado por nombre muestra el subtítulo y no amplía radio',
+      (tester) async {
+    await montar(
+      tester,
+      RepositorioBusquedaFalso(
+        resultados: <ResultadoBusqueda>[
+          resultadoCon(
+            radioMetros: 5000,
+            lavaderos: <LavaderoCercano>[otra],
+            modo: ModoBusqueda.nombre,
+          ),
+        ],
+      ),
     );
-    expect(repositorio.pedidosDireccion.single.radioMetros, 5000);
+    await expandirHoja(tester);
+
+    expect(find.byKey(const ValueKey('resultados_por_nombre')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tarjeta_lavadero_lav-2')), findsOneWidget);
+    expect(find.byKey(const ValueKey('boton_ampliar_radio')), findsNothing);
+  });
+
+  testWidgets('por nombre sin coincidencias no ofrece ampliar el radio',
+      (tester) async {
+    await montar(
+      tester,
+      RepositorioBusquedaFalso(
+        resultados: <ResultadoBusqueda>[
+          resultadoCon(
+            radioMetros: 5000,
+            modo: ModoBusqueda.nombre,
+          ),
+        ],
+      ),
+    );
+    await expandirHoja(tester);
+
+    expect(find.byKey(const ValueKey('resultados_por_nombre')), findsOneWidget);
+    expect(find.byKey(const ValueKey('estado_vacio')), findsOneWidget);
+    expect(find.byKey(const ValueKey('boton_ampliar_radio')), findsNothing);
+  });
+
+  testWidgets('sin nombre ni dirección el error explica ambos casos',
+      (tester) async {
+    await montar(
+      tester,
+      RepositorioBusquedaFalso(
+        error: const ApiException(CodigoError.direccionNoEncontrada),
+      ),
+    );
+    await expandirHoja(tester);
+
+    expect(find.byKey(const ValueKey('estado_error')), findsOneWidget);
+    expect(
+      find.text(
+        'No encontramos un lavadero con ese nombre ni una dirección con '
+        'ese texto.',
+      ),
+      findsOneWidget,
+    );
+    // No se confunde con el copy genérico del 404.
+    expect(find.text('No encontramos esa dirección.'), findsNothing);
+  });
+
+  testWidgets('un proveedor de mapas caído muestra un mensaje distinto',
+      (tester) async {
+    await montar(
+      tester,
+      RepositorioBusquedaFalso(
+        error: const ApiException(
+          CodigoError.proveedorMapasNoConfigurado,
+          estado: 503,
+        ),
+      ),
+    );
+    await expandirHoja(tester);
+
+    expect(find.byKey(const ValueKey('estado_error')), findsOneWidget);
+    expect(
+      find.text(
+        'La búsqueda de direcciones no está disponible en este momento. '
+        'Probá de nuevo en unos minutos.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text('No encontramos un lavadero con ese nombre ni una dirección '
+          'con ese texto.'),
+      findsNothing,
+    );
   });
 
   testWidgets('con ubicación concedida busca en el GPS, pinta el punto y sigue',

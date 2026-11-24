@@ -20,6 +20,9 @@ public sealed class BusquedaLavaderosServicio
     /// <summary>Radio máximo admitido: acota el costo de la consulta.</summary>
     public const int RadioMaximoMetros = 50_000;
 
+    /// <summary>Cantidad máxima de coincidencias por nombre (D-21.17).</summary>
+    public const int LimitePorTexto = 20;
+
     private readonly IBusquedaLavaderos _busqueda;
     private readonly IGeocodificador _geocodificador;
 
@@ -62,6 +65,36 @@ public sealed class BusquedaLavaderosServicio
                 $"No se pudo ubicar la dirección «{direccion.Trim()}».");
 
         return await BuscarPorUbicacionAsync(centro.Latitud, centro.Longitud, radioMetros, ct);
+    }
+
+    /// <summary>
+    /// Búsqueda híbrida (D-21.17): primero por nombre o dirección, sin filtro
+    /// de radio; si no hay coincidencias, el mismo texto se resuelve como
+    /// dirección y se busca por proximidad con <paramref name="radioMetros"/>.
+    /// </summary>
+    public async Task<ResultadoBusqueda> BuscarPorTextoAsync(
+        string texto,
+        double latitud,
+        double longitud,
+        int radioMetros,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(texto);
+        ValidarUbicacion(latitud, longitud);
+        ValidarRadio(radioMetros);
+
+        var termino = texto.Trim();
+        var porNombre = await _busqueda.BuscarPorTextoAsync(
+            latitud, longitud, termino, LimitePorTexto, DateTime.UtcNow, ct);
+
+        if (porNombre.Count > 0)
+        {
+            return new ResultadoBusqueda(
+                latitud, longitud, radioMetros, porNombre, Modo: "nombre");
+        }
+
+        var porDireccion = await BuscarPorDireccionAsync(termino, radioMetros, ct);
+        return porDireccion with { Modo = "direccion" };
     }
 
     private static void ValidarUbicacion(double latitud, double longitud)

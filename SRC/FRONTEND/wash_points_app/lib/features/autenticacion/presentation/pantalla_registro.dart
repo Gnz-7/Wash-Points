@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/config/entorno.dart';
 import '../../../core/errores/api_exception.dart';
 import '../../../core/mapas/capa_ruta.dart';
+import '../../../core/mapas/geocodificador.dart';
 import '../../../core/mapas/selector_ubicacion.dart';
 import 'autenticacion_notifier.dart';
 
@@ -31,9 +32,13 @@ class _PantallaRegistroState extends ConsumerState<PantallaRegistro> {
   bool _esAdministrador = false;
   String? _error;
 
-  /// Coordenada elegida en el mapa o mediante GPS. El alta no usa una ubicación
-  /// predeterminada si el administrador no seleccionó una.
+  /// Coordenada elegida en el mapa, por GPS o por geocodificación de la
+  /// dirección. Si no hubo interacción, el alta envía el punto mostrado
+  /// inicialmente (centro configurado), nunca rechaza el envío (D-21.15).
   PuntoRuta? _ubicacion;
+
+  bool _geocodificando = false;
+  String? _avisoGeocodificacion;
 
   @override
   void dispose() {
@@ -61,15 +66,16 @@ class _PantallaRegistroState extends ConsumerState<PantallaRegistro> {
       return;
     }
 
-    if (_esAdministrador && _ubicacion == null) {
-      setState(() => _error = 'Marcá la ubicación de tu lavadero en el mapa.');
-      return;
-    }
-
     setState(() => _error = null);
 
     final notifier = ref.read(autenticacionProvider.notifier);
-    final ubicacion = _ubicacion;
+    final entorno = ref.read(entornoProvider);
+    // Sin interacción se envía el punto que el mapa muestra inicialmente.
+    final ubicacion = _ubicacion ??
+        PuntoRuta(
+          latitud: entorno.centroLatitud,
+          longitud: entorno.centroLongitud,
+        );
 
     final registro = _esAdministrador
         ? await notifier.registrarAdministrador(
@@ -80,7 +86,7 @@ class _PantallaRegistroState extends ConsumerState<PantallaRegistro> {
             direccion: _direccion.text.trim().isEmpty
                 ? null
                 : _direccion.text.trim(),
-            latitud: ubicacion!.latitud,
+            latitud: ubicacion.latitud,
             longitud: ubicacion.longitud,
           )
         : await notifier.registrarCliente(
@@ -98,6 +104,43 @@ class _PantallaRegistroState extends ConsumerState<PantallaRegistro> {
       _error = error is ApiException
           ? error.mensaje
           : 'No pudimos crear la cuenta. Intentá de nuevo.';
+    });
+  }
+
+  /// Resuelve la dirección escrita a una coordenada y mueve el pin del mapa
+  /// (slice-21, D-21.16). Un fallo nunca bloquea el alta: el administrador
+  /// puede mover el pin a mano o enviar el formulario igual.
+  Future<void> _ubicarDireccion() async {
+    final texto = _direccion.text.trim();
+    if (texto.isEmpty) {
+      setState(
+        () => _avisoGeocodificacion =
+            'Escribí una dirección para ubicarla en el mapa',
+      );
+      return;
+    }
+
+    setState(() {
+      _geocodificando = true;
+      _avisoGeocodificacion = null;
+    });
+
+    PuntoRuta? punto;
+    String? aviso;
+    try {
+      punto = await ref.read(geocodificadorProvider).ubicar(texto);
+      if (punto == null) {
+        aviso = 'No pudimos ubicar esa dirección. Movés el pin a mano';
+      }
+    } on GeocodificacionNoDisponibleException {
+      aviso = 'No pudimos consultar el mapa de direcciones. Movés el pin a mano';
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _geocodificando = false;
+      _avisoGeocodificacion = aviso;
+      if (punto != null) _ubicacion = punto;
     });
   }
 
@@ -191,11 +234,44 @@ class _PantallaRegistroState extends ConsumerState<PantallaRegistro> {
                     child: TextField(
                       key: const ValueKey('campo_direccion'),
                       controller: _direccion,
+                      textInputAction: TextInputAction.search,
+                      textCapitalization: TextCapitalization.words,
+                      onSubmitted: (_) => _ubicarDireccion(),
                       decoration: const InputDecoration(
                         labelText: 'Dirección (opcional)',
+                        helperText:
+                            'Escribila y ubicá el pin, o tocá el mapa a mano.',
                       ),
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      key: const ValueKey('boton_ubicar_direccion'),
+                      onPressed: _geocodificando || cargando
+                          ? null
+                          : _ubicarDireccion,
+                      icon: _geocodificando
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.search),
+                      label: const Text('Ubicar en el mapa'),
+                    ),
+                  ),
+                  if (_avisoGeocodificacion != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      _avisoGeocodificacion!,
+                      key: const ValueKey('aviso_geocodificacion'),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   SelectorUbicacion(
                     inicial: _ubicacion ??
@@ -203,6 +279,7 @@ class _PantallaRegistroState extends ConsumerState<PantallaRegistro> {
                           latitud: entorno.centroLatitud,
                           longitud: entorno.centroLongitud,
                         ),
+                    punto: _ubicacion,
                     alElegir: (punto) => setState(() => _ubicacion = punto),
                   ),
                 ],

@@ -78,6 +78,25 @@ class LavaderoCercano {
   final OcupacionResumen ocupacion;
 }
 
+/// Cómo resolvió el backend la búsqueda (slice-21, D-21.17).
+enum ModoBusqueda {
+  /// Por coordenadas o por GPS.
+  ubicacion,
+
+  /// El texto se interpretó como dirección y se geocodificó.
+  direccion,
+
+  /// El texto coincidió con el nombre o la dirección de un lavadero.
+  nombre;
+
+  /// Parseo tolerante: un valor ausente o desconocido cae en [ubicacion].
+  static ModoBusqueda desdeJson(Object? valor) => switch (valor) {
+        'direccion' => ModoBusqueda.direccion,
+        'nombre' => ModoBusqueda.nombre,
+        _ => ModoBusqueda.ubicacion,
+      };
+}
+
 /// Respuesta de `GET /api/lavaderos/cercanos` (slice-07).
 @immutable
 class ResultadoBusqueda {
@@ -86,6 +105,7 @@ class ResultadoBusqueda {
     required this.longitud,
     required this.radioMetros,
     required this.lavaderos,
+    this.modo = ModoBusqueda.ubicacion,
   });
 
   /// Construye el resultado desde la respuesta del backend.
@@ -97,6 +117,7 @@ class ResultadoBusqueda {
       latitud: _decimal(centro['latitud']),
       longitud: _decimal(centro['longitud']),
       radioMetros: _entero(json['radioMetros']),
+      modo: ModoBusqueda.desdeJson(json['modo']),
       lavaderos: resultados is List<dynamic>
           ? resultados
               .whereType<Map<String, dynamic>>()
@@ -115,8 +136,15 @@ class ResultadoBusqueda {
   /// Radio efectivo de la búsqueda, en metros.
   final int radioMetros;
 
+  /// Cómo se resolvió la búsqueda (D-21.17).
+  final ModoBusqueda modo;
+
   /// Lavaderos ordenados por distancia (el orden lo decide el backend).
   final List<LavaderoCercano> lavaderos;
+
+  /// `true` cuando el resultado salió de una coincidencia por nombre o
+  /// dirección del lavadero: no aplica ampliar el radio.
+  bool get porNombre => modo == ModoBusqueda.nombre;
 
   /// `true` cuando no hay ningún lavadero en el radio.
   bool get vacio => lavaderos.isEmpty;

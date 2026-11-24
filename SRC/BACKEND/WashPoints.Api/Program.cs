@@ -1533,23 +1533,43 @@ app.MapGet("/api/lavaderos/{id:guid}/perfil", async Task<IResult> (
 .RequireAuthorization(Politicas.Administrador, Politicas.PropietarioDelLavadero)
 .WithOpenApi();
 
-// Búsqueda por proximidad (CU-01, US-C07). Dos modos excluyentes: coordenadas
-// directas —la distancia se calcula en la base local con Haversine, D-08.2— o
-// una dirección que se resuelve con el puerto IGeocodificador (D-08.4). Con el
-// stub el modo dirección responde 503: "proveedor no configurado" nunca se
-// confunde con "no hay lavaderos en el radio" (CA-7.4).
+// Búsqueda por proximidad (CU-01, US-C07). Tres modos excluyentes: coordenadas
+// directas —la distancia se calcula en la base local con Haversine, D-08.2—,
+// una dirección que se resuelve con el puerto IGeocodificador (D-08.4) o un
+// texto que primero busca por nombre/dirección y, si no hay coincidencias, cae
+// a la geocodificación (D-21.17). Con el stub el modo dirección responde 503:
+// "proveedor no configurado" nunca se confunde con "no hay lavaderos en el
+// radio" (CA-7.4).
 app.MapGet("/api/lavaderos/cercanos", async (
     string? lat,
     string? lon,
     string? radioMetros,
     string? direccion,
+    string? texto,
     BusquedaLavaderosServicio servicio,
     CancellationToken ct) =>
 {
     var tieneUbicacion = !string.IsNullOrWhiteSpace(lat) || !string.IsNullOrWhiteSpace(lon);
     var tieneDireccion = !string.IsNullOrWhiteSpace(direccion);
+    var tieneTexto = !string.IsNullOrWhiteSpace(texto);
 
-    if (tieneUbicacion == tieneDireccion)
+    // Un texto vacío o en blanco es un parámetro inválido, no "sin texto".
+    if (texto is not null && !tieneTexto)
+    {
+        return Results.BadRequest(new { error = "parametros_invalidos" });
+    }
+
+    if (tieneTexto)
+    {
+        // El texto se ordena por distancia, así que exige el punto de referencia.
+        if (tieneDireccion ||
+            string.IsNullOrWhiteSpace(lat) ||
+            string.IsNullOrWhiteSpace(lon))
+        {
+            return Results.BadRequest(new { error = "parametros_invalidos" });
+        }
+    }
+    else if (tieneUbicacion == tieneDireccion)
     {
         return Results.BadRequest(new { error = "parametros_invalidos" });
     }
@@ -1569,7 +1589,26 @@ app.MapGet("/api/lavaderos/cercanos", async (
     {
         ResultadoBusqueda resultado;
 
-        if (tieneDireccion)
+        if (tieneTexto)
+        {
+            if (!double.TryParse(
+                    lat,
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var latitudTexto) ||
+                !double.TryParse(
+                    lon,
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var longitudTexto))
+            {
+                return Results.BadRequest(new { error = "ubicacion_invalida" });
+            }
+
+            resultado = await servicio.BuscarPorTextoAsync(
+                texto!, latitudTexto, longitudTexto, radio, ct);
+        }
+        else if (tieneDireccion)
         {
             resultado = await servicio.BuscarPorDireccionAsync(direccion!, radio, ct);
         }
@@ -2204,6 +2243,7 @@ static object BusquedaLavaderosAJson(ResultadoBusqueda resultado) => new
 {
     centro = new { latitud = resultado.Latitud, longitud = resultado.Longitud },
     radioMetros = resultado.RadioMetros,
+    modo = resultado.Modo,
     resultados = resultado.Resultados.Select(lavadero => new
     {
         lavaderoId = lavadero.LavaderoId,
