@@ -55,7 +55,7 @@ public sealed class WebhookTest : IClassFixture<ContenedorPostgres>, IDisposable
             .UseNpgsql(_baseDeDatos.CadenaConexion)
             .Options);
 
-    private async Task<Guid> SembrarTurnoPendienteAsync()
+    private async Task<Guid> SembrarTurnoPendienteAsync(DateTime? inicio = null)
     {
         await using var contexto = CrearContexto();
 
@@ -67,10 +67,12 @@ public sealed class WebhookTest : IClassFixture<ContenedorPostgres>, IDisposable
         var tipo = TipoLavado.Crear(lavadero.Id, "Exterior", 30, 15000m, 3000m);
         var cliente = Cliente.Crear("Cliente Webhook");
 
-        var inicio = new DateTime(2026, 10, 10, 10, 0, 0, DateTimeKind.Utc);
+        // Rango futuro: el webhook puede confirmar un pago tardío mientras el
+        // turno no haya terminado.
+        var inicioTurno = inicio ?? DateTime.UtcNow.AddHours(1);
         var turno = Turno.CrearParaReserva(
             lavadero.Id, puesto.Id, cliente.Id, tipo.Id,
-            inicio, inicio.AddMinutes(30), tipo.PrecioSena, tipo.PrecioTotal,
+            inicioTurno, inicioTurno.AddMinutes(30), tipo.PrecioSena, tipo.PrecioTotal,
             DateTime.UtcNow.AddMinutes(5), "clave-de-prueba");
 
         contexto.AddRange(lavadero, puesto, tipo, cliente, turno);
@@ -79,9 +81,9 @@ public sealed class WebhookTest : IClassFixture<ContenedorPostgres>, IDisposable
         return turno.Id;
     }
 
-    private async Task<Guid> SembrarTurnoExpiradoAsync()
+    private async Task<Guid> SembrarTurnoExpiradoAsync(DateTime? inicio = null)
     {
-        var turnoId = await SembrarTurnoPendienteAsync();
+        var turnoId = await SembrarTurnoPendienteAsync(inicio);
         await _baseDeDatos.EjecutarSqlAsync(
             $"UPDATE turnos SET estado = 'expirado' WHERE id = '{turnoId}'");
         return turnoId;
@@ -177,6 +179,30 @@ public sealed class WebhookTest : IClassFixture<ContenedorPostgres>, IDisposable
     }
 
     [Fact]
+    public async Task AceptaElFormatoIpnConTopicEIdPorQueryString()
+    {
+        var turnoId = await SembrarTurnoPendienteAsync();
+        var pasarela = new PasarelaPagosFakeSimulada();
+        pasarela.ScriptearVerificacion("pago-ipn", ResultadoVerificacionPago.Aprobado(turnoId, "pago-ipn"));
+        using var api = CrearApi(pasarela);
+        using var cliente = api.CreateClient();
+
+        var peticion = new HttpRequestMessage(
+            HttpMethod.Post,
+            "/api/webhooks/mercadopago?topic=payment&id=pago-ipn&user_id=999");
+        Firmar(peticion, "pago-ipn");
+
+        var respuesta = await cliente.SendAsync(peticion);
+
+        Assert.Equal(HttpStatusCode.OK, respuesta.StatusCode);
+
+        await using var contexto = CrearContexto();
+        var turno = await contexto.Turnos.SingleAsync(t => t.Id == turnoId);
+        Assert.Equal(EstadoTurno.Confirmado, turno.Estado);
+        Assert.Equal("pago-ipn", (await contexto.Pagos.SingleAsync()).MpPaymentId);
+    }
+
+    [Fact]
     public async Task WebhookSinFirmaValidaDevuelve401YSinEfectos()
     {
         var turnoId = await SembrarTurnoPendienteAsync();
@@ -256,7 +282,7 @@ public sealed class WebhookTest : IClassFixture<ContenedorPostgres>, IDisposable
     }
 
     [Fact]
-    public async Task ApprovedTardioSobreUnTurnoExpiradoNoReviveYRegistraElPago()
+    public async Task ApprovedTardioSobreUnTurnoExpiradoLoConfirmaSiSigueVigente()
     {
         var turnoId = await SembrarTurnoExpiradoAsync();
         var pasarela = new PasarelaPagosFakeSimulada();
@@ -266,13 +292,50 @@ public sealed class WebhookTest : IClassFixture<ContenedorPostgres>, IDisposable
 
         var respuesta = await EnviarWebhookAsync(cliente, "pago-tarde");
 
-        // 200 (no revive), pero el pago queda registrado para conciliación manual (RB-1).
         Assert.Equal(HttpStatusCode.OK, respuesta.StatusCode);
+
+        await using var contexto = CrearContexto();
+        var turno = await contexto.Turnos.SingleAsync(t => t.Id == turnoId);
+        Assert.Equal(EstadoTurno.Confirmado, turno.Estado);
+        Assert.Equal("pago-tarde", (await contexto.Pagos.SingleAsync()).MpPaymentId);
+    }
+
+    [Fact]
+    public async Task ApprovedTardioSobreUnTurnoYaTerminadoDevuelve409YRegistraElPago()
+    {
+        var turnoId = await SembrarTurnoExpiradoAsync(inicio: DateTime.UtcNow.AddHours(-2));
+        var pasarela = new PasarelaPagosFakeSimulada();
+        pasarela.ScriptearVerificacion("pago-tarde", ResultadoVerificacionPago.Aprobado(turnoId, "pago-tarde"));
+        using var api = CrearApi(pasarela);
+        using var cliente = api.CreateClient();
+
+        var respuesta = await EnviarWebhookAsync(cliente, "pago-tarde");
+
+        Assert.Equal(HttpStatusCode.Conflict, respuesta.StatusCode);
 
         await using var contexto = CrearContexto();
         var turno = await contexto.Turnos.SingleAsync(t => t.Id == turnoId);
         Assert.Equal(EstadoTurno.Expirado, turno.Estado);
         Assert.Equal("pago-tarde", (await contexto.Pagos.SingleAsync()).MpPaymentId);
+    }
+
+    [Fact]
+    public async Task UnPagoDeUnTurnoDesconocidoDevuelve404()
+    {
+        await SembrarTurnoPendienteAsync();
+        var pasarela = new PasarelaPagosFakeSimulada();
+        pasarela.ScriptearVerificacion(
+            "pago-huerfano",
+            ResultadoVerificacionPago.Aprobado(Guid.NewGuid(), "pago-huerfano"));
+        using var api = CrearApi(pasarela);
+        using var cliente = api.CreateClient();
+
+        var respuesta = await EnviarWebhookAsync(cliente, "pago-huerfano");
+
+        Assert.Equal(HttpStatusCode.NotFound, respuesta.StatusCode);
+
+        await using var contexto = CrearContexto();
+        Assert.Empty(await contexto.Pagos.ToListAsync());
     }
 
     // --- T-19: rejected y pending ------------------------------------------------

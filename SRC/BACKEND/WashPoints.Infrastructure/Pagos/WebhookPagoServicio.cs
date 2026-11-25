@@ -171,69 +171,76 @@ public sealed class WebhookPagoServicio
         _contexto.Pagos.Add(
             Pago.Registrar(turno.Id, mpPaymentId, TipoEventoPago.Payment, resultado));
 
-        // Solo un pendiente_pago puede moverse. Un turno ya confirmado/cancelado
-        // o vencido no revive por un pago tardío (RB-1).
-        if (turno.Estado == EstadoTurno.PendientePago)
+        // Un pendiente_pago se resuelve con el pago. Un turno expirado sólo
+        // revive si el pago aprobado llegó tarde pero el turno todavía no
+        // terminó; si el puesto ya lo tomó otro, el EXCLUDE lo rechaza y el
+        // pago queda para conciliación manual. Un rechazo tardío no cancela un
+        // turno ya expirado.
+        var ahora = _reloj.GetUtcNow().UtcDateTime;
+        var esPendiente = turno.Estado == EstadoTurno.PendientePago;
+        var esExpirado = turno.Estado == EstadoTurno.Expirado;
+        var confirmaTardio = esExpirado && turno.FinUtc > ahora;
+
+        if (estado == EstadoVerificacionPago.Aprobado && (esPendiente || confirmaTardio))
         {
-            if (estado == EstadoVerificacionPago.Aprobado)
-            {
-                turno.TransicionarA(EstadoTurno.Confirmado);
+            turno.TransicionarA(EstadoTurno.Confirmado);
 
-                // RB-3: la confirmación emite el comprobante en la MISMA unidad
-                // de trabajo. Si la emisión falla (p. ej. falta la clave de
-                // cifrado), no se persiste ni el pago ni la confirmación.
-                _emisorComprobante.Emitir(turno.Id, turno.ConfirmadoEn!.Value);
+            // RB-3: la confirmación emite el comprobante en la MISMA unidad
+            // de trabajo. Si la emisión falla (p. ej. falta la clave de
+            // cifrado), no se persiste ni el pago ni la confirmación.
+            _emisorComprobante.Emitir(turno.Id, turno.ConfirmadoEn!.Value);
 
-                // RB-2: el cambio de disponibilidad y su evento viajan en el
-                // mismo SaveChangesAsync (D3/D12). `Encolar` no commitea.
-                _outbox.Encolar(new EventoOcupacion(
-                    turno.Id,
-                    turno.LavaderoId,
-                    turno.PuestoId,
-                    turno.Origen,
-                    turno.Estado,
-                    turno.InicioUtc,
-                    turno.FinUtc));
-                _outbox.Encolar(new EventoAgenda(
-                    turno.Id,
-                    turno.LavaderoId,
-                    turno.PuestoId,
-                    turno.Origen,
-                    turno.Estado,
-                    turno.InicioUtc,
-                    turno.FinUtc));
-            }
-            else if (estado == EstadoVerificacionPago.Rechazado)
-            {
-                turno.TransicionarA(EstadoTurno.Cancelado);
+            // RB-2: el cambio de disponibilidad y su evento viajan en el
+            // mismo SaveChangesAsync (D3/D12). `Encolar` no commitea.
+            _outbox.Encolar(new EventoOcupacion(
+                turno.Id,
+                turno.LavaderoId,
+                turno.PuestoId,
+                turno.Origen,
+                turno.Estado,
+                turno.InicioUtc,
+                turno.FinUtc));
+            _outbox.Encolar(new EventoAgenda(
+                turno.Id,
+                turno.LavaderoId,
+                turno.PuestoId,
+                turno.Origen,
+                turno.Estado,
+                turno.InicioUtc,
+                turno.FinUtc));
+        }
+        else if (estado == EstadoVerificacionPago.Rechazado && esPendiente)
+        {
+            turno.TransicionarA(EstadoTurno.Cancelado);
 
-                // RB-2 (SPECS/slice-04 §5.3): el rechazo libera el pendiente que
-                // bloqueaba el puesto, así que emite ocupación; y todo cambio de
-                // estado emite agenda. Mismo SaveChangesAsync que la transición.
-                _outbox.Encolar(new EventoOcupacion(
-                    turno.Id,
-                    turno.LavaderoId,
-                    turno.PuestoId,
-                    turno.Origen,
-                    turno.Estado,
-                    turno.InicioUtc,
-                    turno.FinUtc));
-                _outbox.Encolar(new EventoAgenda(
-                    turno.Id,
-                    turno.LavaderoId,
-                    turno.PuestoId,
-                    turno.Origen,
-                    turno.Estado,
-                    turno.InicioUtc,
-                    turno.FinUtc));
-            }
+            // RB-2 (SPECS/slice-04 §5.3): el rechazo libera el pendiente que
+            // bloqueaba el puesto, así que emite ocupación; y todo cambio de
+            // estado emite agenda. Mismo SaveChangesAsync que la transición.
+            _outbox.Encolar(new EventoOcupacion(
+                turno.Id,
+                turno.LavaderoId,
+                turno.PuestoId,
+                turno.Origen,
+                turno.Estado,
+                turno.InicioUtc,
+                turno.FinUtc));
+            _outbox.Encolar(new EventoAgenda(
+                turno.Id,
+                turno.LavaderoId,
+                turno.PuestoId,
+                turno.Origen,
+                turno.Estado,
+                turno.InicioUtc,
+                turno.FinUtc));
         }
 
         try
         {
             // Un solo SaveChangesAsync: pago + transición atómicos (T-17).
             await _turnos.GuardarAsync(ct);
-            return ResultadoWebhook.Procesado;
+            return esExpirado && estado == EstadoVerificacionPago.Aprobado && !confirmaTardio
+                ? ResultadoWebhook.PagoSinConfirmar
+                : ResultadoWebhook.Procesado;
         }
         catch (TurnoConflictoException)
         {
@@ -247,8 +254,9 @@ public sealed class WebhookPagoServicio
         }
         catch (DbUpdateException)
         {
-            // UNIQUE(turno_id): el turno ya tenía un pago (notificación fuera de
-            // orden con otro payment_id). Idempotente: 200 sin efecto (T-18).
+            // UNIQUE parcial (turno_id) WHERE resultado = 'approved': el turno ya
+            // tenía un pago aprobado (notificación fuera de orden con otro
+            // payment_id). Idempotente: 200 sin efecto (T-18).
             return ResultadoWebhook.Duplicado;
         }
     }

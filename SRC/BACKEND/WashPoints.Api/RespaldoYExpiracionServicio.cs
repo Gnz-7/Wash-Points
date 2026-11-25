@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using WashPoints.Application.Pagos;
 using WashPoints.Domain.MercadoPago;
 using WashPoints.Domain.Ocupacion;
@@ -53,6 +54,7 @@ public sealed class RespaldoYExpiracionServicio
     private readonly OpcionesPago _opciones;
     private readonly TimeProvider _reloj;
     private readonly IOutbox _outbox;
+    private readonly ILogger<RespaldoYExpiracionServicio> _logger;
 
     public RespaldoYExpiracionServicio(
         WashPointsDbContext contexto,
@@ -61,7 +63,8 @@ public sealed class RespaldoYExpiracionServicio
         WebhookPagoServicio aplicador,
         OpcionesPago opciones,
         TimeProvider reloj,
-        IOutbox outbox)
+        IOutbox outbox,
+        ILogger<RespaldoYExpiracionServicio> logger)
     {
         _contexto = contexto;
         _pasarela = pasarela;
@@ -70,6 +73,7 @@ public sealed class RespaldoYExpiracionServicio
         _opciones = opciones;
         _reloj = reloj;
         _outbox = outbox;
+        _logger = logger;
     }
 
     /// <summary>Ejecuta un tick completo: expiración local y luego respaldo.</summary>
@@ -130,21 +134,27 @@ public sealed class RespaldoYExpiracionServicio
 
     /// <summary>
     /// Regla 1: consulta la pasarela para los pendientes que superaron la
-    /// ventana de respaldo y aún están vigentes. Devuelve cuántos se resolvieron
-    /// y cuántas consultas fallaron (que se reintentan en el próximo tick).
+    /// ventana de respaldo y para los expirados recientes que todavía podrían
+    /// confirmarse con un pago tardío. Devuelve cuántos se resolvieron y
+    /// cuántas consultas fallaron (que se reintentan en el próximo tick).
     /// </summary>
     public async Task<(int Respaldados, int Fallidos)> RespaldarAsync(
         DateTime ahoraUtc,
         CancellationToken ct)
     {
         var limite = ahoraUtc.AddMinutes(-_opciones.VentanaRespaldoMinutos);
+        // Cota de la conciliación tardía: no se consultan eternamente los
+        // turnos expirados. 24 h cubre el día operativo y el reintento de MP.
+        var limiteExpirados = ahoraUtc.AddHours(-24);
 
         var candidatos = await _contexto.Turnos
-            .Where(t => t.Estado == EstadoTurno.PendientePago
+            .Where(t => t.MpPreferenceId != null
                 && t.CreadoEn <= limite
                 && t.ExpiraEn != null
-                && t.ExpiraEn > ahoraUtc
-                && t.MpPreferenceId != null)
+                && ((t.Estado == EstadoTurno.PendientePago
+                        && t.ExpiraEn > ahoraUtc)
+                    || (t.Estado == EstadoTurno.Expirado
+                        && t.ExpiraEn >= limiteExpirados)))
             .ToListAsync(ct);
 
         if (candidatos.Count == 0)
@@ -152,19 +162,18 @@ public sealed class RespaldoYExpiracionServicio
             return (0, 0);
         }
 
-        var conPago = await _contexto.Pagos
-            .Select(p => p.TurnoId)
-            .ToListAsync(ct);
-        var idsConPago = conPago.ToHashSet();
-
         var respaldados = 0;
         var fallidos = 0;
 
         foreach (var turno in candidatos)
         {
-            if (idsConPago.Contains(turno.Id))
+            // Un aprobado ya registrado es la fuente de verdad: si no pudo
+            // confirmar (slot ocupado), queda para conciliación manual y no se
+            // vuelve a insertar (el único parcial de approved lo impediría).
+            var yaAprobado = await _contexto.Pagos
+                .AnyAsync(p => p.TurnoId == turno.Id && p.Resultado == ResultadoPago.Approved, ct);
+            if (yaAprobado)
             {
-                // El webhook ya procesó este pago: no se toca (idempotencia).
                 continue;
             }
 
@@ -206,17 +215,31 @@ public sealed class RespaldoYExpiracionServicio
 
                 if (debeAplicar)
                 {
+                    // Si ese pago ya está registrado (webhook o tick anterior),
+                    // no se vuelve a insertar: el UNIQUE de mp_payment_id lo
+                    // rechazaría y ensuciaría el contexto del lote.
+                    var yaRegistrado = await _contexto.Pagos
+                        .AnyAsync(p => p.MpPaymentId == verificacion.MpPaymentId, ct);
+                    if (yaRegistrado)
+                    {
+                        continue;
+                    }
+
                     await _aplicador.AplicarVerificacionAsync(
                         turno, verificacion.MpPaymentId!, verificacion.Estado, ct);
                     respaldados++;
                 }
                 // `pending`/`in_process`: no se hace nada; el TTL decide.
             }
-            catch (Exception) when (!ct.IsCancellationRequested)
+            catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 // Falla o timeout del respaldo: se registra y se reintenta en el
                 // próximo tick, sin romper el tick ni la expiración local.
                 fallidos++;
+                _logger.LogWarning(
+                    ex,
+                    "No se pudo reconciliar el turno {TurnoId} con Mercado Pago.",
+                    turno.Id);
             }
         }
 

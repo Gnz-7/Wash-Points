@@ -54,7 +54,9 @@ public sealed class WebhookTokenLavaderoTest : IClassFixture<ContenedorPostgres>
             """);
 
     /// <summary>Siembra un lavadero (con <c>mp_user_id</c> si se pide) y su turno pendiente.</summary>
-    private async Task<(Guid LavaderoId, Guid TurnoId)> SembrarAsync(bool conMpUserId = true)
+    private async Task<(Guid LavaderoId, Guid TurnoId)> SembrarAsync(
+        bool conMpUserId = true,
+        DateTime? inicio = null)
     {
         var lavadero = Lavadero.Crear("Lavadero Webhook");
         if (conMpUserId)
@@ -69,11 +71,11 @@ public sealed class WebhookTokenLavaderoTest : IClassFixture<ContenedorPostgres>
         var tipo = TipoLavado.Crear(lavadero.Id, "Exterior", 30, 15000m, 3000m);
         var cliente = Cliente.Crear("Cliente Webhook");
 
-        var inicio = new DateTime(2026, 10, 10, 13, 0, 0, DateTimeKind.Utc);
+        var inicioTurno = inicio ?? new DateTime(2026, 10, 10, 13, 0, 0, DateTimeKind.Utc);
         var turno = Turno.CrearParaReserva(
             lavadero.Id, puesto.Id, cliente.Id, tipo.Id,
-            inicio, inicio.AddMinutes(30), tipo.PrecioSena, tipo.PrecioTotal,
-            inicio.AddHours(1), $"clave-{Guid.NewGuid():N}");
+            inicioTurno, inicioTurno.AddMinutes(30), tipo.PrecioSena, tipo.PrecioTotal,
+            inicioTurno.AddHours(1), $"clave-{Guid.NewGuid():N}");
         turno.RegistrarPreferenciaDePago("pref-1");
 
         _contexto.AddRange(lavadero, puesto, tipo, cliente, turno);
@@ -82,7 +84,10 @@ public sealed class WebhookTokenLavaderoTest : IClassFixture<ContenedorPostgres>
         return (lavadero.Id, turno.Id);
     }
 
-    private WebhookPagoServicio CrearServicio(PasarelaFalsa pasarela, TokensFalso tokens) =>
+    private WebhookPagoServicio CrearServicio(
+        PasarelaFalsa pasarela,
+        TokensFalso tokens,
+        TimeProvider? reloj = null) =>
         new(
             pasarela,
             tokens,
@@ -94,7 +99,8 @@ public sealed class WebhookTokenLavaderoTest : IClassFixture<ContenedorPostgres>
                     Convert.ToBase64String(Encoding.UTF8.GetBytes("0123456789abcdef0123456789abcdef"))),
                 _contexto,
                 ttlVigenciaHoras: 24),
-            new OutboxRepositorio(_contexto, new RelojFijo()));
+            new OutboxRepositorio(_contexto, new RelojFijo()),
+            reloj);
 
     [Fact]
     public async Task VerificaElPagoConElTokenDelLavaderoResueltoPorElUserIdDelPayload()
@@ -153,6 +159,51 @@ public sealed class WebhookTokenLavaderoTest : IClassFixture<ContenedorPostgres>
         var turno = await _contexto.Turnos.SingleAsync(t => t.Id == turnoId);
         Assert.Equal(EstadoTurno.PendientePago, turno.Estado);
         Assert.Empty(await _contexto.Pagos.ToListAsync());
+    }
+
+    private async Task<Guid> SembrarExpiradoAsync(DateTime? inicio = null)
+    {
+        var (_, turnoId) = await SembrarAsync(inicio: inicio);
+        await _baseDeDatos.EjecutarSqlAsync(
+            $"UPDATE turnos SET estado = 'expirado' WHERE id = '{turnoId}'");
+        // El UPDATE fue por SQL: el contexto no vio el cambio de estado.
+        _contexto.ChangeTracker.Clear();
+        return turnoId;
+    }
+
+    [Fact]
+    public async Task UnPagoAprobadoTardioConfirmaUnExpiradoSiSigueVigente()
+    {
+        var turnoId = await SembrarExpiradoAsync();
+        var pasarela = new PasarelaFalsa();
+        pasarela.Scriptear(ResultadoVerificacionPago.Aprobado(turnoId, "pago-tarde"));
+        var servicio = CrearServicio(pasarela, new TokensFalso(), new RelojFijo());
+
+        var resultado = await servicio.ProcesarAsync(
+            "payment", null, "pago-tarde", "999", CancellationToken.None);
+
+        Assert.Equal(ResultadoWebhook.Procesado, resultado);
+        var turno = await _contexto.Turnos.SingleAsync(t => t.Id == turnoId);
+        Assert.Equal(EstadoTurno.Confirmado, turno.Estado);
+        Assert.Equal("pago-tarde", (await _contexto.Pagos.SingleAsync()).MpPaymentId);
+    }
+
+    [Fact]
+    public async Task UnPagoAprobadoTardioSobreUnExpiradoYaTerminadoNoConfirma()
+    {
+        var turnoId = await SembrarExpiradoAsync(
+            inicio: new DateTime(2026, 10, 10, 10, 0, 0, DateTimeKind.Utc));
+        var pasarela = new PasarelaFalsa();
+        pasarela.Scriptear(ResultadoVerificacionPago.Aprobado(turnoId, "pago-tarde"));
+        var servicio = CrearServicio(pasarela, new TokensFalso(), new RelojFijo());
+
+        var resultado = await servicio.ProcesarAsync(
+            "payment", null, "pago-tarde", "999", CancellationToken.None);
+
+        Assert.Equal(ResultadoWebhook.PagoSinConfirmar, resultado);
+        var turno = await _contexto.Turnos.SingleAsync(t => t.Id == turnoId);
+        Assert.Equal(EstadoTurno.Expirado, turno.Estado);
+        Assert.Equal("pago-tarde", (await _contexto.Pagos.SingleAsync()).MpPaymentId);
     }
 
     [Fact]

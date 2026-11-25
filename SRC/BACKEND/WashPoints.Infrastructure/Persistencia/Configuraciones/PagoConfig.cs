@@ -53,7 +53,11 @@ public sealed class PagoConfig : IEntityTypeConfiguration<Pago>
         // re-transicionar.
         pago.HasIndex(p => p.MpPaymentId).IsUnique();
 
-        // Un turno no puede tener dos pagos asociados (RB-1).
-        pago.HasIndex(p => p.TurnoId).IsUnique();
+        // Un turno puede tener varios intentos de pago (rechazado/pendiente y
+        // luego aprobado, o un pago tardío), pero **un solo aprobado**: el
+        // índice único parcial preserva RB-1 sin bloquear los reintentos.
+        pago.HasIndex(p => p.TurnoId)
+            .IsUnique()
+            .HasFilter("\"resultado\" = 'approved'");
     }
 }

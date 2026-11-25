@@ -41,11 +41,18 @@ public sealed class Turno
             {
                 EstadoTurno.Finalizado,
             },
-            // Estados terminales: sin transiciones de salida.
+            // Estados terminales: sin transiciones de salida, salvo la
+            // confirmación de un pago aprobado que llegó después del TTL
+            // (slice-21, D-21.18). El EXCLUDE de PostgreSQL sigue siendo la
+            // última palabra: si el puesto ya lo tomó otro turno, la
+            // transición falla y el pago queda para conciliación manual.
             [EstadoTurno.Finalizado] = new HashSet<EstadoTurno>(),
             [EstadoTurno.Cancelado] = new HashSet<EstadoTurno>(),
             [EstadoTurno.NoPresentado] = new HashSet<EstadoTurno>(),
-            [EstadoTurno.Expirado] = new HashSet<EstadoTurno>(),
+            [EstadoTurno.Expirado] = new HashSet<EstadoTurno>
+            {
+                EstadoTurno.Confirmado,
+            },
         };
 
     /// <summary>Constructor sin argumentos. Uso exclusivo de EF Core.</summary>
@@ -243,6 +250,9 @@ public sealed class Turno
         if (destino == EstadoTurno.Confirmado)
         {
             ConfirmadoEn = DateTime.UtcNow;
+            // Un turno expirado que se confirma por un pago tardío deja de
+            // estar cerrado: CerradoEn sólo marca estados terminales.
+            CerradoEn = null;
         }
         else if (EsTerminal(destino))
         {

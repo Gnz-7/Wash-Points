@@ -567,7 +567,8 @@ namespace WashPoints.Infrastructure.Persistencia.Migraciones
                         .IsUnique();
 
                     b.HasIndex("TurnoId")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"resultado\" = 'approved'");
 
                     b.ToTable("pagos", (string)null);
                 });

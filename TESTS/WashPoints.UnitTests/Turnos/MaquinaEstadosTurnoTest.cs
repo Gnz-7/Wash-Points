@@ -20,6 +20,9 @@ public sealed class MaquinaEstadosTurnoTest
         { EstadoTurno.PendientePago, EstadoTurno.Confirmado },
         { EstadoTurno.PendientePago, EstadoTurno.Cancelado },
         { EstadoTurno.PendientePago, EstadoTurno.Expirado },
+        // Pago aprobado que llegó después del TTL: el turno revive sólo si el
+        // puesto sigue libre; el EXCLUDE de PostgreSQL es la última palabra.
+        { EstadoTurno.Expirado, EstadoTurno.Confirmado },
         { EstadoTurno.Confirmado, EstadoTurno.EnCurso },
         { EstadoTurno.Confirmado, EstadoTurno.NoPresentado },
         { EstadoTurno.Confirmado, EstadoTurno.Cancelado },
@@ -36,8 +39,8 @@ public sealed class MaquinaEstadosTurnoTest
         { EstadoTurno.Cancelado, EstadoTurno.EnCurso },
         { EstadoTurno.NoPresentado, EstadoTurno.EnCurso },
 
-        // RB-1: el pago tardío NO revive un turno vencido (SPECS/slice-01 §3).
-        { EstadoTurno.Expirado, EstadoTurno.Confirmado },
+        // Un turno vencido sólo puede revivir por un pago aprobado; no puede
+        // saltar a atención ni cancelarse desde ese estado.
         { EstadoTurno.Expirado, EstadoTurno.EnCurso },
         { EstadoTurno.Expirado, EstadoTurno.Cancelado },
 
@@ -97,17 +100,16 @@ public sealed class MaquinaEstadosTurnoTest
     }
 
     [Fact]
-    public void DesdeEstadosTerminalesNoSePuedeConfirmar()
+    public void DesdeEstadosTerminalesSinPagoNoSePuedeConfirmar()
     {
         // Test ancla de RB-1 (T-03): un turno ya cerrado o cancelado no puede
-        // pasar a ocupar un puesto. Es el caso de la tabla de trazabilidad de
-        // REQUIREMENTS/US/US-C03 CA-3.1.
+        // pasar a ocupar un puesto. Expirado es la excepción: un pago aprobado
+        // tardío sí puede confirmarlo si el puesto sigue libre.
         foreach (var terminal in new[]
         {
             EstadoTurno.Finalizado,
             EstadoTurno.Cancelado,
             EstadoTurno.NoPresentado,
-            EstadoTurno.Expirado,
         })
         {
             var turno = ConEstado(terminal);
@@ -115,6 +117,19 @@ public sealed class MaquinaEstadosTurnoTest
             Assert.Throws<TurnoTransicionInvalida>(
                 () => turno.TransicionarA(EstadoTurno.Confirmado));
         }
+    }
+
+    [Fact]
+    public void UnTurnoExpiradoSeConfirmaConPagoTardioYDejaDeEstarCerrado()
+    {
+        var turno = ConEstado(EstadoTurno.Expirado);
+        Assert.NotNull(turno.CerradoEn);
+
+        turno.TransicionarA(EstadoTurno.Confirmado);
+
+        Assert.Equal(EstadoTurno.Confirmado, turno.Estado);
+        Assert.NotNull(turno.ConfirmadoEn);
+        Assert.Null(turno.CerradoEn);
     }
 
     [Theory]

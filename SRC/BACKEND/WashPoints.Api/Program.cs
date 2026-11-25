@@ -2002,33 +2002,43 @@ app.MapPost("/api/webhooks/mercadopago", async (
     WebhookPagoServicio servicio,
     CancellationToken ct) =>
 {
-    JsonDocument documento;
-    try
+    // El body es opcional: el IPN legacy manda `topic`/`id` por query string y
+    // puede venir vacío. El Webhooks moderno manda JSON. Se aceptan ambos.
+    string cuerpo;
+    using (var lector = new StreamReader(request.Body))
     {
-        documento = await JsonDocument.ParseAsync(request.Body, cancellationToken: ct);
+        cuerpo = await lector.ReadToEndAsync(ct);
     }
-    catch (JsonException)
+
+    JsonDocument? documento = null;
+    if (!string.IsNullOrWhiteSpace(cuerpo))
     {
-        return Results.BadRequest(new { error = "cuerpo_invalido" });
+        try
+        {
+            documento = JsonDocument.Parse(cuerpo);
+        }
+        catch (JsonException)
+        {
+            return Results.BadRequest(new { error = "cuerpo_invalido" });
+        }
     }
 
     using (documento)
     {
-        var raiz = documento.RootElement;
-        var tipo = raiz.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String
-            ? t.GetString()
-            : null;
-        var accion = raiz.TryGetProperty("action", out var a) && a.ValueKind == JsonValueKind.String
-            ? a.GetString()
-            : null;
-        var dataId = ExtraerDataId(raiz);
+        JsonElement? raiz = documento?.RootElement;
+        var query = request.Query;
+        var tipo = TextoDe(raiz, "type")
+            ?? query["type"].FirstOrDefault()
+            ?? query["topic"].FirstOrDefault();
+        var accion = TextoDe(raiz, "action");
+        var dataId = ExtraerDataId(raiz)
+            ?? query["data.id"].FirstOrDefault()
+            ?? query["id"].FirstOrDefault();
         // Slice-20 (D-20.5): `user_id` del payload es la cuenta que cobró (el
         // lavadero) y permite resolver el token cuando el pago todavía no
         // tiene fila en `pagos`. MP lo manda como número o texto.
-        var userId = raiz.TryGetProperty("user_id", out var u) &&
-            (u.ValueKind == JsonValueKind.String || u.ValueKind == JsonValueKind.Number)
-            ? u.ToString()
-            : null;
+        var userId = TextoDe(raiz, "user_id")
+            ?? query["user_id"].FirstOrDefault();
 
         if (string.IsNullOrWhiteSpace(dataId))
         {
@@ -2046,7 +2056,22 @@ app.MapPost("/api/webhooks/mercadopago", async (
         try
         {
             var resultado = await servicio.ProcesarAsync(tipo, accion, dataId, userId, ct);
-            return Results.Ok(new { resultado = resultado.ToString() });
+            app.Logger.LogInformation(
+                "Webhook MP {Tipo}/{Accion} dataId={DataId} userId={UserId}: {Resultado}.",
+                tipo, accion, dataId, userId, resultado);
+
+            return resultado switch
+            {
+                // 404/409 para que Mercado Pago reintente: un 200 sobre un
+                // pago que todavía no se pudo asociar pierde el aviso.
+                ResultadoWebhook.TurnoNoEncontrado => Results.Json(
+                    new { error = "turno_no_encontrado", resultado = resultado.ToString() },
+                    statusCode: StatusCodes.Status404NotFound),
+                ResultadoWebhook.PagoSinConfirmar => Results.Json(
+                    new { error = "pago_sin_confirmar", resultado = resultado.ToString() },
+                    statusCode: StatusCodes.Status409Conflict),
+                _ => Results.Ok(new { resultado = resultado.ToString() }),
+            };
         }
         catch (ComprobanteNoEmitidoException ex)
         {
@@ -2089,9 +2114,10 @@ await using (var scope = app.Services.CreateAsyncScope())
 app.Run();
 
 /// <summary>Extrae <c>data.id</c> del IPN, que MP envía como texto o número.</summary>
-static string? ExtraerDataId(JsonElement raiz)
+static string? ExtraerDataId(JsonElement? raiz)
 {
-    if (!raiz.TryGetProperty("data", out var data) ||
+    if (raiz is not { } r ||
+        !r.TryGetProperty("data", out var data) ||
         data.ValueKind != JsonValueKind.Object ||
         !data.TryGetProperty("id", out var id))
     {
@@ -2102,6 +2128,22 @@ static string? ExtraerDataId(JsonElement raiz)
     {
         JsonValueKind.String => id.GetString(),
         JsonValueKind.Number => id.GetRawText(),
+        _ => null,
+    };
+}
+
+/// <summary>Lee una propiedad escalar del body (texto o número) o null.</summary>
+static string? TextoDe(JsonElement? raiz, string propiedad)
+{
+    if (raiz is not { } r || !r.TryGetProperty(propiedad, out var valor))
+    {
+        return null;
+    }
+
+    return valor.ValueKind switch
+    {
+        JsonValueKind.String => valor.GetString(),
+        JsonValueKind.Number => valor.GetRawText(),
         _ => null,
     };
 }

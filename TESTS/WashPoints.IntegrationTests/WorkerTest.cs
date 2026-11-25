@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Text;
 using WashPoints.Api;
 using WashPoints.Application.Pagos;
@@ -58,7 +59,8 @@ public sealed class WorkerTest : IClassFixture<ContenedorPostgres>, IDisposable
                 CrearOutbox(contexto)),
             new OpcionesPago(),
             new RelojFijo(Ahora),
-            CrearOutbox(contexto));
+            CrearOutbox(contexto),
+            NullLogger<RespaldoYExpiracionServicio>.Instance);
 
     /// <summary>Outbox real sobre el mismo contexto, con reloj fijo (RB-2, slice-03).</summary>
     private static OutboxRepositorio CrearOutbox(WashPointsDbContext contexto) =>
@@ -84,7 +86,8 @@ public sealed class WorkerTest : IClassFixture<ContenedorPostgres>, IDisposable
     private async Task<Guid> SembrarPendienteAsync(
         DateTime creadoEn,
         DateTime expiraEn,
-        string preferenciaId = "pref-1")
+        string preferenciaId = "pref-1",
+        DateTime? inicio = null)
     {
         await using var contexto = CrearContexto();
 
@@ -93,10 +96,10 @@ public sealed class WorkerTest : IClassFixture<ContenedorPostgres>, IDisposable
         var tipo = TipoLavado.Crear(lavadero.Id, "Exterior", 30, 15000m, 3000m);
         var cliente = Cliente.Crear("Cliente Worker");
 
-        var inicio = new DateTime(2026, 10, 10, 13, 0, 0, DateTimeKind.Utc);
+        var inicioTurno = inicio ?? new DateTime(2026, 10, 10, 13, 0, 0, DateTimeKind.Utc);
         var turno = Turno.CrearParaReserva(
             lavadero.Id, puesto.Id, cliente.Id, tipo.Id,
-            inicio, inicio.AddMinutes(30), tipo.PrecioSena, tipo.PrecioTotal,
+            inicioTurno, inicioTurno.AddMinutes(30), tipo.PrecioSena, tipo.PrecioTotal,
             expiraEn, $"clave-{Guid.NewGuid():N}");
         turno.RegistrarPreferenciaDePago(preferenciaId);
 
@@ -202,13 +205,67 @@ public sealed class WorkerTest : IClassFixture<ContenedorPostgres>, IDisposable
     }
 
     [Fact]
-    public async Task UnPagoAprobadoTardioNoReviveUnTurnoExpirado()
+    public async Task UnPagoAprobadoTardioConfirmaSiElPuestoYLaVentanaSiguenVigentes()
     {
         var turnoId = await SembrarPendienteAsync(
             creadoEn: Ahora.AddMinutes(-6),
             expiraEn: Ahora.AddMinutes(-1));
         var pasarela = new PasarelaPagosFakeSimulada();
-        pasarela.ScriptearVerificacion("pref-1", ResultadoVerificacionPago.Aprobado(turnoId, "pago-tarde"));
+        // El worker busca por external_reference, no por preferencia.
+        pasarela.ScriptearBusqueda(turnoId, ResultadoVerificacionPago.Aprobado(turnoId, "pago-tarde"));
+        await using var contexto = CrearContexto();
+        var worker = CrearWorker(contexto, pasarela);
+
+        var resultado = await worker.EjecutarTickAsync(CancellationToken.None);
+
+        Assert.Equal(1, resultado.Expirados);
+        Assert.Equal(1, resultado.Respaldados);
+
+        await using var verificacion = CrearContexto();
+        var turno = await verificacion.Turnos.SingleAsync(t => t.Id == turnoId);
+        Assert.Equal(EstadoTurno.Confirmado, turno.Estado);
+        Assert.Equal("pago-tarde", (await verificacion.Pagos.SingleAsync()).MpPaymentId);
+    }
+
+    [Fact]
+    public async Task UnPagoAprobadoTardioSobreUnTurnoYaTerminadoNoConfirma()
+    {
+        var turnoId = await SembrarPendienteAsync(
+            creadoEn: Ahora.AddMinutes(-6),
+            expiraEn: Ahora.AddMinutes(-1),
+            inicio: Ahora.AddHours(-2));
+        var pasarela = new PasarelaPagosFakeSimulada();
+        pasarela.ScriptearBusqueda(turnoId, ResultadoVerificacionPago.Aprobado(turnoId, "pago-tarde"));
+        await using var contexto = CrearContexto();
+        var worker = CrearWorker(contexto, pasarela);
+
+        var resultado = await worker.EjecutarTickAsync(CancellationToken.None);
+
+        Assert.Equal(1, resultado.Expirados);
+        Assert.Equal(1, resultado.Respaldados);
+
+        await using var verificacion = CrearContexto();
+        var turno = await verificacion.Turnos.SingleAsync(t => t.Id == turnoId);
+        Assert.Equal(EstadoTurno.Expirado, turno.Estado);
+        Assert.Equal("pago-tarde", (await verificacion.Pagos.SingleAsync()).MpPaymentId);
+    }
+
+    [Fact]
+    public async Task UnPagoRechazadoPrevioNoImpideConciliarElAprobado()
+    {
+        var turnoId = await SembrarPendienteAsync(
+            creadoEn: Ahora.AddMinutes(-4),
+            expiraEn: Ahora.AddMinutes(1));
+
+        await using (var contextoPrevio = CrearContexto())
+        {
+            contextoPrevio.Pagos.Add(Pago.Registrar(
+                turnoId, "pago-rechazado", TipoEventoPago.Payment, ResultadoPago.Rejected));
+            await contextoPrevio.SaveChangesAsync();
+        }
+
+        var pasarela = new PasarelaPagosFakeSimulada();
+        pasarela.ScriptearBusqueda(turnoId, ResultadoVerificacionPago.Aprobado(turnoId, "pago-aprobado"));
         await using var contexto = CrearContexto();
         var worker = CrearWorker(contexto, pasarela);
 
@@ -216,8 +273,11 @@ public sealed class WorkerTest : IClassFixture<ContenedorPostgres>, IDisposable
 
         await using var verificacion = CrearContexto();
         var turno = await verificacion.Turnos.SingleAsync(t => t.Id == turnoId);
-        Assert.Equal(EstadoTurno.Expirado, turno.Estado);
-        Assert.Empty(await verificacion.Pagos.ToListAsync());
+        Assert.Equal(EstadoTurno.Confirmado, turno.Estado);
+        Assert.Equal(2, await verificacion.Pagos.CountAsync());
+        Assert.Contains(
+            await verificacion.Pagos.ToListAsync(),
+            p => p.MpPaymentId == "pago-aprobado" && p.Resultado == ResultadoPago.Approved);
     }
 
     [Fact]
