@@ -43,8 +43,6 @@ class _PantallaCatalogoState extends ConsumerState<PantallaCatalogo> {
   @override
   Widget build(BuildContext context) {
     final estado = ref.watch(catalogoAdminProvider);
-    final datos = estado.valueOrNull;
-    final tipos = datos?.tipos ?? const <TipoLavadoAdmin>[];
 
     return Semantics(
       identifier: 'pantalla_catalogo',
@@ -57,51 +55,90 @@ class _PantallaCatalogoState extends ConsumerState<PantallaCatalogo> {
           alignment: Alignment.topCenter,
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 720),
-            child: Padding(
-              key: const ValueKey('pantalla_catalogo'),
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  _encabezado(context),
-                  const SizedBox(height: 6),
-                  _avisoEdicion(),
-                  if (_hayValoresPorDefecto(tipos)) ...<Widget>[
-                    const SizedBox(height: 6),
-                    _avisoValoresPorDefecto(),
-                  ],
-                  const SizedBox(height: 12),
-                  _formulario(context),
-                  if (datos?.errorAccion != null) ...<Widget>[
-                    const SizedBox(height: 12),
-                    Text(
-                      datos!.errorAccion!,
-                      key: const ValueKey('mensaje_error'),
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                  ],
-                  if (datos?.detalleAccion != null) ...<Widget>[
-                    const SizedBox(height: 4),
-                    Text(
-                      datos!.detalleAccion!,
-                      key: const ValueKey('detalle_error'),
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                  if (datos?.datosDesactualizados ?? false) ...<Widget>[
-                    const SizedBox(height: 6),
-                    _avisoDatosDesactualizados(),
-                  ],
-                  const SizedBox(height: 12),
-                  Expanded(child: _lista(context, estado)),
-                ],
-              ),
+            child: LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints restricciones) {
+                // En mobile el formulario no puede encerrar la lista en un
+                // `Expanded`: fijo ocupa casi todo el alto y los servicios
+                // quedan cortados (viewport 800×600 de los tests y teléfonos).
+                // Toda la pantalla pasa a scrollear en conjunto.
+                final movil = restricciones.maxWidth < 600;
+
+                return Padding(
+                  key: const ValueKey('pantalla_catalogo'),
+                  padding: EdgeInsets.all(movil ? 8 : 12),
+                  child: _contenido(context, estado, movil: movil),
+                );
+              },
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _contenido(
+    BuildContext context,
+    AsyncValue<EstadoCatalogo> estado, {
+    required bool movil,
+  }) {
+    final datos = estado.valueOrNull;
+    final tipos = datos?.tipos ?? const <TipoLavadoAdmin>[];
+    final separacion = movil ? 6.0 : 12.0;
+
+    final secciones = <Widget>[
+      _encabezado(context),
+      const SizedBox(height: 6),
+      _avisoEdicion(),
+      if (_hayValoresPorDefecto(tipos)) ...<Widget>[
+        const SizedBox(height: 6),
+        _avisoValoresPorDefecto(),
+      ],
+      SizedBox(height: separacion),
+      _formulario(context, movil: movil),
+      if (datos?.errorAccion != null) ...<Widget>[
+        SizedBox(height: separacion),
+        Text(
+          datos!.errorAccion!,
+          key: const ValueKey('mensaje_error'),
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.error,
+          ),
+        ),
+      ],
+      if (datos?.detalleAccion != null) ...<Widget>[
+        const SizedBox(height: 4),
+        Text(
+          datos!.detalleAccion!,
+          key: const ValueKey('detalle_error'),
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ],
+      if (datos?.datosDesactualizados ?? false) ...<Widget>[
+        const SizedBox(height: 6),
+        _avisoDatosDesactualizados(),
+      ],
+      SizedBox(height: separacion),
+    ];
+
+    if (movil) {
+      return SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            ...secciones,
+            _lista(context, estado, enColumna: true),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        ...secciones,
+        Expanded(child: _lista(context, estado, enColumna: false)),
+      ],
     );
   }
 
@@ -147,17 +184,18 @@ class _PantallaCatalogoState extends ConsumerState<PantallaCatalogo> {
             'desactualizado.',
       );
 
-  Widget _formulario(BuildContext context) {
+  Widget _formulario(BuildContext context, {required bool movil}) {
     final editando = _editando;
+    final separacion = movil ? 4.0 : 6.0;
 
     return Card(
       key: const ValueKey('formulario_tipo'),
       child: Padding(
-        padding: const EdgeInsets.all(8),
+        padding: EdgeInsets.all(movil ? 6 : 8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            const SizedBox(height: 6),
+            SizedBox(height: separacion),
             TextField(
               key: const ValueKey('campo_nombre_tipo'),
               controller: _nombre,
@@ -165,7 +203,7 @@ class _PantallaCatalogoState extends ConsumerState<PantallaCatalogo> {
                 labelText: 'Nombre del servicio',
               ),
             ),
-            const SizedBox(height: 6),
+            SizedBox(height: separacion),
             TextField(
               key: const ValueKey('campo_duracion_tipo'),
               controller: _duracion,
@@ -174,7 +212,7 @@ class _PantallaCatalogoState extends ConsumerState<PantallaCatalogo> {
                 labelText: 'Duración (minutos)',
               ),
             ),
-            const SizedBox(height: 6),
+            SizedBox(height: separacion),
             Row(
               children: <Widget>[
                 Expanded(
@@ -199,14 +237,14 @@ class _PantallaCatalogoState extends ConsumerState<PantallaCatalogo> {
               ],
             ),
             if (_errorFormulario != null) ...<Widget>[
-              const SizedBox(height: 6),
+              SizedBox(height: separacion),
               Text(
                 _errorFormulario!,
                 key: const ValueKey('error_formulario'),
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ],
-            const SizedBox(height: 6),
+            SizedBox(height: separacion),
             if (editando != null)
               Align(
                 alignment: Alignment.centerRight,
@@ -229,12 +267,28 @@ class _PantallaCatalogoState extends ConsumerState<PantallaCatalogo> {
     );
   }
 
-  Widget _lista(BuildContext context, AsyncValue<EstadoCatalogo> estado) =>
-      estado.when(
-        loading: () => const Center(
+  /// `enColumna` evita encerrar la lista en un `Expanded`: en mobile se
+  /// devuelve dentro del scroll único de la pantalla, sin scroll anidado.
+  Widget _lista(
+    BuildContext context,
+    AsyncValue<EstadoCatalogo> estado, {
+    required bool enColumna,
+  }) {
+    Widget conEspacio(Widget hijo) => enColumna
+        ? Padding(
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            child: hijo,
+          )
+        : hijo;
+
+    return estado.when(
+      loading: () => conEspacio(
+        const Center(
           child: CircularProgressIndicator(key: ValueKey('estado_cargando')),
         ),
-        error: (error, _) => Center(
+      ),
+      error: (error, _) => conEspacio(
+        Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
@@ -259,24 +313,37 @@ class _PantallaCatalogoState extends ConsumerState<PantallaCatalogo> {
             ],
           ),
         ),
-        data: (datos) {
-          if (datos.tipos.isEmpty) {
-            return const Center(
+      ),
+      data: (datos) {
+        if (datos.tipos.isEmpty) {
+          return conEspacio(
+            const Center(
               child: Text(
                 'Todavía no hay servicios. Agregá el primero.',
                 key: ValueKey('estado_vacio'),
                 textAlign: TextAlign.center,
               ),
-            );
-          }
-
-          return ListView.builder(
-            itemCount: datos.tipos.length,
-            itemBuilder: (context, indice) =>
-                _tarjeta(context, datos.tipos[indice]),
+            ),
           );
-        },
-      );
+        }
+
+        if (enColumna) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              for (final tipo in datos.tipos) _tarjeta(context, tipo),
+            ],
+          );
+        }
+
+        return ListView.builder(
+          itemCount: datos.tipos.length,
+          itemBuilder: (context, indice) =>
+              _tarjeta(context, datos.tipos[indice]),
+        );
+      },
+    );
+  }
 
   Widget _tarjeta(BuildContext context, TipoLavadoAdmin tipo) {
     final estilo = Theme.of(context).textTheme.bodySmall;
