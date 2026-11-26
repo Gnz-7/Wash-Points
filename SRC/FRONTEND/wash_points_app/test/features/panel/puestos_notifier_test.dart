@@ -34,6 +34,30 @@ void main() {
     expect(estado.errorAccion, isNull);
   });
 
+  test(
+    'refrescar actualiza puestos y conserva los servicios conocidos',
+    () async {
+      const puestoConTipos = PuestoAdmin(
+        id: 'p1',
+        nombre: 'Puesto 1',
+        activo: true,
+        tiposLavadoIds: <String>['tipo-1'],
+      );
+      final repositorio = RepositorioPuestosFalso(
+        puestos: <PuestoAdmin>[puestoConTipos],
+      );
+      final contenedor = _contenedor(repositorio);
+      await contenedor.read(puestosProvider.future);
+      repositorio.puestos[0] = _puestoActivo;
+
+      await contenedor.read(puestosProvider.notifier).refrescar();
+
+      final estado = contenedor.read(puestosProvider).requireValue;
+      expect(estado.puestos.single.tiposLavadoIds, <String>['tipo-1']);
+      expect(estado.errorAccion, isNull);
+    },
+  );
+
   test('crear agrega el puesto devuelto por el backend', () async {
     final repositorio = RepositorioPuestosFalso();
     final contenedor = _contenedor(repositorio);
@@ -84,28 +108,30 @@ void main() {
     expect(estado.errorAccion, isNull);
   });
 
-  test('un puesto con turnos activos sigue activo y muestra el detalle',
-      () async {
-    final repositorio = RepositorioPuestosFalso(
-      puestos: <PuestoAdmin>[_puestoActivo],
-      errorAlDesactivar: const ApiException(
-        CodigoError.puestoConTurnosActivos,
-        detalle: 'El puesto tiene 2 turnos en curso.',
-      ),
-    );
-    final contenedor = _contenedor(repositorio);
-    await contenedor.read(puestosProvider.future);
+  test(
+    'un puesto con turnos activos sigue activo y muestra el detalle',
+    () async {
+      final repositorio = RepositorioPuestosFalso(
+        puestos: <PuestoAdmin>[_puestoActivo],
+        errorAlDesactivar: const ApiException(
+          CodigoError.puestoConTurnosActivos,
+          detalle: 'El puesto tiene 2 turnos en curso.',
+        ),
+      );
+      final contenedor = _contenedor(repositorio);
+      await contenedor.read(puestosProvider.future);
 
-    await contenedor.read(puestosProvider.notifier).alternar(_puestoActivo);
+      await contenedor.read(puestosProvider.notifier).alternar(_puestoActivo);
 
-    final estado = contenedor.read(puestosProvider).requireValue;
-    expect(estado.puestos.single.activo, isTrue);
-    expect(
-      estado.errorAccion,
-      const ApiException(CodigoError.puestoConTurnosActivos).mensaje,
-    );
-    expect(estado.detalleAccion, 'El puesto tiene 2 turnos en curso.');
-  });
+      final estado = contenedor.read(puestosProvider).requireValue;
+      expect(estado.puestos.single.activo, isTrue);
+      expect(
+        estado.errorAccion,
+        const ApiException(CodigoError.puestoConTurnosActivos).mensaje,
+      );
+      expect(estado.detalleAccion, 'El puesto tiene 2 turnos en curso.');
+    },
+  );
 
   test('limpiarError borra el conflicto sin tocar la lista', () async {
     final repositorio = RepositorioPuestosFalso(

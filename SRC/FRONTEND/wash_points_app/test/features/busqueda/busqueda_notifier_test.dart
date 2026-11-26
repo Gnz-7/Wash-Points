@@ -23,13 +23,12 @@ void main() {
   ResultadoBusqueda resultadoCon({
     required int radioMetros,
     List<LavaderoCercano> lavaderos = const <LavaderoCercano>[],
-  }) =>
-      ResultadoBusqueda(
-        latitud: entorno.centroLatitud,
-        longitud: entorno.centroLongitud,
-        radioMetros: radioMetros,
-        lavaderos: lavaderos,
-      );
+  }) => ResultadoBusqueda(
+    latitud: entorno.centroLatitud,
+    longitud: entorno.centroLongitud,
+    radioMetros: radioMetros,
+    lavaderos: lavaderos,
+  );
 
   const lavadero = LavaderoCercano(
     lavaderoId: 'lav-1',
@@ -80,7 +79,10 @@ void main() {
     final repositorio = RepositorioBusquedaFalso(
       resultados: <ResultadoBusqueda>[
         resultadoCon(radioMetros: 5000),
-        resultadoCon(radioMetros: 10000, lavaderos: <LavaderoCercano>[lavadero]),
+        resultadoCon(
+          radioMetros: 10000,
+          lavaderos: <LavaderoCercano>[lavadero],
+        ),
       ],
     );
     final contenedor = contenedorCon(repositorio);
@@ -90,7 +92,10 @@ void main() {
 
     expect(repositorio.pedidos, hasLength(2));
     expect(repositorio.pedidos.last.radioMetros, 10000);
-    expect(contenedor.read(busquedaProvider).requireValue.lavaderos, hasLength(1));
+    expect(
+      contenedor.read(busquedaProvider).requireValue.lavaderos,
+      hasLength(1),
+    );
   });
 
   test('un 403 deja el estado en error con su código', () async {
@@ -121,6 +126,32 @@ void main() {
     expect(repositorio.pedidos, hasLength(2));
     expect(repositorio.pedidos.last.radioMetros, 5000);
   });
+
+  test(
+    'restablecer descarta texto y radio y vuelve al centro por defecto',
+    () async {
+      final repositorio = RepositorioBusquedaFalso(
+        resultados: <ResultadoBusqueda>[
+          resultadoCon(radioMetros: 5000),
+          resultadoCon(radioMetros: 10000),
+          resultadoCon(radioMetros: 5000),
+        ],
+      );
+      final contenedor = contenedorCon(repositorio);
+
+      await contenedor.read(busquedaProvider.future);
+      await contenedor.read(busquedaProvider.notifier).buscarPorTexto('Norte');
+      await contenedor.read(busquedaProvider.notifier).ampliarRadio();
+      await contenedor.read(busquedaProvider.notifier).restablecer();
+
+      expect(repositorio.pedidosTexto, hasLength(2));
+      expect(repositorio.pedidosTexto.last.texto, 'Norte');
+      expect(repositorio.pedidos, hasLength(2));
+      expect(repositorio.pedidos.last.latitud, entorno.centroLatitud);
+      expect(repositorio.pedidos.last.longitud, entorno.centroLongitud);
+      expect(repositorio.pedidos.last.radioMetros, 5000);
+    },
+  );
 
   group('búsqueda por texto (D-21.17)', () {
     test('recorta el texto y usa el centro y el radio vigentes', () async {

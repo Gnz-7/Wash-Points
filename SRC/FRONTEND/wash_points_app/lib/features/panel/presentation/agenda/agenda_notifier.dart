@@ -50,31 +50,33 @@ class FiltrosAgendaNotifier extends Notifier<FiltrosAgenda> {
   FiltrosAgenda build() => FiltrosAgenda(fecha: _soloFecha(DateTime.now()));
 
   void cambiarFecha(DateTime fecha) => state = FiltrosAgenda(
-        fecha: _soloFecha(fecha),
-        puestoId: state.puestoId,
-        estado: state.estado,
-      );
+    fecha: _soloFecha(fecha),
+    puestoId: state.puestoId,
+    estado: state.estado,
+  );
 
   void cambiarPuesto(String? puestoId) => state = FiltrosAgenda(
-        fecha: state.fecha,
-        puestoId: puestoId,
-        estado: state.estado,
-      );
+    fecha: state.fecha,
+    puestoId: puestoId,
+    estado: state.estado,
+  );
 
   void cambiarEstado(EstadoTurnoAgenda? estado) => state = FiltrosAgenda(
-        fecha: state.fecha,
-        puestoId: state.puestoId,
-        estado: estado,
-      );
+    fecha: state.fecha,
+    puestoId: state.puestoId,
+    estado: estado,
+  );
 }
 
 final filtrosAgendaProvider =
     NotifierProvider<FiltrosAgendaNotifier, FiltrosAgenda>(
-  FiltrosAgendaNotifier.new,
-);
+      FiltrosAgendaNotifier.new,
+    );
 
 /// Agenda del día con polling, filtros y acciones de turno (CU-06).
 class AgendaNotifier extends AsyncNotifier<EstadoAgenda> {
+  Future<void>? _recargaEnCurso;
+
   @override
   Future<EstadoAgenda> build() async {
     final filtros = ref.watch(filtrosAgendaProvider);
@@ -104,17 +106,20 @@ class AgendaNotifier extends AsyncNotifier<EstadoAgenda> {
   /// Refresco manual (pull-to-refresh). Conserva los filtros vigentes.
   Future<void> refrescar() => _recargarSilencioso();
 
-  Future<void> finalizar(String turnoId) =>
-      _accion(turnoId, (repositorio, lavaderoId) =>
-          repositorio.finalizar(lavaderoId, turnoId));
+  Future<void> finalizar(String turnoId) => _accion(
+    turnoId,
+    (repositorio, lavaderoId) => repositorio.finalizar(lavaderoId, turnoId),
+  );
 
-  Future<void> cancelar(String turnoId) =>
-      _accion(turnoId, (repositorio, lavaderoId) =>
-          repositorio.cancelar(lavaderoId, turnoId));
+  Future<void> cancelar(String turnoId) => _accion(
+    turnoId,
+    (repositorio, lavaderoId) => repositorio.cancelar(lavaderoId, turnoId),
+  );
 
-  Future<void> noPresentado(String turnoId) =>
-      _accion(turnoId, (repositorio, lavaderoId) =>
-          repositorio.noPresentado(lavaderoId, turnoId));
+  Future<void> noPresentado(String turnoId) => _accion(
+    turnoId,
+    (repositorio, lavaderoId) => repositorio.noPresentado(lavaderoId, turnoId),
+  );
 
   /// Descarta el error de la última acción sin tocar la lista.
   void limpiarError() {
@@ -145,7 +150,9 @@ class AgendaNotifier extends AsyncNotifier<EstadoAgenda> {
         ref.read(repositorioAgendaProvider),
         ref.read(lavaderoActualProvider),
       );
-      state = AsyncData<EstadoAgenda>(actual.conTurno(turnoId, estado).sinError());
+      state = AsyncData<EstadoAgenda>(
+        actual.conTurno(turnoId, estado).sinError(),
+      );
     } on ApiException catch (error) {
       state = AsyncData<EstadoAgenda>(
         actual.conError(error.mensaje, error.detalle),
@@ -154,7 +161,13 @@ class AgendaNotifier extends AsyncNotifier<EstadoAgenda> {
     }
   }
 
-  Future<void> _recargarSilencioso() async {
+  Future<void> _recargarSilencioso() {
+    return _recargaEnCurso ??= _hacerRecargaSilenciosa().whenComplete(
+      () => _recargaEnCurso = null,
+    );
+  }
+
+  Future<void> _hacerRecargaSilenciosa() async {
     final actual = state.valueOrNull;
 
     if (actual == null) {
@@ -170,13 +183,14 @@ class AgendaNotifier extends AsyncNotifier<EstadoAgenda> {
     }
   }
 
-  Future<List<TurnoAgenda>> _listar(FiltrosAgenda filtros) =>
-      ref.read(repositorioAgendaProvider).listar(
-            ref.read(lavaderoActualProvider),
-            fecha: filtros.fecha,
-            puestoId: filtros.puestoId,
-            estado: filtros.estado,
-          );
+  Future<List<TurnoAgenda>> _listar(FiltrosAgenda filtros) => ref
+      .read(repositorioAgendaProvider)
+      .listar(
+        ref.read(lavaderoActualProvider),
+        fecha: filtros.fecha,
+        puestoId: filtros.puestoId,
+        estado: filtros.estado,
+      );
 }
 
 final agendaProvider = AsyncNotifierProvider<AgendaNotifier, EstadoAgenda>(

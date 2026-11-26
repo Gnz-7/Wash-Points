@@ -9,15 +9,13 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 
 import '../../../core/errores/api_exception.dart';
+import '../../../core/tiempo_real/evento_tiempo_real.dart';
+import '../../../core/tiempo_real/tiempo_real_notifier.dart';
+import '../../misturnos/presentation/mis_turnos_notifier.dart';
 import '../../reserva/domain/reserva.dart';
 import '../../reserva/presentation/reserva_notifier.dart';
 import '../domain/comprobante.dart';
 import 'comprobante_notifier.dart';
-
-final _verificacionRetornoPagoProvider = FutureProvider.family<Reserva, String>(
-  (ref, turnoId) =>
-      ref.watch(repositorioReservasProvider).verificarPago(turnoId),
-);
 
 /// Comprobante digital del turno confirmado (RB-3, CA-S9.15).
 ///
@@ -32,12 +30,14 @@ class PantallaComprobante extends ConsumerStatefulWidget {
   const PantallaComprobante({
     required this.turnoId,
     this.reserva,
+    this.lavaderoId,
     this.verificarPagoAlIngresar = false,
     super.key,
   });
 
   final String turnoId;
   final Reserva? reserva;
+  final String? lavaderoId;
   final bool verificarPagoAlIngresar;
 
   @override
@@ -49,6 +49,13 @@ class _PantallaComprobanteState extends ConsumerState<PantallaComprobante>
     with WidgetsBindingObserver {
   double? _brilloAnterior;
   Future<void> _colaBrillo = Future<void>.value();
+  StreamSubscription<EventoTiempoReal>? _eventosTiempoReal;
+  Reserva? _turnoActual;
+  Object? _errorTurno;
+  bool _cargandoTurno = true;
+  bool _revalidandoTurno = false;
+  bool _revalidacionPendiente = false;
+  bool _verificarPagoInicial = false;
 
   bool get _esMovil =>
       !kIsWeb &&
@@ -59,23 +66,110 @@ class _PantallaComprobanteState extends ConsumerState<PantallaComprobante>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _verificarPagoInicial = widget.verificarPagoAlIngresar;
+    _eventosTiempoReal = ref
+        .read(eventosTiempoRealProvider)
+        .listen(_alRecibirEvento);
     _subirBrillo();
+    unawaited(_revalidarTurno());
+    unawaited(_conectarTiempoReal());
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _subirBrillo();
+      unawaited(_revalidarTurno());
+      unawaited(_conectarTiempoReal());
     }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(_eventosTiempoReal?.cancel());
     if (_esMovil) {
       unawaited(_restaurarBrillo());
     }
     super.dispose();
+  }
+
+  void _alRecibirEvento(EventoTiempoReal evento) {
+    if (evento.turnoId == widget.turnoId) {
+      unawaited(_revalidarTurno());
+    }
+  }
+
+  Future<void> _conectarTiempoReal() async {
+    try {
+      final lavaderoId = widget.lavaderoId ?? await _buscarLavaderoId();
+      if (lavaderoId == null || lavaderoId.isEmpty || !mounted) {
+        return;
+      }
+
+      final canal = ref.read(tiempoRealProvider.notifier);
+      await canal.iniciar();
+      await canal.unirseALavadero(lavaderoId);
+    } on Object {
+      // La revalidación al volver al frente sigue protegiendo el comprobante.
+    }
+  }
+
+  Future<String?> _buscarLavaderoId() async {
+    final actual = ref.read(misTurnosProvider).valueOrNull?.turnos;
+    if (actual != null) {
+      for (final turno in actual) {
+        if (turno.turnoId == widget.turnoId) {
+          return turno.lavaderoId;
+        }
+      }
+    }
+
+    try {
+      final turnos = await ref.read(misTurnosProvider.future);
+      for (final turno in turnos.turnos) {
+        if (turno.turnoId == widget.turnoId) {
+          return turno.lavaderoId;
+        }
+      }
+    } on Object {
+      // El comprobante sigue seguro aunque no se pueda unir al grupo SignalR.
+    }
+    return null;
+  }
+
+  Future<void> _revalidarTurno() async {
+    if (!mounted) return;
+    if (_revalidandoTurno) {
+      _revalidacionPendiente = true;
+      return;
+    }
+
+    _revalidandoTurno = true;
+    setState(() => _cargandoTurno = true);
+    try {
+      do {
+        _revalidacionPendiente = false;
+        final verificarPago = _verificarPagoInicial;
+        _verificarPagoInicial = false;
+
+        try {
+          final repositorio = ref.read(repositorioReservasProvider);
+          final turno = verificarPago
+              ? await repositorio.verificarPago(widget.turnoId)
+              : await repositorio.consultarTurno(widget.turnoId);
+          if (!mounted) return;
+          _turnoActual = turno;
+          _errorTurno = null;
+        } on Object catch (error) {
+          if (!mounted) return;
+          _errorTurno = error;
+        }
+      } while (_revalidacionPendiente && mounted);
+    } finally {
+      _revalidandoTurno = false;
+      if (mounted) setState(() => _cargandoTurno = false);
+    }
   }
 
   void _subirBrillo() {
@@ -111,45 +205,40 @@ class _PantallaComprobanteState extends ConsumerState<PantallaComprobante>
 
   @override
   Widget build(BuildContext context) {
-    if (widget.verificarPagoAlIngresar) {
-      final verificacion = ref.watch(
-        _verificacionRetornoPagoProvider(widget.turnoId),
-      );
-      return Scaffold(
-        key: const ValueKey('pantalla_comprobante'),
-        appBar: AppBar(title: const Text('Comprobante')),
-        body: SafeArea(
-          child: verificacion.when(
-            loading: () => const Center(
-              key: ValueKey('estado_verificando_pago_retorno'),
-              child: CircularProgressIndicator(),
-            ),
-            error: (error, _) => _NoDisponible(
-              mensaje: error is ApiException
-                  ? error.mensaje
-                  : 'No pudimos verificar el pago. Intentá nuevamente desde Mis turnos.',
-              alIrAMisTurnos: () => context.go('/mis-turnos'),
-            ),
-            data: (turno) {
-              if (turno.estado != EstadoReserva.confirmada &&
-                  turno.estado != EstadoReserva.enCurso &&
-                  turno.estado != EstadoReserva.finalizada) {
-                return _NoDisponible(
-                  mensaje:
-                      'El pago todavía no está confirmado. '
-                      'Consultá el estado del turno en Mis turnos.',
-                  alIrAMisTurnos: () => context.go('/mis-turnos'),
-                );
-              }
+    return _marco(context, _estadoTurno(context, ref));
+  }
 
-              return _contenido(context, ref);
-            },
-          ),
-        ),
+  Widget _estadoTurno(BuildContext context, WidgetRef ref) {
+    if (_cargandoTurno) {
+      return const Center(
+        key: ValueKey('estado_verificando_turno'),
+        child: CircularProgressIndicator(),
       );
     }
 
-    return _marco(context, _contenido(context, ref));
+    final error = _errorTurno;
+    if (error != null) {
+      return _NoDisponible(
+        mensaje: error is ApiException
+            ? error.mensaje
+            : 'No pudimos confirmar el estado del turno. Consultá Mis turnos.',
+        alIrAMisTurnos: () => context.go('/mis-turnos'),
+      );
+    }
+
+    final turno = _turnoActual;
+    if (turno == null) {
+      return _NoDisponible(
+        mensaje: 'No pudimos confirmar el estado del turno.',
+        alIrAMisTurnos: () => context.go('/mis-turnos'),
+      );
+    }
+
+    if (turno.estado != EstadoReserva.confirmada) {
+      return _TurnoSinComprobante(estado: turno.estado);
+    }
+
+    return _contenido(context, ref);
   }
 
   Widget _contenido(BuildContext context, WidgetRef ref) {
@@ -178,6 +267,55 @@ class _PantallaComprobanteState extends ConsumerState<PantallaComprobante>
     appBar: AppBar(title: const Text('Comprobante')),
     body: SafeArea(child: contenido),
   );
+}
+
+class _TurnoSinComprobante extends StatelessWidget {
+  const _TurnoSinComprobante({required this.estado});
+
+  final EstadoReserva estado;
+
+  @override
+  Widget build(BuildContext context) {
+    final mensaje = switch (estado) {
+      EstadoReserva.enCurso => 'Ingreso validado — Turno en curso',
+      EstadoReserva.finalizada => 'Turno finalizado',
+      EstadoReserva.cancelada => 'Turno cancelado',
+      EstadoReserva.expirada => 'Turno expirado',
+      EstadoReserva.noPresentado => 'Turno marcado como no presentado',
+      EstadoReserva.pendientePago =>
+        'El pago todavía no está confirmado. El código de ingreso no está disponible.',
+      EstadoReserva.confirmada => 'El comprobante está disponible.',
+      EstadoReserva.desconocido =>
+        'El comprobante no está disponible para el estado actual del turno.',
+    };
+
+    return Center(
+      key: const ValueKey('estado_comprobante_no_activo'),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            const Icon(Icons.verified_outlined, size: 48),
+            const SizedBox(height: 12),
+            Text(mensaje, textAlign: TextAlign.center),
+            const SizedBox(height: 16),
+            OutlinedButton(
+              key: const ValueKey('boton_mis_turnos'),
+              onPressed: () => context.go('/mis-turnos'),
+              child: const Text('Ir a Mis turnos'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton(
+              key: const ValueKey('boton_volver_inicio'),
+              onPressed: () => context.go('/'),
+              child: const Text('Volver al inicio'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// Estado de «todavía no hay comprobante»: el turno puede no estar confirmado.

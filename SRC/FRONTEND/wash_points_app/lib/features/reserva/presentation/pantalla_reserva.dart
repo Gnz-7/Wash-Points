@@ -170,7 +170,10 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva>
           !_comprobanteMostrado &&
           reserva != null) {
         _comprobanteMostrado = true;
-        context.push('/turnos/${reserva.id}/comprobante');
+        context.push(
+          '/turnos/${reserva.id}/comprobante',
+          extra: widget.lavaderoId,
+        );
       }
     });
 
@@ -470,7 +473,10 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva>
         if (reserva != null)
           FilledButton(
             key: const ValueKey('boton_ver_comprobante'),
-            onPressed: () => context.push('/turnos/${reserva.id}/comprobante'),
+            onPressed: () => context.push(
+              '/turnos/${reserva.id}/comprobante',
+              extra: widget.lavaderoId,
+            ),
             child: const Text('Ver comprobante'),
           ),
         const SizedBox(height: 8),

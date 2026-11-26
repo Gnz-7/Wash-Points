@@ -189,9 +189,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         name: 'comprobante',
         builder: (context, state) {
           final turnoId = state.pathParameters['id'] ?? '';
+          final extra = state.extra;
           return PantallaComprobante(
             turnoId: turnoId,
-            reserva: state.extra is Reserva ? state.extra! as Reserva : null,
+            reserva: extra is Reserva ? extra : null,
+            lavaderoId: extra is String ? extra : null,
             verificarPagoAlIngresar:
                 state.uri.queryParameters['origen'] == 'mp',
           );

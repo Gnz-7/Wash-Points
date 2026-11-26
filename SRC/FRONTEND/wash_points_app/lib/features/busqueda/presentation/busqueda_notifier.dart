@@ -61,6 +61,23 @@ class BusquedaNotifier extends AsyncNotifier<ResultadoBusqueda> {
     await _recargar(radio);
   }
 
+  /// Vuelve a la búsqueda inicial del entorno y descarta criterios ampliados.
+  Future<void> restablecer() async {
+    final entorno = ref.read(entornoProvider);
+    _latitud = entorno.centroLatitud;
+    _longitud = entorno.centroLongitud;
+    _direccion = null;
+    _texto = null;
+    state = const AsyncLoading<ResultadoBusqueda>();
+    state = await AsyncValue.guard(
+      () => _buscar(
+        entorno.centroLatitud,
+        entorno.centroLongitud,
+        entorno.radioMetrosPorDefecto,
+      ),
+    );
+  }
+
   /// Busca alrededor de una dirección escrita (CA-7.3).
   Future<void> buscarPorDireccion(String direccion) async {
     final texto = direccion.trim();
@@ -73,10 +90,9 @@ class BusquedaNotifier extends AsyncNotifier<ResultadoBusqueda> {
     _texto = null;
     state = const AsyncLoading<ResultadoBusqueda>();
     state = await AsyncValue.guard(
-      () => ref.read(repositorioBusquedaProvider).buscarPorDireccion(
-            direccion: texto,
-            radioMetros: radio,
-          ),
+      () => ref
+          .read(repositorioBusquedaProvider)
+          .buscarPorDireccion(direccion: texto, radioMetros: radio),
     );
   }
 
@@ -96,7 +112,9 @@ class BusquedaNotifier extends AsyncNotifier<ResultadoBusqueda> {
     _direccion = null;
     state = const AsyncLoading<ResultadoBusqueda>();
     state = await AsyncValue.guard(
-      () => ref.read(repositorioBusquedaProvider).buscarPorTexto(
+      () => ref
+          .read(repositorioBusquedaProvider)
+          .buscarPorTexto(
             texto: termino,
             latitud: _latitud ?? entorno.centroLatitud,
             longitud: _longitud ?? entorno.centroLongitud,
@@ -111,8 +129,9 @@ class BusquedaNotifier extends AsyncNotifier<ResultadoBusqueda> {
   /// motivo para que la pantalla lo muestre y el cliente use la dirección o el
   /// centro por defecto (D-16.2).
   Future<ResultadoUbicacion> usarMiUbicacion() async {
-    final resultado =
-        await ref.read(servicioUbicacionProvider).obtenerUbicacion();
+    final resultado = await ref
+        .read(servicioUbicacionProvider)
+        .obtenerUbicacion();
 
     if (!resultado.disponible) {
       return resultado;
@@ -139,7 +158,9 @@ class BusquedaNotifier extends AsyncNotifier<ResultadoBusqueda> {
     if (_texto != null) {
       final entorno = ref.read(entornoProvider);
       state = await AsyncValue.guard(
-        () => ref.read(repositorioBusquedaProvider).buscarPorTexto(
+        () => ref
+            .read(repositorioBusquedaProvider)
+            .buscarPorTexto(
               texto: _texto!,
               latitud: _latitud ?? entorno.centroLatitud,
               longitud: _longitud ?? entorno.centroLongitud,
@@ -151,7 +172,9 @@ class BusquedaNotifier extends AsyncNotifier<ResultadoBusqueda> {
 
     if (_direccion != null) {
       state = await AsyncValue.guard(
-        () => ref.read(repositorioBusquedaProvider).buscarPorDireccion(
+        () => ref
+            .read(repositorioBusquedaProvider)
+            .buscarPorDireccion(
               direccion: _direccion!,
               radioMetros: radioMetros,
             ),
@@ -179,7 +202,9 @@ class BusquedaNotifier extends AsyncNotifier<ResultadoBusqueda> {
     _direccion = null;
     _texto = null;
 
-    return ref.read(repositorioBusquedaProvider).buscarCercanos(
+    return ref
+        .read(repositorioBusquedaProvider)
+        .buscarCercanos(
           latitud: latitud,
           longitud: longitud,
           radioMetros: radioMetros,
@@ -190,5 +215,5 @@ class BusquedaNotifier extends AsyncNotifier<ResultadoBusqueda> {
 /// Estado observable de la búsqueda.
 final busquedaProvider =
     AsyncNotifierProvider<BusquedaNotifier, ResultadoBusqueda>(
-  BusquedaNotifier.new,
-);
+      BusquedaNotifier.new,
+    );

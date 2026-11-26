@@ -37,10 +37,10 @@ class EstadoPuestos {
       EstadoPuestos(puestos: nuevos);
 
   EstadoPuestos conError(String? mensaje, String? detalle) => EstadoPuestos(
-        puestos: puestos,
-        errorAccion: mensaje,
-        detalleAccion: detalle,
-      );
+    puestos: puestos,
+    errorAccion: mensaje,
+    detalleAccion: detalle,
+  );
 }
 
 /// Estado de la pantalla de puestos (slice-10, CA-S10.4/CA-S10.5).
@@ -48,9 +48,9 @@ class PuestosNotifier extends AsyncNotifier<EstadoPuestos> {
   @override
   Future<EstadoPuestos> build() async {
     final lavaderoId = ref.watch(lavaderoActualProvider);
-    final puestos = await ref.watch(repositorioPuestosProvider).listar(
-          lavaderoId,
-        );
+    final puestos = await ref
+        .watch(repositorioPuestosProvider)
+        .listar(lavaderoId);
 
     return EstadoPuestos(puestos: puestos);
   }
@@ -64,16 +64,53 @@ class PuestosNotifier extends AsyncNotifier<EstadoPuestos> {
     final lavaderoId = ref.read(lavaderoActualProvider);
 
     try {
-      final nuevo = await ref.read(repositorioPuestosProvider).crear(
-            lavaderoId,
-            nombre,
-          );
+      final nuevo = await ref
+          .read(repositorioPuestosProvider)
+          .crear(lavaderoId, nombre);
 
-      state = AsyncData(actual.conPuestos(<PuestoAdmin>[...actual.puestos, nuevo]));
+      state = AsyncData(
+        actual.conPuestos(<PuestoAdmin>[...actual.puestos, nuevo]),
+      );
       return true;
     } on ApiException catch (error) {
       state = AsyncData(actual.conError(error.mensaje, error.detalle));
       return false;
+    }
+  }
+
+  /// Actualiza los puestos y conserva los servicios ya conocidos por puesto.
+  Future<void> refrescar() async {
+    final anterior = state.valueOrNull;
+    final lavaderoId = ref.read(lavaderoActualProvider);
+
+    try {
+      final puestos = await ref
+          .read(repositorioPuestosProvider)
+          .listar(lavaderoId);
+      final anteriores = <String, PuestoAdmin>{
+        for (final puesto in anterior?.puestos ?? const <PuestoAdmin>[])
+          puesto.id: puesto,
+      };
+
+      state = AsyncData(
+        EstadoPuestos(
+          puestos: <PuestoAdmin>[
+            for (final puesto in puestos)
+              puesto.copia(
+                tiposLavadoIds:
+                    anteriores[puesto.id]?.tiposLavadoIds ??
+                    puesto.tiposLavadoIds,
+              ),
+          ],
+        ),
+      );
+    } on ApiException catch (error, stackTrace) {
+      if (anterior == null) {
+        state = AsyncError(error, stackTrace);
+        return;
+      }
+
+      state = AsyncData(anterior.conError(error.mensaje, error.detalle));
     }
   }
 
@@ -93,9 +130,7 @@ class PuestosNotifier extends AsyncNotifier<EstadoPuestos> {
 
       // El endpoint de puestos no publica `tiposLavadoIds`: se conserva lo que
       // ya sabíamos del puesto para no borrar la compatibilidad en pantalla.
-      final conTipos = actualizado.copia(
-        tiposLavadoIds: puesto.tiposLavadoIds,
-      );
+      final conTipos = actualizado.copia(tiposLavadoIds: puesto.tiposLavadoIds);
 
       state = AsyncData(
         actual.conPuestos(<PuestoAdmin>[
@@ -112,7 +147,10 @@ class PuestosNotifier extends AsyncNotifier<EstadoPuestos> {
   ///
   /// Devuelve `true` sólo si el backend aceptó el cambio; si falla, la lista
   /// queda como estaba y el error se publica aparte.
-  Future<bool> asignarTipos(PuestoAdmin puesto, List<String> tiposLavadoIds) async {
+  Future<bool> asignarTipos(
+    PuestoAdmin puesto,
+    List<String> tiposLavadoIds,
+  ) async {
     final actual = state.valueOrNull;
     if (actual == null) {
       return false;

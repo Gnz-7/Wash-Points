@@ -33,6 +33,9 @@ class PantallaValidar extends ConsumerStatefulWidget {
 class _PantallaValidarState extends ConsumerState<PantallaValidar>
     with WidgetsBindingObserver {
   final TextEditingController _codigo = TextEditingController();
+  final FocusNode _focoCodigo = FocusNode();
+  bool _cerrado = false;
+  bool _validacionEnCurso = false;
 
   @override
   void initState() {
@@ -47,6 +50,7 @@ class _PantallaValidarState extends ConsumerState<PantallaValidar>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _codigo.dispose();
+    _focoCodigo.dispose();
     super.dispose();
   }
 
@@ -61,15 +65,31 @@ class _PantallaValidarState extends ConsumerState<PantallaValidar>
     unawaited(ref.read(validarProvider.notifier).reconciliar());
   }
 
-  void _validar() => ref.read(validarProvider.notifier).validar(_codigo.text);
+  void _validar() {
+    if (_validacionEnCurso || ref.read(validarProvider).validando) return;
+
+    _validacionEnCurso = true;
+    unawaited(_ejecutarValidacion(_codigo.text));
+  }
+
+  Future<void> _ejecutarValidacion(String codigo) async {
+    try {
+      await ref.read(validarProvider.notifier).validar(codigo);
+    } finally {
+      _validacionEnCurso = false;
+    }
+  }
 
   void _reconciliar() =>
       unawaited(ref.read(validarProvider.notifier).reconciliar());
 
   /// Abre la hoja del escáner (T-225). Cada código que la cámara entrega se
   /// valida igual que el campo manual y la hoja se cierra sola.
-  void _abrirEscaner() {
-    showModalBottomSheet<void>(
+  Future<void> _abrirEscaner() async {
+    if (_validacionEnCurso || ref.read(validarProvider).validando) return;
+
+    _cerrado = false;
+    final ingresarManual = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       builder: (BuildContext contextoHoja) => SafeArea(
@@ -87,16 +107,49 @@ class _PantallaValidarState extends ConsumerState<PantallaValidar>
               SizedBox(
                 key: const ValueKey('escaner_qr'),
                 height: 380,
-                child: widget.constructorEscaner((String codigo) {
-                  Navigator.of(contextoHoja).pop();
-                  ref.read(validarProvider.notifier).validar(codigo);
-                }),
+                child: widget.constructorEscaner(
+                  (String codigo) => _validarDesdeEscaner(
+                    contextoHoja,
+                    codigo,
+                  ),
+                  alIngresarManual: () => _cerrarEscaner(contextoHoja, true),
+                ),
               ),
             ],
           ),
         ),
       ),
     );
+
+    if (ingresarManual == true && mounted) {
+      FocusScope.of(context).requestFocus(_focoCodigo);
+    }
+  }
+
+  void _validarDesdeEscaner(BuildContext contextoHoja, String codigo) {
+    if (_cerrado ||
+        _validacionEnCurso ||
+        ref.read(validarProvider).validando) {
+      return;
+    }
+
+    final navegador = Navigator.of(contextoHoja);
+    if (!navegador.canPop()) return;
+
+    _cerrado = true;
+    _validacionEnCurso = true;
+    navegador.pop();
+    unawaited(_ejecutarValidacion(codigo));
+  }
+
+  void _cerrarEscaner(BuildContext contextoHoja, bool ingresarManual) {
+    if (_cerrado) return;
+
+    final navegador = Navigator.of(contextoHoja);
+    if (!navegador.canPop()) return;
+
+    _cerrado = true;
+    navegador.pop(ingresarManual);
   }
 
   @override
@@ -120,6 +173,7 @@ class _PantallaValidarState extends ConsumerState<PantallaValidar>
             TextField(
               key: const ValueKey('campo_comprobante'),
               controller: _codigo,
+              focusNode: _focoCodigo,
               autocorrect: false,
               textCapitalization: TextCapitalization.characters,
               decoration: const InputDecoration(

@@ -69,8 +69,9 @@ class _PantallaBusquedaState extends ConsumerState<PantallaBusqueda>
 
   /// D-21.14: al montar no se pide permiso; sólo se sigue si ya estaba dado.
   Future<void> _arrancarSeguimientoSilencioso() async {
-    final concedido =
-        await ref.read(servicioUbicacionProvider).permisoConcedido();
+    final concedido = await ref
+        .read(servicioUbicacionProvider)
+        .permisoConcedido();
     if (!mounted || !concedido) return;
     _suscribir();
   }
@@ -105,8 +106,8 @@ class _PantallaBusquedaState extends ConsumerState<PantallaBusqueda>
 
   void _mostrarAvisoUbicacion(ResultadoUbicacion resultado) {
     final servicio = ref.read(servicioUbicacionProvider);
-    final puedeAjustar = resultado.estado ==
-            EstadoUbicacion.denegadaPermanentemente &&
+    final puedeAjustar =
+        resultado.estado == EstadoUbicacion.denegadaPermanentemente &&
         servicio.puedeAbrirAjustes;
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -124,14 +125,33 @@ class _PantallaBusquedaState extends ConsumerState<PantallaBusqueda>
 
   Future<void> _buscarPorTexto() async {
     FocusScope.of(context).unfocus();
-    await ref
-        .read(busquedaProvider.notifier)
-        .buscarPorTexto(_direccion.text);
+    await ref.read(busquedaProvider.notifier).buscarPorTexto(_direccion.text);
+  }
+
+  Future<void> _restablecerBusqueda() async {
+    final entorno = ref.read(entornoProvider);
+    FocusScope.of(context).unfocus();
+    await _suscripcion?.cancel();
+    _suscripcion = null;
+
+    if (!mounted) return;
+
+    setState(() {
+      _direccion.clear();
+      _posicion = null;
+      _siguiendo = false;
+    });
+    ref.read(seleccionLavaderoProvider.notifier).state = null;
+    ref.read(rutaProvider.notifier).limpiar();
+    _mapa.centrar(entorno.centroLatitud, entorno.centroLongitud);
+    await ref.read(busquedaProvider.notifier).restablecer();
   }
 
   /// Gesto explícito: sí puede pedir permiso y sí informa el motivo.
   Future<void> _usarMiUbicacion() async {
-    final resultado = await ref.read(busquedaProvider.notifier).usarMiUbicacion();
+    final resultado = await ref
+        .read(busquedaProvider.notifier)
+        .usarMiUbicacion();
     if (!mounted) return;
 
     if (!resultado.disponible) {
@@ -241,7 +261,8 @@ class _PantallaBusquedaState extends ConsumerState<PantallaBusqueda>
             distanciaMetros: lavadero.distanciaMetros,
             latitud: lavadero.latitud,
             longitud: lavadero.longitud,
-            detalle: '${lavadero.ocupacion.puestosLibres} de '
+            detalle:
+                '${lavadero.ocupacion.puestosLibres} de '
                 '${lavadero.ocupacion.puestosActivos} libres',
           ),
         )
@@ -254,6 +275,18 @@ class _PantallaBusquedaState extends ConsumerState<PantallaBusqueda>
         appBar: AppBar(
           title: const Text('Lavaderos cercanos'),
           actions: <Widget>[
+            IconButton(
+              key: const ValueKey('boton_restablecer_busqueda'),
+              tooltip: 'Restablecer búsqueda',
+              onPressed: estado.isLoading ? null : _restablecerBusqueda,
+              icon: estado.isLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh),
+            ),
             IconButton(
               key: const ValueKey('boton_mis_turnos'),
               tooltip: 'Mis turnos',
@@ -304,10 +337,14 @@ class _PantallaBusquedaState extends ConsumerState<PantallaBusqueda>
                 right: 16,
                 child: Container(
                   key: const ValueKey('banner_mapa_no_disponible'),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
@@ -328,9 +365,7 @@ class _PantallaBusquedaState extends ConsumerState<PantallaBusqueda>
                   heroTag: null,
                   tooltip: 'Centrar en mi ubicación',
                   onPressed: _centrarEnMiUbicacion,
-                  child: Icon(
-                    _siguiendo ? Icons.gps_fixed : Icons.my_location,
-                  ),
+                  child: Icon(_siguiendo ? Icons.gps_fixed : Icons.my_location),
                 ),
               ),
             ),
@@ -405,9 +440,8 @@ class _PantallaBusquedaState extends ConsumerState<PantallaBusqueda>
               TarjetaLavaderoSeleccionado(
                 lavadero: seleccionado,
                 ruta: ruta,
-                alReservar: () => context.push(
-                  '/lavaderos/${seleccionado.lavaderoId}',
-                ),
+                alReservar: () =>
+                    context.push('/lavaderos/${seleccionado.lavaderoId}'),
               ),
             ..._contenido(estado, seleccionado?.lavaderoId),
           ],
@@ -434,7 +468,8 @@ class _PantallaBusquedaState extends ConsumerState<PantallaBusqueda>
           constraints: const BoxConstraints(minHeight: 220),
           child: _EstadoError(
             error: error,
-            alReintentar: () => ref.read(busquedaProvider.notifier).reintentar(),
+            alReintentar: () =>
+                ref.read(busquedaProvider.notifier).reintentar(),
           ),
         ),
       ],
@@ -473,15 +508,15 @@ class _PantallaBusquedaState extends ConsumerState<PantallaBusqueda>
             // la lista duplicaría `abrir_lavadero_<id>`.
             if (lavadero.lavaderoId != seleccionadoId)
               _TarjetaLavadero(
-              key: _claves.putIfAbsent(lavadero.lavaderoId, GlobalKey.new),
-              lavadero: lavadero,
-              seleccionado: seleccionadoId == lavadero.lavaderoId,
-              alTocar: () =>
-                  ref.read(seleccionLavaderoProvider.notifier).state =
-                      lavadero.lavaderoId,
-              alAbrir: () =>
-                  context.push('/lavaderos/${lavadero.lavaderoId}'),
-            ),
+                key: _claves.putIfAbsent(lavadero.lavaderoId, GlobalKey.new),
+                lavadero: lavadero,
+                seleccionado: seleccionadoId == lavadero.lavaderoId,
+                alTocar: () =>
+                    ref.read(seleccionLavaderoProvider.notifier).state =
+                        lavadero.lavaderoId,
+                alAbrir: () =>
+                    context.push('/lavaderos/${lavadero.lavaderoId}'),
+              ),
         ];
       },
     );
@@ -501,14 +536,8 @@ class _PantallaBusquedaState extends ConsumerState<PantallaBusqueda>
         return CapaRuta(
           punteada: true,
           puntos: <PuntoRuta>[
-            PuntoRuta(
-              latitud: posicion.latitud,
-              longitud: posicion.longitud,
-            ),
-            PuntoRuta(
-              latitud: lavadero.latitud,
-              longitud: lavadero.longitud,
-            ),
+            PuntoRuta(latitud: posicion.latitud, longitud: posicion.longitud),
+            PuntoRuta(latitud: lavadero.latitud, longitud: lavadero.longitud),
           ],
         );
       default:
@@ -522,18 +551,18 @@ class _AsaHoja extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Center(
-          child: Container(
-            width: 36,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.outlineVariant,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
+    padding: const EdgeInsets.symmetric(vertical: 8),
+    child: Center(
+      child: Container(
+        width: 36,
+        height: 4,
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.outlineVariant,
+          borderRadius: BorderRadius.circular(2),
         ),
-      );
+      ),
+    ),
+  );
 }
 
 class _EstadoVacio extends StatelessWidget {
@@ -546,38 +575,39 @@ class _EstadoVacio extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Center(
-        key: const ValueKey('estado_vacio'),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              const Icon(Icons.search_off, size: 48),
-              const SizedBox(height: 12),
-              Text(
-                porNombre
-                    ? 'No encontramos lavaderos con ese nombre.'
-                    : 'No hay lavaderos en este radio.',
-                style: Theme.of(context).textTheme.titleMedium,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              if (!porNombre) const Text(
-                'Probá ampliar la búsqueda para encontrar más locales.',
-                textAlign: TextAlign.center,
-              ),
-              if (!porNombre) const SizedBox(height: 16),
-              if (!porNombre)
-                FilledButton.icon(
-                  key: const ValueKey('boton_ampliar_radio'),
-                  onPressed: alAmpliar,
-                  icon: const Icon(Icons.zoom_out_map),
-                  label: const Text('Ampliar el radio de búsqueda'),
-                ),
-            ],
+    key: const ValueKey('estado_vacio'),
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const Icon(Icons.search_off, size: 48),
+          const SizedBox(height: 12),
+          Text(
+            porNombre
+                ? 'No encontramos lavaderos con ese nombre.'
+                : 'No hay lavaderos en este radio.',
+            style: Theme.of(context).textTheme.titleMedium,
+            textAlign: TextAlign.center,
           ),
-        ),
-      );
+          const SizedBox(height: 8),
+          if (!porNombre)
+            const Text(
+              'Probá ampliar la búsqueda para encontrar más locales.',
+              textAlign: TextAlign.center,
+            ),
+          if (!porNombre) const SizedBox(height: 16),
+          if (!porNombre)
+            FilledButton.icon(
+              key: const ValueKey('boton_ampliar_radio'),
+              onPressed: alAmpliar,
+              icon: const Icon(Icons.zoom_out_map),
+              label: const Text('Ampliar el radio de búsqueda'),
+            ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _EstadoError extends StatelessWidget {

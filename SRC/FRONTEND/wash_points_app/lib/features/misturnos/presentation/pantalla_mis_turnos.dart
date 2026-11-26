@@ -294,6 +294,7 @@ class _Tarjeta extends ConsumerWidget {
                       key: ValueKey('boton_comprobante_${turno.turnoId}'),
                       onPressed: () => context.push(
                         '/turnos/${turno.turnoId}/comprobante',
+                        extra: turno.lavaderoId,
                       ),
                       child: const Text('Ver comprobante'),
                     ),

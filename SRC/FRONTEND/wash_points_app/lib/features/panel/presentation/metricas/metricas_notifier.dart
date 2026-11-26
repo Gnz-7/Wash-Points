@@ -38,8 +38,9 @@ class FechaMetricasNotifier extends Notifier<DateTime> {
   void cambiar(DateTime fecha) => state = _soloFecha(fecha);
 }
 
-final fechaMetricasProvider =
-    NotifierProvider<FechaMetricasNotifier, DateTime>(FechaMetricasNotifier.new);
+final fechaMetricasProvider = NotifierProvider<FechaMetricasNotifier, DateTime>(
+  FechaMetricasNotifier.new,
+);
 
 /// Cada cuánto se refresca el panel cuando el canal no alcanza (D-18.6).
 ///
@@ -61,6 +62,8 @@ final debounceMetricasProvider = Provider<Duration>(
 
 /// Métricas del lavadero de la sesión.
 class MetricasNotifier extends AsyncNotifier<EstadoMetricas> {
+  Future<void>? _recargaEnCurso;
+
   @override
   Future<EstadoMetricas> build() => _cargar(ref.watch(fechaMetricasProvider));
 
@@ -74,7 +77,13 @@ class MetricasNotifier extends AsyncNotifier<EstadoMetricas> {
   /// corte del servidor no debe reemplazar los números por una pantalla de
   /// error (D-18.11). Riverpod 2.6.1 ya fusiona el estado anterior al asignar,
   /// pero se deja explícito porque es el contrato que la pantalla asume.
-  Future<void> refrescar() async {
+  Future<void> refrescar() {
+    return _recargaEnCurso ??= _hacerRefresco().whenComplete(
+      () => _recargaEnCurso = null,
+    );
+  }
+
+  Future<void> _hacerRefresco() async {
     final fecha = ref.read(fechaMetricasProvider);
     final resultado = await AsyncValue.guard(() => _cargar(fecha));
     state = resultado.copyWithPrevious(state);
@@ -98,7 +107,9 @@ class MetricasNotifier extends AsyncNotifier<EstadoMetricas> {
 }
 
 final metricasProvider =
-    AsyncNotifierProvider<MetricasNotifier, EstadoMetricas>(MetricasNotifier.new);
+    AsyncNotifierProvider<MetricasNotifier, EstadoMetricas>(
+      MetricasNotifier.new,
+    );
 
 DateTime _soloFecha(DateTime fecha) =>
     DateTime(fecha.year, fecha.month, fecha.day);

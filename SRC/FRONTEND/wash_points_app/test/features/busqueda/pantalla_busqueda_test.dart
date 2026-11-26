@@ -60,14 +60,13 @@ void main() {
     required int radioMetros,
     List<LavaderoCercano> lavaderos = const <LavaderoCercano>[],
     ModoBusqueda modo = ModoBusqueda.ubicacion,
-  }) =>
-      ResultadoBusqueda(
-        latitud: entorno.centroLatitud,
-        longitud: entorno.centroLongitud,
-        radioMetros: radioMetros,
-        lavaderos: lavaderos,
-        modo: modo,
-      );
+  }) => ResultadoBusqueda(
+    latitud: entorno.centroLatitud,
+    longitud: entorno.centroLongitud,
+    radioMetros: radioMetros,
+    lavaderos: lavaderos,
+    modo: modo,
+  );
 
   Future<MapaFalso> montar(
     WidgetTester tester,
@@ -116,30 +115,36 @@ void main() {
     expect(find.byKey(const ValueKey('estado_cargando')), findsOneWidget);
   });
 
-  testWidgets('con resultados muestra el mapa, la hoja y una tarjeta por lavadero',
-      (tester) async {
-    await montar(
-      tester,
-      RepositorioBusquedaFalso(
-        resultados: <ResultadoBusqueda>[
-          resultadoCon(
-            radioMetros: 5000,
-            lavaderos: <LavaderoCercano>[lavadero],
-          ),
-        ],
-      ),
-    );
+  testWidgets(
+    'con resultados muestra el mapa, la hoja y una tarjeta por lavadero',
+    (tester) async {
+      await montar(
+        tester,
+        RepositorioBusquedaFalso(
+          resultados: <ResultadoBusqueda>[
+            resultadoCon(
+              radioMetros: 5000,
+              lavaderos: <LavaderoCercano>[lavadero],
+            ),
+          ],
+        ),
+      );
 
-    expect(find.byKey(const ValueKey('hoja_resultados')), findsOneWidget);
-    expect(find.byKey(const ValueKey('pin_lav-1')), findsOneWidget);
-    expect(find.byKey(const ValueKey('tarjeta_lavadero_lav-1')), findsOneWidget);
-    expect(find.text('Lavadero Central'), findsWidgets);
-    expect(find.textContaining('850'), findsOneWidget);
-    expect(find.textContaining('1 de 3 libres'), findsOneWidget);
-  });
+      expect(find.byKey(const ValueKey('hoja_resultados')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pin_lav-1')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('tarjeta_lavadero_lav-1')),
+        findsOneWidget,
+      );
+      expect(find.text('Lavadero Central'), findsWidgets);
+      expect(find.textContaining('850'), findsOneWidget);
+      expect(find.textContaining('1 de 3 libres'), findsOneWidget);
+    },
+  );
 
-  testWidgets('sin resultados ofrece ampliar el radio y lo duplica',
-      (tester) async {
+  testWidgets('sin resultados ofrece ampliar el radio y lo duplica', (
+    tester,
+  ) async {
     final repositorio = RepositorioBusquedaFalso(
       resultados: <ResultadoBusqueda>[
         resultadoCon(radioMetros: 5000),
@@ -159,11 +164,15 @@ void main() {
 
     expect(repositorio.pedidos, hasLength(2));
     expect(repositorio.pedidos.last.radioMetros, 10000);
-    expect(find.byKey(const ValueKey('tarjeta_lavadero_lav-1')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('tarjeta_lavadero_lav-1')),
+      findsOneWidget,
+    );
   });
 
-  testWidgets('un 403 se muestra como error claro, no como lista vacía',
-      (tester) async {
+  testWidgets('un 403 se muestra como error claro, no como lista vacía', (
+    tester,
+  ) async {
     await montar(
       tester,
       RepositorioBusquedaFalso(
@@ -180,8 +189,9 @@ void main() {
     );
   });
 
-  testWidgets('un error de red se distingue del vacío y permite reintentar',
-      (tester) async {
+  testWidgets('un error de red se distingue del vacío y permite reintentar', (
+    tester,
+  ) async {
     final repositorio = RepositorioBusquedaFalso(
       error: const ApiException(CodigoError.sinConexion),
     );
@@ -200,18 +210,13 @@ void main() {
     expect(repositorio.pedidos, hasLength(2));
   });
 
-  testWidgets('la búsqueda híbrida usa el texto y conserva el radio',
-      (tester) async {
+  testWidgets('la búsqueda híbrida usa el texto y conserva el radio', (
+    tester,
+  ) async {
     final repositorio = RepositorioBusquedaFalso(
       resultados: <ResultadoBusqueda>[
-        resultadoCon(
-          radioMetros: 5000,
-          lavaderos: <LavaderoCercano>[lavadero],
-        ),
-        resultadoCon(
-          radioMetros: 5000,
-          lavaderos: <LavaderoCercano>[lavadero],
-        ),
+        resultadoCon(radioMetros: 5000, lavaderos: <LavaderoCercano>[lavadero]),
+        resultadoCon(radioMetros: 5000, lavaderos: <LavaderoCercano>[lavadero]),
       ],
     );
     await montar(tester, repositorio);
@@ -231,37 +236,76 @@ void main() {
     expect(pedido.radioMetros, 5000);
   });
 
-  testWidgets('un resultado por nombre muestra el subtítulo y no amplía radio',
-      (tester) async {
-    await montar(
-      tester,
-      RepositorioBusquedaFalso(
-        resultados: <ResultadoBusqueda>[
-          resultadoCon(
-            radioMetros: 5000,
-            lavaderos: <LavaderoCercano>[otra],
-            modo: ModoBusqueda.nombre,
-          ),
-        ],
-      ),
+  testWidgets('restablecer limpia el texto y recarga desde el centro inicial', (
+    tester,
+  ) async {
+    final repositorio = RepositorioBusquedaFalso(
+      resultados: <ResultadoBusqueda>[
+        resultadoCon(radioMetros: 5000),
+        resultadoCon(radioMetros: 10000),
+        resultadoCon(radioMetros: 5000),
+      ],
     );
-    await expandirHoja(tester);
+    await montar(tester, repositorio);
 
-    expect(find.byKey(const ValueKey('resultados_por_nombre')), findsOneWidget);
-    expect(find.byKey(const ValueKey('tarjeta_lavadero_lav-2')), findsOneWidget);
-    expect(find.byKey(const ValueKey('boton_ampliar_radio')), findsNothing);
+    await tester.enterText(
+      find.byKey(const ValueKey('campo_direccion')),
+      'Lavadero Norte',
+    );
+    await tester.tap(find.byKey(const ValueKey('boton_buscar_direccion')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('boton_restablecer_busqueda')));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('campo_direccion')))
+          .controller!
+          .text,
+      isEmpty,
+    );
+    expect(repositorio.pedidos.last.latitud, entorno.centroLatitud);
+    expect(repositorio.pedidos.last.longitud, entorno.centroLongitud);
+    expect(repositorio.pedidos.last.radioMetros, 5000);
   });
 
-  testWidgets('por nombre sin coincidencias no ofrece ampliar el radio',
-      (tester) async {
+  testWidgets(
+    'un resultado por nombre muestra el subtítulo y no amplía radio',
+    (tester) async {
+      await montar(
+        tester,
+        RepositorioBusquedaFalso(
+          resultados: <ResultadoBusqueda>[
+            resultadoCon(
+              radioMetros: 5000,
+              lavaderos: <LavaderoCercano>[otra],
+              modo: ModoBusqueda.nombre,
+            ),
+          ],
+        ),
+      );
+      await expandirHoja(tester);
+
+      expect(
+        find.byKey(const ValueKey('resultados_por_nombre')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('tarjeta_lavadero_lav-2')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('boton_ampliar_radio')), findsNothing);
+    },
+  );
+
+  testWidgets('por nombre sin coincidencias no ofrece ampliar el radio', (
+    tester,
+  ) async {
     await montar(
       tester,
       RepositorioBusquedaFalso(
         resultados: <ResultadoBusqueda>[
-          resultadoCon(
-            radioMetros: 5000,
-            modo: ModoBusqueda.nombre,
-          ),
+          resultadoCon(radioMetros: 5000, modo: ModoBusqueda.nombre),
         ],
       ),
     );
@@ -272,8 +316,9 @@ void main() {
     expect(find.byKey(const ValueKey('boton_ampliar_radio')), findsNothing);
   });
 
-  testWidgets('sin nombre ni dirección el error explica ambos casos',
-      (tester) async {
+  testWidgets('sin nombre ni dirección el error explica ambos casos', (
+    tester,
+  ) async {
     await montar(
       tester,
       RepositorioBusquedaFalso(
@@ -294,8 +339,9 @@ void main() {
     expect(find.text('No encontramos esa dirección.'), findsNothing);
   });
 
-  testWidgets('un proveedor de mapas caído muestra un mensaje distinto',
-      (tester) async {
+  testWidgets('un proveedor de mapas caído muestra un mensaje distinto', (
+    tester,
+  ) async {
     await montar(
       tester,
       RepositorioBusquedaFalso(
@@ -316,56 +362,58 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.text('No encontramos un lavadero con ese nombre ni una dirección '
-          'con ese texto.'),
+      find.text(
+        'No encontramos un lavadero con ese nombre ni una dirección '
+        'con ese texto.',
+      ),
       findsNothing,
     );
   });
 
-  testWidgets('con ubicación concedida busca en el GPS, pinta el punto y sigue',
-      (tester) async {
+  testWidgets(
+    'con ubicación concedida busca en el GPS, pinta el punto y sigue',
+    (tester) async {
+      final repositorio = RepositorioBusquedaFalso(
+        resultados: <ResultadoBusqueda>[
+          resultadoCon(
+            radioMetros: 5000,
+            lavaderos: <LavaderoCercano>[lavadero],
+          ),
+        ],
+      );
+      final servicio = ServicioUbicacionFalso(
+        resultado: const ResultadoUbicacion(
+          estado: EstadoUbicacion.concedida,
+          latitud: -31.4201,
+          longitud: -64.1888,
+        ),
+      );
+      final mapa = await montar(
+        tester,
+        repositorio,
+        extra: <Override>[
+          servicioUbicacionProvider.overrideWithValue(servicio),
+        ],
+      );
+
+      await tester.tap(find.byKey(const ValueKey('boton_mi_ubicacion')));
+      await tester.pumpAndSettle();
+
+      expect(repositorio.pedidos, hasLength(2));
+      expect(repositorio.pedidos.last.latitud, -31.4201);
+      expect(repositorio.pedidos.last.longitud, -64.1888);
+      expect(mapa.posicionUsuario?.latitud, -31.4201);
+      expect(servicio.vecesSeguir, 1);
+      expect(find.byIcon(Icons.gps_fixed), findsOneWidget);
+    },
+  );
+
+  testWidgets('sin permiso de ubicación avisa y no pierde la búsqueda', (
+    tester,
+  ) async {
     final repositorio = RepositorioBusquedaFalso(
       resultados: <ResultadoBusqueda>[
-        resultadoCon(
-          radioMetros: 5000,
-          lavaderos: <LavaderoCercano>[lavadero],
-        ),
-      ],
-    );
-    final servicio = ServicioUbicacionFalso(
-      resultado: const ResultadoUbicacion(
-        estado: EstadoUbicacion.concedida,
-        latitud: -31.4201,
-        longitud: -64.1888,
-      ),
-    );
-    final mapa = await montar(
-      tester,
-      repositorio,
-      extra: <Override>[
-        servicioUbicacionProvider.overrideWithValue(servicio),
-      ],
-    );
-
-    await tester.tap(find.byKey(const ValueKey('boton_mi_ubicacion')));
-    await tester.pumpAndSettle();
-
-    expect(repositorio.pedidos, hasLength(2));
-    expect(repositorio.pedidos.last.latitud, -31.4201);
-    expect(repositorio.pedidos.last.longitud, -64.1888);
-    expect(mapa.posicionUsuario?.latitud, -31.4201);
-    expect(servicio.vecesSeguir, 1);
-    expect(find.byIcon(Icons.gps_fixed), findsOneWidget);
-  });
-
-  testWidgets('sin permiso de ubicación avisa y no pierde la búsqueda',
-      (tester) async {
-    final repositorio = RepositorioBusquedaFalso(
-      resultados: <ResultadoBusqueda>[
-        resultadoCon(
-          radioMetros: 5000,
-          lavaderos: <LavaderoCercano>[lavadero],
-        ),
+        resultadoCon(radioMetros: 5000, lavaderos: <LavaderoCercano>[lavadero]),
       ],
     );
     await montar(
@@ -390,12 +438,16 @@ void main() {
       findsOneWidget,
     );
     expect(repositorio.pedidos, hasLength(1));
-    expect(find.byKey(const ValueKey('tarjeta_lavadero_lav-1')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('tarjeta_lavadero_lav-1')),
+      findsOneWidget,
+    );
     expect(find.byKey(const ValueKey('marcador_usuario')), findsNothing);
   });
 
-  testWidgets('tocar un pin selecciona el lavadero y muestra su tarjeta',
-      (tester) async {
+  testWidgets('tocar un pin selecciona el lavadero y muestra su tarjeta', (
+    tester,
+  ) async {
     await montar(
       tester,
       RepositorioBusquedaFalso(
@@ -418,11 +470,15 @@ void main() {
     expect(find.byKey(const ValueKey('tarjeta_seleccionada')), findsOneWidget);
     // El seleccionado sale de la lista para no duplicar claves.
     expect(find.byKey(const ValueKey('tarjeta_lavadero_lav-1')), findsNothing);
-    expect(find.byKey(const ValueKey('tarjeta_lavadero_lav-2')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('tarjeta_lavadero_lav-2')),
+      findsOneWidget,
+    );
   });
 
-  testWidgets('sin mapa disponible muestra el banner y conserva la lista',
-      (tester) async {
+  testWidgets('sin mapa disponible muestra el banner y conserva la lista', (
+    tester,
+  ) async {
     await montar(
       tester,
       RepositorioBusquedaFalso(
@@ -442,11 +498,15 @@ void main() {
       find.byKey(const ValueKey('banner_mapa_no_disponible')),
       findsOneWidget,
     );
-    expect(find.byKey(const ValueKey('tarjeta_lavadero_lav-1')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('tarjeta_lavadero_lav-1')),
+      findsOneWidget,
+    );
   });
 
-  testWidgets('el FAB centra y activa el seguimiento de la posición',
-      (tester) async {
+  testWidgets('el FAB centra y activa el seguimiento de la posición', (
+    tester,
+  ) async {
     final servicio = ServicioUbicacionFalso(permiso: true);
     final mapa = await montar(
       tester,
@@ -458,9 +518,7 @@ void main() {
           ),
         ],
       ),
-      extra: <Override>[
-        servicioUbicacionProvider.overrideWithValue(servicio),
-      ],
+      extra: <Override>[servicioUbicacionProvider.overrideWithValue(servicio)],
     );
 
     // Montaje con permiso: se suscribe sin pedir nada.
@@ -485,8 +543,9 @@ void main() {
     expect(mapa.controlador, isA<MapaControladorFlutter>());
   });
 
-  testWidgets('arrastrar el mapa desactiva el auto-seguimiento',
-      (tester) async {
+  testWidgets('arrastrar el mapa desactiva el auto-seguimiento', (
+    tester,
+  ) async {
     final servicio = ServicioUbicacionFalso(permiso: true);
     final mapa = await montar(
       tester,
@@ -498,9 +557,7 @@ void main() {
           ),
         ],
       ),
-      extra: <Override>[
-        servicioUbicacionProvider.overrideWithValue(servicio),
-      ],
+      extra: <Override>[servicioUbicacionProvider.overrideWithValue(servicio)],
     );
 
     servicio.emitir(
@@ -522,8 +579,9 @@ void main() {
     expect(mapa.siguiendo, isFalse);
   });
 
-  testWidgets('al pasar a segundo plano se cancela el seguimiento',
-      (tester) async {
+  testWidgets('al pasar a segundo plano se cancela el seguimiento', (
+    tester,
+  ) async {
     final servicio = ServicioUbicacionFalso(permiso: true);
     await montar(
       tester,
@@ -535,34 +593,27 @@ void main() {
           ),
         ],
       ),
-      extra: <Override>[
-        servicioUbicacionProvider.overrideWithValue(servicio),
-      ],
+      extra: <Override>[servicioUbicacionProvider.overrideWithValue(servicio)],
     );
 
     expect(servicio.vecesSeguir, 1);
     expect(servicio.seguimientoCancelado, isFalse);
 
     // Transiciones válidas: resumed → inactive → hidden → paused.
-    tester.binding
-        .handleAppLifecycleStateChanged(AppLifecycleState.inactive);
-    tester.binding
-        .handleAppLifecycleStateChanged(AppLifecycleState.hidden);
-    tester.binding
-        .handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     await tester.pump();
     expect(servicio.seguimientoCancelado, isTrue);
 
-    tester.binding
-        .handleAppLifecycleStateChanged(AppLifecycleState.hidden);
-    tester.binding
-        .handleAppLifecycleStateChanged(AppLifecycleState.inactive);
-    tester.binding
-        .handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
   });
 
-  testWidgets('montar sin permiso no pide nada ni muestra errores',
-      (tester) async {
+  testWidgets('montar sin permiso no pide nada ni muestra errores', (
+    tester,
+  ) async {
     final servicio = ServicioUbicacionFalso(permiso: false);
     await montar(
       tester,
@@ -574,19 +625,21 @@ void main() {
           ),
         ],
       ),
-      extra: <Override>[
-        servicioUbicacionProvider.overrideWithValue(servicio),
-      ],
+      extra: <Override>[servicioUbicacionProvider.overrideWithValue(servicio)],
     );
 
     expect(servicio.vecesSeguir, 0);
     expect(servicio.pedidosObtener, 0);
     expect(find.byType(SnackBar), findsNothing);
-    expect(find.byKey(const ValueKey('tarjeta_lavadero_lav-1')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('tarjeta_lavadero_lav-1')),
+      findsOneWidget,
+    );
   });
 
-  testWidgets('seleccionar con posición dibuja la ruta calculada',
-      (tester) async {
+  testWidgets('seleccionar con posición dibuja la ruta calculada', (
+    tester,
+  ) async {
     final servicio = ServicioUbicacionFalso(permiso: true);
     final calculador = CalculadorRutasFalso();
     final mapa = await montar(
@@ -625,8 +678,9 @@ void main() {
     expect(find.byKey(const ValueKey('ruta_duracion')), findsOneWidget);
   });
 
-  testWidgets('si OSRM falla dibuja el fallback punteado y lo informa',
-      (tester) async {
+  testWidgets('si OSRM falla dibuja el fallback punteado y lo informa', (
+    tester,
+  ) async {
     final servicio = ServicioUbicacionFalso(permiso: true);
     final calculador = CalculadorRutasFalso(
       error: const RutaNoDisponibleException('sin red'),
@@ -663,8 +717,7 @@ void main() {
     expect(find.byKey(const ValueKey('abrir_lavadero_lav-1')), findsOneWidget);
   });
 
-  testWidgets('seleccionar sin posición no inventa una ruta',
-      (tester) async {
+  testWidgets('seleccionar sin posición no inventa una ruta', (tester) async {
     final calculador = CalculadorRutasFalso();
     final mapa = await montar(
       tester,
@@ -676,9 +729,7 @@ void main() {
           ),
         ],
       ),
-      extra: <Override>[
-        calculadorRutasProvider.overrideWithValue(calculador),
-      ],
+      extra: <Override>[calculadorRutasProvider.overrideWithValue(calculador)],
     );
 
     await tester.tap(find.byKey(const ValueKey('pin_lav-1')));
@@ -688,7 +739,6 @@ void main() {
     expect(mapa.ruta, isNull);
     expect(find.text('Sin ruta calculada'), findsOneWidget);
   });
-
 }
 
 class MapaFalso implements ProveedorMapas {
@@ -748,10 +798,7 @@ class MapaFalso implements ProveedorMapas {
                 child: Text(punto.etiqueta),
               ),
             if (posicionUsuario != null)
-              const Text(
-                'marcador_usuario',
-                key: ValueKey('marcador_usuario'),
-              ),
+              const Text('marcador_usuario', key: ValueKey('marcador_usuario')),
             if (ruta != null)
               Text('ruta_${ruta.punteada ? 'punteada' : 'solida'}'),
           ],

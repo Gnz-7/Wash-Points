@@ -32,20 +32,20 @@ import '../../soporte/canal_tiempo_real_falso.dart';
 /// una sesión de administrador sin lavadero.
 void main() {
   Sesion sesionAdministrador({String? lavaderoId = 'lavadero-5'}) => Sesion(
-        usuarioId: 'usuario-2',
-        token: 'token',
-        expiraEn: DateTime.utc(2030),
-        rol: Rol.administrador,
-        lavaderoId: lavaderoId,
-      );
+    usuarioId: 'usuario-2',
+    token: 'token',
+    expiraEn: DateTime.utc(2030),
+    rol: Rol.administrador,
+    lavaderoId: lavaderoId,
+  );
 
   Sesion sesionCliente() => Sesion(
-        usuarioId: 'usuario-1',
-        token: 'token',
-        expiraEn: DateTime.utc(2030),
-        rol: Rol.cliente,
-        clienteId: 'cliente-1',
-      );
+    usuarioId: 'usuario-1',
+    token: 'token',
+    expiraEn: DateTime.utc(2030),
+    rol: Rol.cliente,
+    clienteId: 'cliente-1',
+  );
 
   Future<(ProviderContainer, AlmacenSesionFalso)> arrancar(
     WidgetTester tester,
@@ -107,11 +107,35 @@ void main() {
   testWidgets('el panel muestra las cinco pestañas', (tester) async {
     await arrancar(tester, sesionAdministrador());
 
+    expect(find.byKey(const ValueKey('boton_refrescar_panel')), findsOneWidget);
     expect(find.byKey(const ValueKey('pestana_agenda')), findsOneWidget);
     expect(find.byKey(const ValueKey('pestana_puestos')), findsOneWidget);
     expect(find.byKey(const ValueKey('pestana_catalogo')), findsOneWidget);
     expect(find.byKey(const ValueKey('pestana_validar')), findsOneWidget);
     expect(find.byKey(const ValueKey('pestana_metricas')), findsOneWidget);
+  });
+
+  testWidgets('el botón del AppBar refresca cada sección activa', (
+    tester,
+  ) async {
+    await arrancar(tester, sesionAdministrador());
+
+    for (final pestana in <ValueKey<String>>[
+      const ValueKey<String>('pestana_agenda'),
+      const ValueKey<String>('pestana_puestos'),
+      const ValueKey<String>('pestana_catalogo'),
+      const ValueKey<String>('pestana_validar'),
+      const ValueKey<String>('pestana_metricas'),
+    ]) {
+      await tester.tap(find.byKey(pestana));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('boton_refrescar_panel')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('boton_refrescar_panel')),
+        findsOneWidget,
+      );
+    }
   });
 
   testWidgets('las pestañas navegan entre sí', (tester) async {
@@ -152,8 +176,9 @@ void main() {
     expect(find.byKey(const ValueKey('pantalla_agenda')), findsOneWidget);
   });
 
-  testWidgets('el cliente no entra al panel: vuelve a la búsqueda',
-      (tester) async {
+  testWidgets('el cliente no entra al panel: vuelve a la búsqueda', (
+    tester,
+  ) async {
     final (contenedor, _) = await arrancar(tester, sesionCliente());
 
     contenedor.read(routerProvider).go('/admin/agenda');
@@ -164,17 +189,23 @@ void main() {
   });
 
   testWidgets(
-      'el administrador sin lavaderoId cierra sesión y vuelve al login',
-      (tester) async {
-    final (contenedor, almacen) =
-        await arrancar(tester, sesionAdministrador(lavaderoId: null));
+    'el administrador sin lavaderoId cierra sesión y vuelve al login',
+    (tester) async {
+      final (contenedor, almacen) = await arrancar(
+        tester,
+        sesionAdministrador(lavaderoId: null),
+      );
 
-    expect(find.byKey(const ValueKey('pantalla_login')), findsOneWidget);
-    expect(find.byKey(const ValueKey('pantalla_agenda')), findsNothing);
-    expect(contenedor.read(sesionProvider), isNull);
-    expect(almacen.guardada, isNull);
-    expect(find.textContaining('no tiene un lavadero asociado'), findsOneWidget);
-  });
+      expect(find.byKey(const ValueKey('pantalla_login')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pantalla_agenda')), findsNothing);
+      expect(contenedor.read(sesionProvider), isNull);
+      expect(almacen.guardada, isNull);
+      expect(
+        find.textContaining('no tiene un lavadero asociado'),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets('horarios de atención abre la pantalla semanal', (tester) async {
     await arrancar(tester, sesionAdministrador());
@@ -187,8 +218,7 @@ void main() {
   });
 
   testWidgets('cerrar sesión desde el panel vuelve al login', (tester) async {
-    final (contenedor, almacen) =
-        await arrancar(tester, sesionAdministrador());
+    final (contenedor, almacen) = await arrancar(tester, sesionAdministrador());
 
     await tester.tap(find.byKey(const ValueKey('boton_cerrar_sesion')));
     await tester.pumpAndSettle();
