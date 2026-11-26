@@ -65,21 +65,20 @@ void main() {
     expect(find.byKey(const ValueKey('boton_editar_tipo_t1')), findsOneWidget);
   });
 
-  testWidgets('avisa que editar no modifica los turnos ya reservados',
-      (tester) async {
+  testWidgets('avisa que editar no modifica los turnos ya reservados', (
+    tester,
+  ) async {
     await _montar(
       tester,
       RepositorioCatalogoFalso(tipos: <TipoLavadoAdmin>[_basico]),
     );
 
-    expect(
-      find.byKey(const ValueKey('aviso_edicion_turnos')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const ValueKey('aviso_edicion_turnos')), findsOneWidget);
   });
 
-  testWidgets('avisa que los importes por defecto son de ejemplo',
-      (tester) async {
+  testWidgets('avisa que los importes por defecto son de ejemplo', (
+    tester,
+  ) async {
     await _montar(
       tester,
       RepositorioCatalogoFalso(tipos: <TipoLavadoAdmin>[_basico]),
@@ -97,8 +96,9 @@ void main() {
     expect(find.byKey(const ValueKey('estado_vacio')), findsOneWidget);
   });
 
-  testWidgets('muestra el error del servidor cuando el listado falla',
-      (tester) async {
+  testWidgets('muestra el error del servidor cuando el listado falla', (
+    tester,
+  ) async {
     await _montar(
       tester,
       RepositorioCatalogoFalso(
@@ -114,8 +114,9 @@ void main() {
     expect(find.text('Reintentar'), findsOneWidget);
   });
 
-  testWidgets('da de alta un servicio válido y limpia el formulario',
-      (tester) async {
+  testWidgets('da de alta un servicio válido y limpia el formulario', (
+    tester,
+  ) async {
     final repositorio = RepositorioCatalogoFalso();
     await _montar(tester, repositorio);
 
@@ -148,8 +149,9 @@ void main() {
     expect(_textoDe(tester, 'campo_duracion_tipo'), isEmpty);
   });
 
-  testWidgets('no llama al backend si faltan datos del formulario',
-      (tester) async {
+  testWidgets('no llama al backend si faltan datos del formulario', (
+    tester,
+  ) async {
     final repositorio = RepositorioCatalogoFalso();
     await _montar(tester, repositorio);
 
@@ -160,8 +162,9 @@ void main() {
     expect(find.byKey(const ValueKey('error_formulario')), findsOneWidget);
   });
 
-  testWidgets('no llama al backend si la duración no es un número entero',
-      (tester) async {
+  testWidgets('no llama al backend si la duración no es un número entero', (
+    tester,
+  ) async {
     final repositorio = RepositorioCatalogoFalso();
     await _montar(tester, repositorio);
 
@@ -220,8 +223,9 @@ void main() {
     expect(_textoDe(tester, 'campo_nombre_tipo'), isEmpty);
   });
 
-  testWidgets('un alta rechazada muestra el mensaje del servidor',
-      (tester) async {
+  testWidgets('un alta rechazada muestra el mensaje del servidor', (
+    tester,
+  ) async {
     final repositorio = RepositorioCatalogoFalso(
       errorAlCrear: const ApiException(CodigoError.tipoYaExiste, estado: 409),
     );
@@ -256,8 +260,9 @@ void main() {
     expect(_textoDe(tester, 'campo_nombre_tipo'), 'Lavado básico');
   });
 
-  testWidgets('un rechazo de validación muestra el texto del servidor',
-      (tester) async {
+  testWidgets('un rechazo de validación muestra el texto del servidor', (
+    tester,
+  ) async {
     final repositorio = RepositorioCatalogoFalso(
       errorAlCrear: const ApiException(
         CodigoError.desconocido,
@@ -292,8 +297,9 @@ void main() {
     );
   });
 
-  testWidgets('desactivar pide confirmación antes de llamar al backend',
-      (tester) async {
+  testWidgets('desactivar pide confirmación antes de llamar al backend', (
+    tester,
+  ) async {
     final repositorio = RepositorioCatalogoFalso(
       tipos: <TipoLavadoAdmin>[_basico],
     );
@@ -319,14 +325,16 @@ void main() {
     expect(find.textContaining('Inactivo'), findsOneWidget);
   });
 
-  testWidgets('una desactivación bloqueada por turnos vigentes sigue activa',
-      (tester) async {
+  testWidgets('una desactivación bloqueada por turnos vigentes sigue activa', (
+    tester,
+  ) async {
     final repositorio = RepositorioCatalogoFalso(
       tipos: <TipoLavadoAdmin>[_basico],
       errorAlDesactivar: const ApiException(
         CodigoError.tipoConTurnosActivos,
         estado: 409,
-        detalle: 'El tipo de lavado tiene turnos vigentes; no se puede '
+        detalle:
+            'El tipo de lavado tiene turnos vigentes; no se puede '
             'desactivar.',
       ),
     );
@@ -343,8 +351,10 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.text('El tipo de lavado tiene turnos vigentes; no se puede '
-          'desactivar.'),
+      find.text(
+        'El tipo de lavado tiene turnos vigentes; no se puede '
+        'desactivar.',
+      ),
       findsOneWidget,
     );
     expect(
@@ -353,21 +363,24 @@ void main() {
     );
   });
 
-  testWidgets('marca los datos como desactualizados si falla la recarga',
-      (tester) async {
+  testWidgets('marca los datos como desactualizados si falla la recarga', (
+    tester,
+  ) async {
     final repositorio = RepositorioCatalogoFalso(
       tipos: <TipoLavadoAdmin>[_basico],
     );
     await _montar(tester, repositorio);
 
     repositorio.errorAlListar = const ApiException(CodigoError.sinConexion);
-    await tester.tap(find.byKey(const ValueKey('boton_actualizar_catalogo')));
+    final contexto = tester.element(
+      find.byKey(const ValueKey('pantalla_catalogo')),
+    );
+    await ProviderScope.containerOf(
+      contexto,
+    ).read(catalogoAdminProvider.notifier).recargar();
     await tester.pumpAndSettle();
 
-    expect(
-      find.byKey(const ValueKey('datos_desactualizados')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const ValueKey('datos_desactualizados')), findsOneWidget);
     expect(find.byKey(const ValueKey('tarjeta_tipo_t1')), findsOneWidget);
   });
 }

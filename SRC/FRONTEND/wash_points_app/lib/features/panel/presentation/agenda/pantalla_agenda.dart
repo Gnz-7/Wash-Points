@@ -61,8 +61,7 @@ class _PantallaAgendaState extends ConsumerState<PantallaAgenda> {
 
     // Al reconectar, el servidor no recuerda los grupos de la conexión
     // anterior y durante el corte se perdieron eventos: se refresca una vez.
-    _reconexiones =
-        ref.read(reconexionesTiempoRealProvider).listen((_) {
+    _reconexiones = ref.read(reconexionesTiempoRealProvider).listen((_) {
       unawaited(_refrescar());
     });
 
@@ -240,25 +239,70 @@ class _PantallaAgendaState extends ConsumerState<PantallaAgenda> {
                     ],
                   ),
                 ),
-                data: (estado) => estado.turnos.isEmpty
-                    ? const Center(
-                        child: Text(
-                          'No hay turnos para esta fecha.',
-                          key: ValueKey('estado_vacio'),
+                data: (estado) => AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 220),
+                  switchInCurve: Curves.easeOutCubic,
+                  transitionBuilder: (child, animation) => FadeTransition(
+                    opacity: animation,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0, 0.025),
+                        end: Offset.zero,
+                      ).animate(animation),
+                      child: child,
+                    ),
+                  ),
+                  child: estado.turnos.isEmpty
+                      ? Center(
+                          key: ValueKey(
+                            'agenda_sin_turnos_${filtros.estado?.name ?? 'todos'}',
+                          ),
+                          child: Card(
+                            margin: const EdgeInsets.all(4),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 6,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: <Widget>[
+                                  Icon(
+                                    Icons.event_available_outlined,
+                                    size: 20,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const Flexible(
+                                    child: Text(
+                                      'No hay turnos para esta fecha.',
+                                      key: ValueKey('estado_vacio'),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        )
+                      : RefreshIndicator(
+                          key: ValueKey(
+                            'agenda_turnos_${filtros.estado?.name ?? 'todos'}_${estado.turnos.map((turno) => turno.turnoId).join('_')}',
+                          ),
+                          onRefresh: () =>
+                              ref.read(agendaProvider.notifier).refrescar(),
+                          child: ListView.builder(
+                            key: const ValueKey('lista_agenda'),
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: const EdgeInsets.all(16),
+                            itemCount: estado.turnos.length,
+                            itemBuilder: (context, indice) =>
+                                _TarjetaTurno(turno: estado.turnos[indice]),
+                          ),
                         ),
-                      )
-                    : RefreshIndicator(
-                        onRefresh: () =>
-                            ref.read(agendaProvider.notifier).refrescar(),
-                        child: ListView.builder(
-                          key: const ValueKey('lista_agenda'),
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.all(16),
-                          itemCount: estado.turnos.length,
-                          itemBuilder: (context, indice) =>
-                              _TarjetaTurno(turno: estado.turnos[indice]),
-                        ),
-                      ),
+                ),
               ),
             ),
           ],
@@ -278,50 +322,94 @@ class _Filtros extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final notifier = ref.read(agendaProvider.notifier);
     final puestos =
-        ref.watch(puestosProvider).valueOrNull?.puestos ?? const <PuestoAdmin>[];
+        ref.watch(puestosProvider).valueOrNull?.puestos ??
+        const <PuestoAdmin>[];
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           OutlinedButton.icon(
             key: const ValueKey('selector_fecha'),
+            style: OutlinedButton.styleFrom(
+              alignment: Alignment.centerLeft,
+              side: BorderSide(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
             onPressed: () => _elegirFecha(context, notifier),
             icon: const Icon(Icons.event),
             label: Text(_fechaCorta(filtros.fecha)),
           ),
-          const SizedBox(height: 8),
-          DropdownButton<String?>(
-            key: const ValueKey('filtro_puesto'),
-            value: filtros.puestoId,
-            isExpanded: true,
-            hint: const Text('Todos los puestos'),
-            items: <DropdownMenuItem<String?>>[
-              const DropdownMenuItem<String?>(
-                value: null,
-                child: Text('Todos los puestos'),
+          const SizedBox(height: 4),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: Theme.of(
+                context,
+              ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant,
               ),
-              for (final puesto in puestos)
-                DropdownMenuItem<String?>(
-                  value: puesto.id,
-                  child: Text(puesto.nombre),
-                ),
-            ],
-            onChanged: notifier.cambiarPuesto,
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String?>(
+                key: const ValueKey('filtro_puesto'),
+                value: filtros.puestoId,
+                isExpanded: true,
+                hint: const Text('Todos los puestos'),
+                items: <DropdownMenuItem<String?>>[
+                  const DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('Todos los puestos'),
+                  ),
+                  for (final puesto in puestos)
+                    DropdownMenuItem<String?>(
+                      value: puesto.id,
+                      child: Text(puesto.nombre),
+                    ),
+                ],
+                onChanged: notifier.cambiarPuesto,
+              ),
+            ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Wrap(
-            spacing: 8,
+            spacing: 6,
             runSpacing: 4,
             children: <Widget>[
               for (final estado in _estadosFiltrables)
-                ChoiceChip(
-                  key: ValueKey('filtro_estado_${estado.codigo}'),
-                  label: Text(_etiquetaFiltro(estado)),
-                  selected: filtros.estado == estado,
-                  onSelected: (_) => notifier.cambiarEstado(
-                    filtros.estado == estado ? null : estado,
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: filtros.estado == estado
+                        ? <BoxShadow>[
+                            BoxShadow(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.primary.withValues(alpha: 0.16),
+                              blurRadius: 10,
+                              spreadRadius: 1,
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: ChoiceChip(
+                    key: ValueKey('filtro_estado_${estado.codigo}'),
+                    label: Text(_etiquetaFiltro(estado)),
+                    labelPadding: const EdgeInsets.symmetric(horizontal: 6),
+                    visualDensity: VisualDensity.compact,
+                    selected: filtros.estado == estado,
+                    onSelected: (_) => notifier.cambiarEstado(
+                      filtros.estado == estado ? null : estado,
+                    ),
                   ),
                 ),
             ],
@@ -331,7 +419,10 @@ class _Filtros extends ConsumerWidget {
     );
   }
 
-  Future<void> _elegirFecha(BuildContext context, AgendaNotifier notifier) async {
+  Future<void> _elegirFecha(
+    BuildContext context,
+    AgendaNotifier notifier,
+  ) async {
     final elegida = await showDatePicker(
       context: context,
       initialDate: filtros.fecha,
@@ -367,10 +458,12 @@ class _TarjetaTurno extends ConsumerWidget {
                 Expanded(
                   child: Text(
                     turno.puesto,
-                    style: Theme.of(context).textTheme.titleMedium,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
-                Text(turno.estado.etiqueta),
+                _InsigniaTurno(estado: turno.estado),
               ],
             ),
             const SizedBox(height: 4),
@@ -399,6 +492,50 @@ class _TarjetaTurno extends ConsumerWidget {
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InsigniaTurno extends StatelessWidget {
+  const _InsigniaTurno({required this.estado});
+
+  final EstadoTurnoAgenda estado;
+
+  @override
+  Widget build(BuildContext context) {
+    final esquema = Theme.of(context).colorScheme;
+    final Color color;
+    switch (estado) {
+      case EstadoTurnoAgenda.pendientePago:
+        color = Colors.amber.shade700;
+      case EstadoTurnoAgenda.confirmado:
+        color = esquema.primary;
+      case EstadoTurnoAgenda.enCurso:
+        color = const Color(0xFF0891B2);
+      case EstadoTurnoAgenda.finalizado:
+        color = const Color(0xFF059669);
+      case EstadoTurnoAgenda.cancelado:
+      case EstadoTurnoAgenda.noPresentado:
+        color = esquema.error;
+      case EstadoTurnoAgenda.expirado:
+      case EstadoTurnoAgenda.desconocido:
+        color = esquema.outline;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.13),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Text(
+        estado.etiqueta,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: color,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );

@@ -61,7 +61,9 @@ class _PantallaCatalogoState extends ConsumerState<PantallaCatalogo> {
                 // `Expanded`: fijo ocupa casi todo el alto y los servicios
                 // quedan cortados (viewport 800×600 de los tests y teléfonos).
                 // Toda la pantalla pasa a scrollear en conjunto.
-                final movil = restricciones.maxWidth < 600;
+                final movil =
+                    restricciones.maxWidth < 900 ||
+                    restricciones.maxHeight < 520;
 
                 return Padding(
                   key: const ValueKey('pantalla_catalogo'),
@@ -100,9 +102,7 @@ class _PantallaCatalogoState extends ConsumerState<PantallaCatalogo> {
         Text(
           datos!.errorAccion!,
           key: const ValueKey('mensaje_error'),
-          style: TextStyle(
-            color: Theme.of(context).colorScheme.error,
-          ),
+          style: TextStyle(color: Theme.of(context).colorScheme.error),
         ),
       ],
       if (datos?.detalleAccion != null) ...<Widget>[
@@ -142,47 +142,39 @@ class _PantallaCatalogoState extends ConsumerState<PantallaCatalogo> {
     );
   }
 
-  Widget _encabezado(BuildContext context) => Row(
-        children: <Widget>[
-          Expanded(
-            child: Text(
-              'Catálogo de servicios',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-          ),
-          IconButton(
-            key: const ValueKey('boton_actualizar_catalogo'),
-            tooltip: 'Actualizar',
-            icon: const Icon(Icons.refresh),
-            onPressed: () =>
-                ref.read(catalogoAdminProvider.notifier).recargar(),
-          ),
-        ],
-      );
+  Widget _encabezado(BuildContext context) => Text(
+    'Catálogo de servicios',
+    style: Theme.of(
+      context,
+    ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+  );
 
   /// D-13.6: el turno ya reservado conserva precio y duración.
   Widget _avisoEdicion() => const _Banner(
-        key: ValueKey('aviso_edicion_turnos'),
-        icono: Icons.info_outline,
-        texto: 'Editar precios o duración no modifica los turnos ya '
-            'reservados: los cambios aplican sólo a turnos nuevos.',
-      );
+    key: ValueKey('aviso_edicion_turnos'),
+    icono: Icons.info_outline,
+    texto:
+        'Editar precios o duración no modifica los turnos ya '
+        'reservados: los cambios aplican sólo a turnos nuevos.',
+  );
 
   /// D-13.8: el onboarding siembra importes de ejemplo que hay que revisar.
   Widget _avisoValoresPorDefecto() => const _Banner(
-        key: ValueKey('aviso_valores_por_defecto'),
-        icono: Icons.warning_amber_outlined,
-        texto: 'Los importes cargados son valores de ejemplo. Revisalos antes '
-            'de publicar el lavadero.',
-      );
+    key: ValueKey('aviso_valores_por_defecto'),
+    icono: Icons.warning_amber_outlined,
+    texto:
+        'Los importes cargados son valores de ejemplo. Revisalos antes '
+        'de publicar el lavadero.',
+  );
 
   /// D-13.11: la recarga falló y la lista es la última foto conocida.
   Widget _avisoDatosDesactualizados() => const _Banner(
-        key: ValueKey('datos_desactualizados'),
-        icono: Icons.cloud_off,
-        texto: 'No pudimos actualizar el catálogo. Lo que ves puede estar '
-            'desactualizado.',
-      );
+    key: ValueKey('datos_desactualizados'),
+    icono: Icons.cloud_off,
+    texto:
+        'No pudimos actualizar el catálogo. Lo que ves puede estar '
+        'desactualizado.',
+  );
 
   Widget _formulario(BuildContext context, {required bool movil}) {
     final editando = _editando;
@@ -191,7 +183,7 @@ class _PantallaCatalogoState extends ConsumerState<PantallaCatalogo> {
     return Card(
       key: const ValueKey('formulario_tipo'),
       child: Padding(
-        padding: EdgeInsets.all(movil ? 6 : 8),
+        padding: EdgeInsets.all(movil ? 12 : 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
@@ -257,9 +249,7 @@ class _PantallaCatalogoState extends ConsumerState<PantallaCatalogo> {
             FilledButton(
               key: const ValueKey('boton_guardar_tipo'),
               onPressed: _guardar,
-              child: Text(
-                editando == null ? 'Agregar' : 'Guardar cambios',
-              ),
+              child: Text(editando == null ? 'Agregar' : 'Guardar cambios'),
             ),
           ],
         ),
@@ -348,61 +338,78 @@ class _PantallaCatalogoState extends ConsumerState<PantallaCatalogo> {
   Widget _tarjeta(BuildContext context, TipoLavadoAdmin tipo) {
     final estilo = Theme.of(context).textTheme.bodySmall;
 
-    return Card(
-      key: ValueKey('tarjeta_tipo_${tipo.id}'),
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Row(
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 220),
+      switchInCurve: Curves.easeOutCubic,
+      transitionBuilder: (child, animation) => FadeTransition(
+        opacity: animation,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.025),
+            end: Offset.zero,
+          ).animate(animation),
+          child: child,
+        ),
+      ),
+      child: KeyedSubtree(
+        key: ValueKey(
+          '${tipo.id}_${tipo.nombre}_${tipo.activo}_${tipo.duracionMinutos}_${tipo.precioTotal}_${tipo.precioSena}',
+        ),
+        child: Card(
+          key: ValueKey('tarjeta_tipo_${tipo.id}'),
+          margin: const EdgeInsets.only(bottom: 12),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                Expanded(
-                  child: Text(
-                    tipo.nombre,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Text(
+                        tipo.nombre,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    _InsigniaTipo(activo: tipo.activo),
+                  ],
                 ),
+                const SizedBox(height: 8),
+                Text('Duración: ${tipo.duracionMinutos} min', style: estilo),
                 Text(
-                  tipo.activo ? 'Activo' : 'Inactivo',
-                  style: TextStyle(
-                    color: tipo.activo
-                        ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context).colorScheme.outline,
-                  ),
+                  'Precio total: ${_importe(tipo.precioTotal)} · '
+                  'Seña: ${_importe(tipo.precioSena)}',
+                  style: estilo,
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: 4,
+                  runSpacing: 4,
+                  children: <Widget>[
+                    TextButton(
+                      key: ValueKey('boton_editar_tipo_${tipo.id}'),
+                      onPressed: () => _iniciarEdicion(tipo),
+                      child: const Text('Editar'),
+                    ),
+                    if (tipo.activo)
+                      TextButton(
+                        key: ValueKey('boton_desactivar_tipo_${tipo.id}'),
+                        onPressed: () => _confirmarCambioEstado(tipo),
+                        child: const Text('Desactivar'),
+                      )
+                    else
+                      TextButton(
+                        key: ValueKey('boton_activar_tipo_${tipo.id}'),
+                        onPressed: () => _confirmarCambioEstado(tipo),
+                        child: const Text('Activar'),
+                      ),
+                  ],
                 ),
               ],
             ),
-            const SizedBox(height: 4),
-            Text('Duración: ${tipo.duracionMinutos} min', style: estilo),
-            Text(
-              'Precio total: ${_importe(tipo.precioTotal)} · '
-              'Seña: ${_importe(tipo.precioSena)}',
-              style: estilo,
-            ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: <Widget>[
-                TextButton(
-                  key: ValueKey('boton_editar_tipo_${tipo.id}'),
-                  onPressed: () => _iniciarEdicion(tipo),
-                  child: const Text('Editar'),
-                ),
-                if (tipo.activo)
-                  TextButton(
-                    key: ValueKey('boton_desactivar_tipo_${tipo.id}'),
-                    onPressed: () => _confirmarCambioEstado(tipo),
-                    child: const Text('Desactivar'),
-                  )
-                else
-                  TextButton(
-                    key: ValueKey('boton_activar_tipo_${tipo.id}'),
-                    onPressed: () => _confirmarCambioEstado(tipo),
-                    child: const Text('Activar'),
-                  ),
-              ],
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -490,7 +497,7 @@ class _PantallaCatalogoState extends ConsumerState<PantallaCatalogo> {
         content: Text(
           desactivar
               ? 'El servicio dejará de ofrecerse a los clientes. Los turnos '
-                  'ya reservados no cambian.'
+                    'ya reservados no cambian.'
               : 'El servicio volverá a estar disponible para reservar.',
         ),
         actions: <Widget>[
@@ -514,36 +521,57 @@ class _PantallaCatalogoState extends ConsumerState<PantallaCatalogo> {
   }
 }
 
+class _InsigniaTipo extends StatelessWidget {
+  const _InsigniaTipo({required this.activo});
+
+  final bool activo;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = activo
+        ? const Color(0xFF059669)
+        : Theme.of(context).colorScheme.outline;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.32)),
+      ),
+      child: Text(
+        activo ? 'Activo' : 'Inactivo',
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: color,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
 class _Banner extends StatelessWidget {
-  const _Banner({
-    required this.icono,
-    required this.texto,
-    super.key,
-  });
+  const _Banner({required this.icono, required this.texto, super.key});
 
   final IconData icono;
   final String texto;
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.secondaryContainer,
-          borderRadius: BorderRadius.circular(8),
+    padding: const EdgeInsets.all(8),
+    decoration: BoxDecoration(
+      color: Theme.of(context).colorScheme.secondaryContainer,
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Row(
+      children: <Widget>[
+        Icon(icono, size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(texto, style: Theme.of(context).textTheme.bodySmall),
         ),
-        child: Row(
-          children: <Widget>[
-            Icon(icono, size: 18),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                texto,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
-          ],
-        ),
-      );
+      ],
+    ),
+  );
 }
 
 /// D-13.8: los dos servicios que siembra el onboarding del lavadero.

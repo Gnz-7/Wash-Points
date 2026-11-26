@@ -74,7 +74,8 @@ void main() {
       RepositorioPuestosFalso(puestos: <PuestoAdmin>[_puesto]),
     );
 
-    expect(find.text('Activo · todos los servicios'), findsOneWidget);
+    expect(find.text('Activo'), findsOneWidget);
+    expect(find.text('Servicios: todos los servicios'), findsOneWidget);
   });
 
   testWidgets('abre los servicios del puesto y guarda la selección', (
@@ -99,7 +100,8 @@ void main() {
 
     expect(repositorio.asignacionesPedidas, hasLength(1));
     expect(repositorio.asignacionesPedidas.single, <String>['tipo-2']);
-    expect(find.text('Activo · 1 servicios'), findsOneWidget);
+    expect(find.text('Activo'), findsOneWidget);
+    expect(find.text('Servicios: 1 servicios'), findsOneWidget);
   });
 
   testWidgets('guardar sin selección deja el puesto atendiendo todo', (
@@ -133,7 +135,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repositorio.asignacionesPedidas.single, isEmpty);
-    expect(find.text('Activo · todos los servicios'), findsOneWidget);
+    expect(find.text('Activo'), findsOneWidget);
+    expect(find.text('Servicios: todos los servicios'), findsOneWidget);
   });
 
   testWidgets('cancelar el diálogo no manda nada al servidor', (tester) async {

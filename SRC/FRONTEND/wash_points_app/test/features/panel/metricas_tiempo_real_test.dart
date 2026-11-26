@@ -40,15 +40,15 @@ ProviderContainer _contenedor({
 }
 
 Widget _app(ProviderContainer contenedor) => UncontrolledProviderScope(
-      container: contenedor,
-      child: const MaterialApp(home: Scaffold(body: PantallaMetricas())),
-    );
+  container: contenedor,
+  child: const MaterialApp(home: Scaffold(body: PantallaMetricas())),
+);
 
 EventoMetricas _evento({String? fecha = '2026-11-10'}) => EventoMetricas(
-      lavaderoId: 'lav-5',
-      fecha: fecha,
-      generadoEn: DateTime.utc(2026, 11, 10, 18),
-    );
+  lavaderoId: 'lav-5',
+  fecha: fecha,
+  generadoEn: DateTime.utc(2026, 11, 10, 18),
+);
 
 /// Deja la fecha del panel en el día que usan los eventos de ejemplo.
 ///
@@ -77,8 +77,9 @@ Future<void> _dejarReconectar(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('al entrar se une al grupo de métricas del lavadero',
-      (tester) async {
+  testWidgets('al entrar se une al grupo de métricas del lavadero', (
+    tester,
+  ) async {
     final canales = <CanalTiempoRealFalso>[];
     final contenedor = _contenedor(
       repositorio: RepositorioMetricasFalso(),
@@ -91,8 +92,9 @@ void main() {
     expect(canales.single.unidosAMetricas, <String>['lav-5']);
   });
 
-  testWidgets('muestra el indicador en vivo con el canal conectado',
-      (tester) async {
+  testWidgets('muestra el indicador en vivo con el canal conectado', (
+    tester,
+  ) async {
     final canales = <CanalTiempoRealFalso>[];
     final contenedor = _contenedor(
       repositorio: RepositorioMetricasFalso(),
@@ -106,36 +108,36 @@ void main() {
     expect(find.text('En vivo'), findsOneWidget);
   });
 
-  testWidgets('sin sesión el indicador muestra sin conexión y el polling sigue',
-      (tester) async {
+  testWidgets(
+    'sin sesión el indicador muestra sin conexión y el polling sigue',
+    (tester) async {
+      final canales = <CanalTiempoRealFalso>[];
+      final repositorio = RepositorioMetricasFalso();
+      final contenedor = _contenedor(
+        repositorio: repositorio,
+        canales: canales,
+        token: null,
+      );
+
+      await tester.pumpWidget(_app(contenedor));
+      await tester.pumpAndSettle();
+
+      expect(canales, isEmpty);
+      expect(find.text('Sin conexión'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 30));
+      await tester.pumpAndSettle();
+
+      expect(repositorio.fechasResumen.length, 2);
+    },
+  );
+
+  testWidgets('un evento de la fecha seleccionada refresca tras el debounce', (
+    tester,
+  ) async {
     final canales = <CanalTiempoRealFalso>[];
     final repositorio = RepositorioMetricasFalso();
-    final contenedor = _contenedor(
-      repositorio: repositorio,
-      canales: canales,
-      token: null,
-    );
-
-    await tester.pumpWidget(_app(contenedor));
-    await tester.pumpAndSettle();
-
-    expect(canales, isEmpty);
-    expect(find.text('Sin conexión'), findsOneWidget);
-
-    await tester.pump(const Duration(seconds: 30));
-    await tester.pumpAndSettle();
-
-    expect(repositorio.fechasResumen.length, 2);
-  });
-
-  testWidgets('un evento de la fecha seleccionada refresca tras el debounce',
-      (tester) async {
-    final canales = <CanalTiempoRealFalso>[];
-    final repositorio = RepositorioMetricasFalso();
-    final contenedor = _contenedor(
-      repositorio: repositorio,
-      canales: canales,
-    );
+    final contenedor = _contenedor(repositorio: repositorio, canales: canales);
 
     await tester.pumpWidget(_app(contenedor));
     await tester.pumpAndSettle();
@@ -154,10 +156,7 @@ void main() {
   testWidgets('un evento de otra fecha no refresca', (tester) async {
     final canales = <CanalTiempoRealFalso>[];
     final repositorio = RepositorioMetricasFalso();
-    final contenedor = _contenedor(
-      repositorio: repositorio,
-      canales: canales,
-    );
+    final contenedor = _contenedor(repositorio: repositorio, canales: canales);
 
     await tester.pumpWidget(_app(contenedor));
     await tester.pumpAndSettle();
@@ -171,14 +170,12 @@ void main() {
     expect(repositorio.fechasResumen.length, antes);
   });
 
-  testWidgets('un cambio de capacidad refresca cualquier fecha',
-      (tester) async {
+  testWidgets('un cambio de capacidad refresca cualquier fecha', (
+    tester,
+  ) async {
     final canales = <CanalTiempoRealFalso>[];
     final repositorio = RepositorioMetricasFalso();
-    final contenedor = _contenedor(
-      repositorio: repositorio,
-      canales: canales,
-    );
+    final contenedor = _contenedor(repositorio: repositorio, canales: canales);
 
     await tester.pumpWidget(_app(contenedor));
     await tester.pumpAndSettle();
@@ -195,10 +192,7 @@ void main() {
   testWidgets('una ráfaga de eventos produce un solo refresco', (tester) async {
     final canales = <CanalTiempoRealFalso>[];
     final repositorio = RepositorioMetricasFalso();
-    final contenedor = _contenedor(
-      repositorio: repositorio,
-      canales: canales,
-    );
+    final contenedor = _contenedor(repositorio: repositorio, canales: canales);
 
     await tester.pumpWidget(_app(contenedor));
     await tester.pumpAndSettle();
@@ -219,10 +213,7 @@ void main() {
   testWidgets('al reconectar se refresca una vez', (tester) async {
     final canales = <CanalTiempoRealFalso>[];
     final repositorio = RepositorioMetricasFalso();
-    final contenedor = _contenedor(
-      repositorio: repositorio,
-      canales: canales,
-    );
+    final contenedor = _contenedor(repositorio: repositorio, canales: canales);
 
     await tester.pumpWidget(_app(contenedor));
     await tester.pumpAndSettle();
@@ -236,14 +227,12 @@ void main() {
     expect(canales.last.unidosAMetricas, <String>['lav-5']);
   });
 
-  testWidgets('el polling de 30 s refresca con el canal conectado',
-      (tester) async {
+  testWidgets('el polling de 30 s refresca con el canal conectado', (
+    tester,
+  ) async {
     final canales = <CanalTiempoRealFalso>[];
     final repositorio = RepositorioMetricasFalso();
-    final contenedor = _contenedor(
-      repositorio: repositorio,
-      canales: canales,
-    );
+    final contenedor = _contenedor(repositorio: repositorio, canales: canales);
 
     await tester.pumpWidget(_app(contenedor));
     await tester.pumpAndSettle();
@@ -255,19 +244,17 @@ void main() {
     expect(repositorio.fechasResumen.length, 2);
   });
 
-  testWidgets('el botón manual refresca sin vaciar la pantalla',
-      (tester) async {
+  testWidgets('el botón manual refresca sin vaciar la pantalla', (
+    tester,
+  ) async {
     final canales = <CanalTiempoRealFalso>[];
     final repositorio = RepositorioMetricasFalso();
-    final contenedor = _contenedor(
-      repositorio: repositorio,
-      canales: canales,
-    );
+    final contenedor = _contenedor(repositorio: repositorio, canales: canales);
 
     await tester.pumpWidget(_app(contenedor));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('boton_refrescar_metricas')));
+    await contenedor.read(metricasProvider.notifier).refrescar();
     await tester.pumpAndSettle();
 
     expect(repositorio.fechasResumen.length, 2);
@@ -277,10 +264,7 @@ void main() {
   testWidgets('un refresco fallido conserva los datos y avisa', (tester) async {
     final canales = <CanalTiempoRealFalso>[];
     final repositorio = RepositorioMetricasFalso();
-    final contenedor = _contenedor(
-      repositorio: repositorio,
-      canales: canales,
-    );
+    final contenedor = _contenedor(repositorio: repositorio, canales: canales);
 
     await tester.pumpWidget(_app(contenedor));
     await tester.pumpAndSettle();
@@ -291,7 +275,7 @@ void main() {
       estado: 500,
     );
 
-    await tester.tap(find.byKey(const ValueKey('boton_refrescar_metricas')));
+    await contenedor.read(metricasProvider.notifier).refrescar();
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('aviso_desactualizado')), findsOneWidget);

@@ -143,11 +143,7 @@ class _PantallaMetricasState extends ConsumerState<PantallaMetricas> {
           key: const ValueKey('pantalla_metricas'),
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            _Cabecera(
-              fecha: fecha,
-              estadoCanal: estadoCanal,
-              alRefrescar: () => unawaited(_refrescar()),
-            ),
+            _Cabecera(fecha: fecha, estadoCanal: estadoCanal),
             if (desactualizado)
               Container(
                 key: const ValueKey('aviso_desactualizado'),
@@ -185,15 +181,10 @@ class _PantallaMetricasState extends ConsumerState<PantallaMetricas> {
 }
 
 class _Cabecera extends ConsumerWidget {
-  const _Cabecera({
-    required this.fecha,
-    required this.estadoCanal,
-    required this.alRefrescar,
-  });
+  const _Cabecera({required this.fecha, required this.estadoCanal});
 
   final DateTime fecha;
   final EstadoCanal estadoCanal;
-  final VoidCallback alRefrescar;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -202,21 +193,11 @@ class _Cabecera extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: Text(
-                  'Métricas del día',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-              ),
-              IconButton(
-                key: const ValueKey('boton_refrescar_metricas'),
-                tooltip: 'Actualizar',
-                onPressed: alRefrescar,
-                icon: const Icon(Icons.refresh),
-              ),
-            ],
+          Text(
+            'Métricas del día',
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
           ),
           Row(
             children: <Widget>[
@@ -258,21 +239,49 @@ class _IndicadorCanal extends StatelessWidget {
     final (texto, color) = switch (estado) {
       EstadoCanal.conectado => ('En vivo', Colors.green),
       EstadoCanal.conectando ||
-      EstadoCanal.reconectando =>
-        ('Reconectando…', Colors.orange),
+      EstadoCanal.reconectando => ('Reconectando…', Colors.orange),
       EstadoCanal.desconectado || EstadoCanal.sinSesion => (
-          'Sin conexión',
-          Theme.of(context).colorScheme.error,
-        ),
+        'Sin conexión',
+        Theme.of(context).colorScheme.error,
+      ),
     };
 
     return Row(
       key: const ValueKey('indicador_tiempo_real'),
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        Icon(Icons.circle, size: 10, color: color),
+        TweenAnimationBuilder<double>(
+          key: ValueKey('pulso_$texto'),
+          tween: Tween<double>(begin: 0.72, end: 1),
+          duration: const Duration(milliseconds: 650),
+          curve: Curves.easeOutCubic,
+          builder: (context, escala, child) => Transform.scale(
+            scale: escala,
+            child: Container(
+              width: 9,
+              height: 9,
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+                boxShadow: <BoxShadow>[
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.3),
+                    blurRadius: 7,
+                    spreadRadius: 1,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
         const SizedBox(width: 6),
-        Text(texto, style: Theme.of(context).textTheme.bodySmall),
+        Text(
+          texto,
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            color: color,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
       ],
     );
   }
@@ -288,6 +297,7 @@ class _Contenido extends StatelessWidget {
     final resumen = estado.resumen;
 
     return ListView(
+      key: const ValueKey('lista_metricas'),
       padding: const EdgeInsets.all(16),
       children: <Widget>[
         _TarjetaCapacidad(capacidad: resumen.capacidad),
@@ -305,12 +315,12 @@ class _Contenido extends StatelessWidget {
           const Padding(
             key: ValueKey('estado_vacio'),
             padding: EdgeInsets.symmetric(vertical: 24),
-            child: Center(child: Text('Sin ocupación registrada para la fecha.')),
+            child: Center(
+              child: Text('Sin ocupación registrada para la fecha.'),
+            ),
           )
         else
-          ...estado.ocupacion.map(
-            (puesto) => _FilaOcupacion(puesto: puesto),
-          ),
+          ...estado.ocupacion.map((puesto) => _FilaOcupacion(puesto: puesto)),
       ],
     );
   }
@@ -330,32 +340,36 @@ class _TarjetaCapacidad extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Text(
-              'Capacidad instalada',
-              style: Theme.of(context).textTheme.titleMedium,
+            const _EncabezadoKpi(
+              icono: Icons.stacked_bar_chart_rounded,
+              titulo: 'Capacidad instalada',
             ),
-            const SizedBox(height: 12),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: _Cifra(
-                    valor: '${capacidad.puestosTotal}',
-                    etiqueta: 'Puestos totales',
+            const SizedBox(height: 14),
+            IntrinsicHeight(
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: _Cifra(
+                      valor: '${capacidad.puestosTotal}',
+                      etiqueta: 'Puestos totales',
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: _Cifra(
-                    valor: '${capacidad.puestosActivos}',
-                    etiqueta: 'Puestos activos',
+                  const VerticalDivider(width: 20, thickness: 1),
+                  Expanded(
+                    child: _Cifra(
+                      valor: '${capacidad.puestosActivos}',
+                      etiqueta: 'Puestos activos',
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: _Cifra(
-                    valor: '${capacidad.puestosOcupados}',
-                    etiqueta: 'Puestos ocupados',
+                  const VerticalDivider(width: 20, thickness: 1),
+                  Expanded(
+                    child: _Cifra(
+                      valor: '${capacidad.puestosOcupados}',
+                      etiqueta: 'Puestos ocupados',
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
@@ -378,38 +392,39 @@ class _TarjetaIngresos extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Text(
-              'Ingresos del día',
-              style: Theme.of(context).textTheme.titleMedium,
+            const _EncabezadoKpi(
+              icono: Icons.payments_outlined,
+              titulo: 'Ingresos del día',
             ),
-            const SizedBox(height: 12),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: _Cifra(
-                    valor: _numero(ingresos.senasCobradas),
-                    etiqueta: 'Señas cobradas',
+            const SizedBox(height: 14),
+            IntrinsicHeight(
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: _Cifra(
+                      valor: _numero(ingresos.senasCobradas),
+                      etiqueta: 'Señas cobradas',
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: _Cifra(
-                    valor: _numero(ingresos.facturadoTotal),
-                    etiqueta: 'Facturado total',
+                  const VerticalDivider(width: 20, thickness: 1),
+                  Expanded(
+                    child: _Cifra(
+                      valor: _numero(ingresos.facturadoTotal),
+                      etiqueta: 'Facturado total',
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: _Cifra(
-                    valor: _numero(ingresos.facturadoMostrador),
-                    etiqueta: 'Facturado mostrador',
+                  const VerticalDivider(width: 20, thickness: 1),
+                  Expanded(
+                    child: _Cifra(
+                      valor: _numero(ingresos.facturadoMostrador),
+                      etiqueta: 'Facturado mostrador',
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
             const SizedBox(height: 8),
-            Text(
-              ingresos.moneda,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            Text(ingresos.moneda, style: Theme.of(context).textTheme.bodySmall),
           ],
         ),
       ),
@@ -431,23 +446,99 @@ class _TarjetaTurnos extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Text(
-              'Turnos del día',
-              style: Theme.of(context).textTheme.titleMedium,
+            const _EncabezadoKpi(
+              icono: Icons.event_available_outlined,
+              titulo: 'Turnos del día',
             ),
             const SizedBox(height: 8),
             Wrap(
-              spacing: 16,
-              runSpacing: 4,
+              spacing: 8,
+              runSpacing: 8,
               children: <Widget>[
-                Text('Atendidos: ${turnos.atendidos}'),
-                Text('Espontáneos: ${turnos.espontaneos}'),
-                Text('No presentados: ${turnos.noPresentados}'),
-                Text('Cancelaciones: ${turnos.cancelaciones}'),
+                _DatoTurno(
+                  icono: Icons.check_circle_outline,
+                  texto: 'Atendidos: ${turnos.atendidos}',
+                ),
+                _DatoTurno(
+                  icono: Icons.person_add_alt_1_outlined,
+                  texto: 'Espontáneos: ${turnos.espontaneos}',
+                ),
+                _DatoTurno(
+                  icono: Icons.person_off_outlined,
+                  texto: 'No presentados: ${turnos.noPresentados}',
+                ),
+                _DatoTurno(
+                  icono: Icons.event_busy_outlined,
+                  texto: 'Cancelaciones: ${turnos.cancelaciones}',
+                ),
               ],
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _EncabezadoKpi extends StatelessWidget {
+  const _EncabezadoKpi({required this.icono, required this.titulo});
+
+  final IconData icono;
+  final String titulo;
+
+  @override
+  Widget build(BuildContext context) {
+    final esquema = Theme.of(context).colorScheme;
+    return Row(
+      children: <Widget>[
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: esquema.primaryContainer.withValues(alpha: 0.65),
+            borderRadius: BorderRadius.circular(11),
+          ),
+          child: Icon(icono, size: 19, color: esquema.primary),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            titulo,
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DatoTurno extends StatelessWidget {
+  const _DatoTurno({required this.icono, required this.texto});
+
+  final IconData icono;
+  final String texto;
+
+  @override
+  Widget build(BuildContext context) {
+    final esquema = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: esquema.surfaceContainerHighest.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: esquema.outlineVariant.withValues(alpha: 0.5),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(icono, size: 16, color: esquema.primary),
+          const SizedBox(width: 6),
+          Text(texto, style: Theme.of(context).textTheme.labelMedium),
+        ],
       ),
     );
   }
@@ -501,7 +592,15 @@ class _Cifra extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Text(valor, style: Theme.of(context).textTheme.headlineSmall),
+        Text(
+          valor,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.5,
+          ),
+        ),
         Text(etiqueta, style: Theme.of(context).textTheme.bodySmall),
       ],
     );
@@ -533,7 +632,10 @@ class _Error extends StatelessWidget {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 12),
-            OutlinedButton(onPressed: recargar, child: const Text('Reintentar')),
+            OutlinedButton(
+              onPressed: recargar,
+              child: const Text('Reintentar'),
+            ),
           ],
         ),
       ),

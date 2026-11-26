@@ -18,10 +18,7 @@ import 'validar_notifier.dart';
 /// cámara real (`escanerQrCamara`) y los tests inyectan un doble que emite el
 /// código, de modo que el desenlace del QR es idéntico al de la carga manual.
 class PantallaValidar extends ConsumerStatefulWidget {
-  const PantallaValidar({
-    super.key,
-    this.constructorEscaner = escanerQrCamara,
-  });
+  const PantallaValidar({super.key, this.constructorEscaner = escanerQrCamara});
 
   /// Arma la vista del escáner y le entrega cada código detectado.
   final ConstructorEscanerQr constructorEscaner;
@@ -108,10 +105,7 @@ class _PantallaValidarState extends ConsumerState<PantallaValidar>
                 key: const ValueKey('escaner_qr'),
                 height: 380,
                 child: widget.constructorEscaner(
-                  (String codigo) => _validarDesdeEscaner(
-                    contextoHoja,
-                    codigo,
-                  ),
+                  (String codigo) => _validarDesdeEscaner(contextoHoja, codigo),
                   alIngresarManual: () => _cerrarEscaner(contextoHoja, true),
                 ),
               ),
@@ -127,9 +121,7 @@ class _PantallaValidarState extends ConsumerState<PantallaValidar>
   }
 
   void _validarDesdeEscaner(BuildContext contextoHoja, String codigo) {
-    if (_cerrado ||
-        _validacionEnCurso ||
-        ref.read(validarProvider).validando) {
+    if (_cerrado || _validacionEnCurso || ref.read(validarProvider).validando) {
       return;
     }
 
@@ -165,64 +157,102 @@ class _PantallaValidarState extends ConsumerState<PantallaValidar>
           padding: const EdgeInsets.all(16),
           children: <Widget>[
             const BannerCanjesPendientes(),
-            Text(
-              'Validar arribo',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              key: const ValueKey('campo_comprobante'),
-              controller: _codigo,
-              focusNode: _focoCodigo,
-              autocorrect: false,
-              textCapitalization: TextCapitalization.characters,
-              decoration: const InputDecoration(
-                labelText: 'Código del comprobante',
-                hintText: 'Pegá el código del QR o el de respaldo',
-              ),
-              onSubmitted: (_) => _validar(),
-            ),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(
-                key: const ValueKey('boton_validar'),
-                onPressed: estado.validando ? null : _validar,
-                child: const Text('Validar'),
-              ),
-            ),
-            const SizedBox(height: 4),
-            Wrap(
-              spacing: 12,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: <Widget>[
-                OutlinedButton.icon(
-                  key: const ValueKey('boton_escanear_qr'),
-                  onPressed: estado.validando ? null : _abrirEscaner,
-                  icon: const Icon(Icons.qr_code_scanner),
-                  label: const Text('Escanear QR'),
-                ),
-                if (estado.reconciliando)
-                  const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      key: ValueKey('estado_sincronizando'),
+            Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Row(
+                      children: <Widget>[
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primaryContainer
+                                .withValues(alpha: 0.65),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Icon(
+                            Icons.qr_code_scanner,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Validar arribo',
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                TextButton.icon(
-                  key: const ValueKey('boton_reconciliar'),
-                  onPressed: estado.reconciliando ? null : _reconciliar,
-                  icon: const Icon(Icons.sync),
-                  label: const Text('Reconciliar canjes pendientes'),
+                    const SizedBox(height: 16),
+                    TextField(
+                      key: const ValueKey('campo_comprobante'),
+                      controller: _codigo,
+                      focusNode: _focoCodigo,
+                      autocorrect: false,
+                      textCapitalization: TextCapitalization.characters,
+                      decoration: const InputDecoration(
+                        labelText: 'Código del comprobante',
+                        hintText: 'Pegá el código del QR o el de respaldo',
+                        prefixIcon: Icon(Icons.confirmation_number_outlined),
+                      ),
+                      onSubmitted: (_) => _validar(),
+                    ),
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: FilledButton.icon(
+                        key: const ValueKey('boton_validar'),
+                        onPressed: estado.validando ? null : _validar,
+                        icon: const Icon(Icons.check_circle_outline),
+                        label: const Text('Validar'),
+                      ),
+                    ),
+                    const Divider(height: 24),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: <Widget>[
+                        OutlinedButton.icon(
+                          key: const ValueKey('boton_escanear_qr'),
+                          onPressed: estado.validando ? null : _abrirEscaner,
+                          icon: const Icon(Icons.qr_code_scanner),
+                          label: const Text('Escanear QR'),
+                        ),
+                        if (estado.reconciliando)
+                          const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              key: ValueKey('estado_sincronizando'),
+                            ),
+                          ),
+                        TextButton.icon(
+                          key: const ValueKey('boton_reconciliar'),
+                          onPressed: estado.reconciliando ? null : _reconciliar,
+                          icon: const Icon(Icons.sync),
+                          label: const Text('Reconciliar canjes pendientes'),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
             if (estado.errorReconciliacion != null)
-              Text(
-                estado.errorReconciliacion!,
-                key: const ValueKey('mensaje_error_reconciliacion'),
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              _AlertaValidacion(
+                clave: const ValueKey('mensaje_error_reconciliacion'),
+                icono: Icons.cloud_off_outlined,
+                texto: estado.errorReconciliacion!,
+                error: true,
               ),
             if (estado.hayDiscrepancias) ...<Widget>[
               const SizedBox(height: 8),
@@ -233,12 +263,24 @@ class _PantallaValidarState extends ConsumerState<PantallaValidar>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
-                      Text(
-                        'El servidor no aceptó estos canjes:',
-                        style: Theme.of(context).textTheme.titleSmall,
+                      Row(
+                        children: <Widget>[
+                          Icon(
+                            Icons.warning_amber_rounded,
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'El servidor no aceptó estos canjes:',
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                        ],
                       ),
                       for (final rechazo in estado.discrepancias)
-                        Text('• ${describirDiscrepancia(rechazo)}'),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6, left: 32),
+                          child: Text('• ${describirDiscrepancia(rechazo)}'),
+                        ),
                     ],
                   ),
                 ),
@@ -255,13 +297,68 @@ class _PantallaValidarState extends ConsumerState<PantallaValidar>
                 ),
               ),
             if (estado.errorAccion != null)
-              Text(
-                estado.errorAccion!,
-                key: const ValueKey('mensaje_error'),
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              _AlertaValidacion(
+                clave: const ValueKey('mensaje_error'),
+                icono: Icons.error_outline,
+                texto: estado.errorAccion!,
+                error: true,
               ),
             if (estado.resultado != null)
-              _Resultado(resultado: estado.resultado!),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 240),
+                switchInCurve: Curves.easeOutCubic,
+                transitionBuilder: (child, animation) => FadeTransition(
+                  opacity: animation,
+                  child: SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(0, 0.04),
+                      end: Offset.zero,
+                    ).animate(animation),
+                    child: child,
+                  ),
+                ),
+                child: KeyedSubtree(
+                  key: ValueKey(
+                    'transicion_resultado_${estado.resultado!.tipo.name}',
+                  ),
+                  child: _Resultado(resultado: estado.resultado!),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AlertaValidacion extends StatelessWidget {
+  const _AlertaValidacion({
+    required this.clave,
+    required this.icono,
+    required this.texto,
+    required this.error,
+  });
+
+  final Key clave;
+  final IconData icono;
+  final String texto;
+  final bool error;
+
+  @override
+  Widget build(BuildContext context) {
+    final esquema = Theme.of(context).colorScheme;
+    final color = error ? esquema.error : esquema.primary;
+    return Card(
+      key: clave,
+      color: error ? esquema.errorContainer : esquema.primaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Icon(icono, color: color),
+            const SizedBox(width: 10),
+            Expanded(child: Text(texto)),
           ],
         ),
       ),
@@ -274,24 +371,26 @@ class _Resultado extends StatelessWidget {
 
   static const Map<TipoResultadoValidacion, String> _claves =
       <TipoResultadoValidacion, String>{
-    TipoResultadoValidacion.canjeado: 'resultado_canjeado',
-    TipoResultadoValidacion.canjeadoOffline: 'resultado_canjeado_offline',
-    TipoResultadoValidacion.yaUtilizado: 'resultado_ya_utilizado',
-    TipoResultadoValidacion.pagoPendiente: 'resultado_pago_pendiente',
-    TipoResultadoValidacion.vencido: 'resultado_vencido',
-    TipoResultadoValidacion.noEncontrado: 'resultado_no_encontrado',
-  };
+        TipoResultadoValidacion.canjeado: 'resultado_canjeado',
+        TipoResultadoValidacion.canjeadoOffline: 'resultado_canjeado_offline',
+        TipoResultadoValidacion.yaUtilizado: 'resultado_ya_utilizado',
+        TipoResultadoValidacion.pagoPendiente: 'resultado_pago_pendiente',
+        TipoResultadoValidacion.vencido: 'resultado_vencido',
+        TipoResultadoValidacion.noEncontrado: 'resultado_no_encontrado',
+      };
 
   final ResultadoValidacion resultado;
 
   @override
   Widget build(BuildContext context) {
     final esquema = Theme.of(context).colorScheme;
-    final color = resultado.habilitado ? esquema.primary : esquema.error;
+    final correcto = resultado.habilitado;
+    final color = correcto ? const Color(0xFF059669) : esquema.error;
 
     final titulo = switch (resultado.tipo) {
       TipoResultadoValidacion.canjeado => 'Turno habilitado',
-      TipoResultadoValidacion.canjeadoOffline => 'Turno habilitado sin conexión',
+      TipoResultadoValidacion.canjeadoOffline =>
+        'Turno habilitado sin conexión',
       TipoResultadoValidacion.yaUtilizado => 'Comprobante ya utilizado',
       TipoResultadoValidacion.pagoPendiente => 'Pago pendiente',
       TipoResultadoValidacion.vencido => 'Comprobante vencido',
@@ -300,27 +399,52 @@ class _Resultado extends StatelessWidget {
 
     return Card(
       key: ValueKey<String>(_claves[resultado.tipo]!),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: color.withValues(alpha: 0.45)),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
+        padding: const EdgeInsets.all(18),
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Text(
-              titulo,
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(color: color),
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.13),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(
+                correcto ? Icons.check_circle_outline : Icons.info_outline,
+                color: color,
+              ),
             ),
-            if (resultado.turnoId != null) ...<Widget>[
-              const SizedBox(height: 8),
-              Text('Turno: ${resultado.turnoId}'),
-            ],
-            if (resultado.estado != null) Text('Estado: ${resultado.estado}'),
-            if (resultado.mensaje != null) ...<Widget>[
-              const SizedBox(height: 8),
-              Text(resultado.mensaje!),
-            ],
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    titulo,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: color,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (resultado.turnoId != null) ...<Widget>[
+                    const SizedBox(height: 8),
+                    Text('Turno: ${resultado.turnoId}'),
+                  ],
+                  if (resultado.estado != null)
+                    Text('Estado: ${resultado.estado}'),
+                  if (resultado.mensaje != null) ...<Widget>[
+                    const SizedBox(height: 8),
+                    Text(resultado.mensaje!),
+                  ],
+                ],
+              ),
+            ),
           ],
         ),
       ),

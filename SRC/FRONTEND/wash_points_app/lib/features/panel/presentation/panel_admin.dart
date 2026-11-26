@@ -36,7 +36,8 @@ class PanelAdmin extends ConsumerStatefulWidget {
   ConsumerState<PanelAdmin> createState() => _PanelAdminState();
 }
 
-class _PanelAdminState extends ConsumerState<PanelAdmin> {
+class _PanelAdminState extends ConsumerState<PanelAdmin>
+    with SingleTickerProviderStateMixin {
   static const _titulos = <String>[
     'Agenda',
     'Puestos',
@@ -46,6 +47,42 @@ class _PanelAdminState extends ConsumerState<PanelAdmin> {
   ];
 
   bool _refrescando = false;
+  late final AnimationController _animacionPestana;
+  late final Animation<double> _opacidadPestana;
+
+  @override
+  void initState() {
+    super.initState();
+    _animacionPestana = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+    )..value = 1;
+    _opacidadPestana = Tween<double>(begin: 0.82, end: 1).animate(
+      CurvedAnimation(parent: _animacionPestana, curve: Curves.easeOutCubic),
+    );
+    if (widget.retornoMp == 'ok') {
+      // El callback de Mercado Pago redirigió acá: relee el perfil para ver
+      // la cuenta ya vinculada (CA-S20.16). Diferido: Riverpod no permite
+      // escribir estado durante el ciclo de build.
+      unawaited(
+        Future.microtask(() => ref.read(perfilProvider.notifier).refrescar()),
+      );
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant PanelAdmin oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.navegacion.currentIndex != widget.navegacion.currentIndex) {
+      _animacionPestana.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _animacionPestana.dispose();
+    super.dispose();
+  }
 
   Future<void> _refrescarSeccion() async {
     if (_refrescando) return;
@@ -87,106 +124,132 @@ class _PanelAdminState extends ConsumerState<PanelAdmin> {
   }
 
   @override
-  void initState() {
-    super.initState();
-    if (widget.retornoMp == 'ok') {
-      // El callback de Mercado Pago redirigió acá: relee el perfil para ver
-      // la cuenta ya vinculada (CA-S20.16). Diferido: Riverpod no permite
-      // escribir estado durante el ciclo de build.
-      unawaited(
-        Future.microtask(() => ref.read(perfilProvider.notifier).refrescar()),
-      );
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return Semantics(
-      identifier: 'pantalla_panel',
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(_titulos[widget.navegacion.currentIndex]),
-          bottom: const BandaPerfil(),
-          actions: [
-            Semantics(
-              identifier: 'boton_refrescar_panel',
-              child: IconButton(
-                key: const ValueKey('boton_refrescar_panel'),
-                tooltip:
-                    'Actualizar ${_titulos[widget.navegacion.currentIndex].toLowerCase()}',
-                onPressed: _refrescando ? null : _refrescarSeccion,
-                icon: _refrescando
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.refresh),
-              ),
-            ),
-            // Horarios de atención (slice-17, T-188): pantalla propia fuera del
-            // shell, abierta con push para no sumar una sexta pestaña.
-            Semantics(
-              identifier: 'boton_horarios',
-              child: IconButton(
-                key: const ValueKey('boton_horarios'),
-                tooltip: 'Horarios de atención',
-                icon: const Icon(Icons.schedule),
-                onPressed: () => context.push('/admin/horarios'),
-              ),
-            ),
-            Semantics(
-              identifier: 'boton_cerrar_sesion',
-              child: IconButton(
-                key: const ValueKey('boton_cerrar_sesion'),
-                tooltip: 'Cerrar sesión',
-                icon: const Icon(Icons.logout),
-                onPressed: () => ref.read(sesionProvider.notifier).cerrar(),
-              ),
-            ),
-          ],
-        ),
-        body: widget.navegacion,
-        bottomNavigationBar: NavigationBar(
-          selectedIndex: widget.navegacion.currentIndex,
-          onDestinationSelected: (indice) => widget.navegacion.goBranch(
-            indice,
-            // Tocar la pestaña activa vuelve a su raíz, como en cualquier
-            // barra de navegación nativa.
-            initialLocation: indice == widget.navegacion.currentIndex,
+    final esquema = Theme.of(context).colorScheme;
+    final temaPanel = Theme.of(context).copyWith(
+      cardTheme: CardThemeData(
+        color: esquema.surfaceContainerLow,
+        surfaceTintColor: Colors.transparent,
+        elevation: 1,
+        shadowColor: esquema.shadow.withValues(alpha: 0.12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(
+            color: esquema.outlineVariant.withValues(alpha: 0.5),
           ),
-          destinations: const [
-            NavigationDestination(
-              key: ValueKey('pestana_agenda'),
-              icon: Icon(Icons.calendar_today_outlined),
-              selectedIcon: Icon(Icons.calendar_today),
-              label: 'Agenda',
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: esquema.surfaceContainerHighest.withValues(alpha: 0.45),
+        isDense: true,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: esquema.outlineVariant),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: esquema.outlineVariant),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: esquema.primary, width: 1.6),
+        ),
+      ),
+    );
+
+    return Theme(
+      data: temaPanel,
+      child: Semantics(
+        identifier: 'pantalla_panel',
+        child: Scaffold(
+          appBar: AppBar(
+            title: Text(_titulos[widget.navegacion.currentIndex]),
+            bottom: const BandaPerfil(),
+            actions: [
+              Semantics(
+                identifier: 'boton_refrescar_panel',
+                child: IconButton(
+                  key: const ValueKey('boton_refrescar_panel'),
+                  tooltip:
+                      'Actualizar ${_titulos[widget.navegacion.currentIndex].toLowerCase()}',
+                  onPressed: _refrescando ? null : _refrescarSeccion,
+                  icon: _refrescando
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh),
+                ),
+              ),
+              // Horarios de atención (slice-17, T-188): pantalla propia fuera del
+              // shell, abierta con push para no sumar una sexta pestaña.
+              Semantics(
+                identifier: 'boton_horarios',
+                child: IconButton(
+                  key: const ValueKey('boton_horarios'),
+                  tooltip: 'Horarios de atención',
+                  icon: const Icon(Icons.schedule),
+                  onPressed: () => context.push('/admin/horarios'),
+                ),
+              ),
+              Semantics(
+                identifier: 'boton_cerrar_sesion',
+                child: IconButton(
+                  key: const ValueKey('boton_cerrar_sesion'),
+                  tooltip: 'Cerrar sesión',
+                  icon: const Icon(Icons.logout),
+                  onPressed: () => ref.read(sesionProvider.notifier).cerrar(),
+                ),
+              ),
+            ],
+          ),
+          body: FadeTransition(
+            opacity: _opacidadPestana,
+            child: widget.navegacion,
+          ),
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: widget.navegacion.currentIndex,
+            onDestinationSelected: (indice) => widget.navegacion.goBranch(
+              indice,
+              // Tocar la pestaña activa vuelve a su raíz, como en cualquier
+              // barra de navegación nativa.
+              initialLocation: indice == widget.navegacion.currentIndex,
             ),
-            NavigationDestination(
-              key: ValueKey('pestana_puestos'),
-              icon: Icon(Icons.local_car_wash_outlined),
-              selectedIcon: Icon(Icons.local_car_wash),
-              label: 'Puestos',
-            ),
-            NavigationDestination(
-              key: ValueKey('pestana_catalogo'),
-              icon: Icon(Icons.room_service_outlined),
-              selectedIcon: Icon(Icons.room_service),
-              label: 'Catálogo',
-            ),
-            NavigationDestination(
-              key: ValueKey('pestana_validar'),
-              icon: Icon(Icons.qr_code_scanner_outlined),
-              selectedIcon: Icon(Icons.qr_code_scanner),
-              label: 'Validar',
-            ),
-            NavigationDestination(
-              key: ValueKey('pestana_metricas'),
-              icon: Icon(Icons.insights_outlined),
-              selectedIcon: Icon(Icons.insights),
-              label: 'Métricas',
-            ),
-          ],
+            destinations: const [
+              NavigationDestination(
+                key: ValueKey('pestana_agenda'),
+                icon: Icon(Icons.calendar_today_outlined),
+                selectedIcon: Icon(Icons.calendar_today),
+                label: 'Agenda',
+              ),
+              NavigationDestination(
+                key: ValueKey('pestana_puestos'),
+                icon: Icon(Icons.local_car_wash_outlined),
+                selectedIcon: Icon(Icons.local_car_wash),
+                label: 'Puestos',
+              ),
+              NavigationDestination(
+                key: ValueKey('pestana_catalogo'),
+                icon: Icon(Icons.room_service_outlined),
+                selectedIcon: Icon(Icons.room_service),
+                label: 'Catálogo',
+              ),
+              NavigationDestination(
+                key: ValueKey('pestana_validar'),
+                icon: Icon(Icons.qr_code_scanner_outlined),
+                selectedIcon: Icon(Icons.qr_code_scanner),
+                label: 'Validar',
+              ),
+              NavigationDestination(
+                key: ValueKey('pestana_metricas'),
+                icon: Icon(Icons.insights_outlined),
+                selectedIcon: Icon(Icons.insights),
+                label: 'Métricas',
+              ),
+            ],
+          ),
         ),
       ),
     );

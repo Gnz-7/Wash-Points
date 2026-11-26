@@ -10,12 +10,12 @@ import 'package:wash_points_app/features/panel/presentation/metricas/pantalla_me
 import '../../soporte/repositorio_metricas_falso.dart';
 
 Widget _app(RepositorioMetricasFalso repositorio) => ProviderScope(
-      overrides: <Override>[
-        repositorioMetricasProvider.overrideWithValue(repositorio),
-        lavaderoActualProvider.overrideWithValue('lavadero-5'),
-      ],
-      child: const MaterialApp(home: Scaffold(body: PantallaMetricas())),
-    );
+  overrides: <Override>[
+    repositorioMetricasProvider.overrideWithValue(repositorio),
+    lavaderoActualProvider.overrideWithValue('lavadero-5'),
+  ],
+  child: const MaterialApp(home: Scaffold(body: PantallaMetricas())),
+);
 
 void main() {
   testWidgets('muestra la capacidad del día', (tester) async {
@@ -31,8 +31,9 @@ void main() {
     expect(find.text('2'), findsOneWidget);
   });
 
-  testWidgets('la tarjeta de ingresos rotula las tres magnitudes',
-      (tester) async {
+  testWidgets('la tarjeta de ingresos rotula las tres magnitudes', (
+    tester,
+  ) async {
     await tester.pumpWidget(_app(RepositorioMetricasFalso()));
     await tester.pumpAndSettle();
 
@@ -46,8 +47,9 @@ void main() {
     expect(find.text('ARS'), findsOneWidget);
   });
 
-  testWidgets('nunca muestra la suma de las magnitudes de dinero',
-      (tester) async {
+  testWidgets('nunca muestra la suma de las magnitudes de dinero', (
+    tester,
+  ) async {
     await tester.pumpWidget(_app(RepositorioMetricasFalso()));
     await tester.pumpAndSettle();
 
@@ -66,6 +68,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.fling(
+      find.byKey(const ValueKey('lista_metricas')),
+      const Offset(0, -420),
+      1200,
+    );
+    await tester.pumpAndSettle();
+
     expect(find.byKey(const ValueKey('fila_ocupacion_p1')), findsOneWidget);
     expect(find.byKey(const ValueKey('barra_ocupacion_p1')), findsOneWidget);
     expect(find.text('Box 1'), findsOneWidget);
@@ -76,11 +85,19 @@ void main() {
     await tester.pumpWidget(_app(RepositorioMetricasFalso()));
     await tester.pumpAndSettle();
 
+    await tester.fling(
+      find.byKey(const ValueKey('lista_metricas')),
+      const Offset(0, -420),
+      1200,
+    );
+    await tester.pumpAndSettle();
+
     expect(find.byKey(const ValueKey('estado_vacio')), findsOneWidget);
   });
 
-  testWidgets('un error muestra el estado de error con su mensaje',
-      (tester) async {
+  testWidgets('un error muestra el estado de error con su mensaje', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       _app(
         RepositorioMetricasFalso(

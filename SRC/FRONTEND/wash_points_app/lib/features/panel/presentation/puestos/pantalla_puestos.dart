@@ -62,44 +62,58 @@ class _PantallaPuestosState extends ConsumerState<PantallaPuestos> {
               key: const ValueKey('pantalla_puestos'),
               padding: const EdgeInsets.all(16),
               child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              TextField(
-                key: const ValueKey('campo_nombre_puesto'),
-                controller: _nombre,
-                decoration: const InputDecoration(
-                  labelText: 'Nombre del puesto',
-                ),
-                onSubmitted: (_) => _crear(),
-              ),
-              const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton(
-                  key: const ValueKey('boton_crear_puesto'),
-                  onPressed: _crear,
-                  child: const Text('Agregar'),
-                ),
-              ),
-              if (datos?.errorAccion != null) ...<Widget>[
-                const SizedBox(height: 12),
-                Text(
-                  datos!.errorAccion!,
-                  key: const ValueKey('mensaje_error'),
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-              ],
-              if (datos?.detalleAccion != null) ...<Widget>[
-                const SizedBox(height: 4),
-                Text(
-                  datos!.detalleAccion!,
-                  key: const ValueKey('detalle_error'),
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-              const SizedBox(height: 16),
-              Expanded(child: _lista(context, estado)),
-              ],
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: <Widget>[
+                          TextField(
+                            key: const ValueKey('campo_nombre_puesto'),
+                            controller: _nombre,
+                            decoration: const InputDecoration(
+                              labelText: 'Nombre del puesto',
+                              prefixIcon: Icon(Icons.local_car_wash_outlined),
+                            ),
+                            onSubmitted: (_) => _crear(),
+                          ),
+                          const SizedBox(height: 12),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: FilledButton.icon(
+                              key: const ValueKey('boton_crear_puesto'),
+                              onPressed: _crear,
+                              icon: const Icon(Icons.add),
+                              label: const Text('Agregar'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (datos?.errorAccion != null) ...<Widget>[
+                    const SizedBox(height: 12),
+                    Text(
+                      datos!.errorAccion!,
+                      key: const ValueKey('mensaje_error'),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ],
+                  if (datos?.detalleAccion != null) ...<Widget>[
+                    const SizedBox(height: 4),
+                    Text(
+                      datos!.detalleAccion!,
+                      key: const ValueKey('detalle_error'),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  Expanded(child: _lista(context, estado)),
+                ],
               ),
             ),
           ),
@@ -152,36 +166,79 @@ class _PantallaPuestosState extends ConsumerState<PantallaPuestos> {
         ? 'todos los servicios'
         : '${puesto.tiposLavadoIds.length} servicios';
 
-    return Card(
-      key: ValueKey('tarjeta_puesto_${puesto.id}'),
-      child: ListTile(
-        title: Text(puesto.nombre),
-        subtitle: Text(
-          '${puesto.activo ? 'Activo' : 'Inactivo'} · $servicios',
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 220),
+      switchInCurve: Curves.easeOutCubic,
+      transitionBuilder: (child, animation) => FadeTransition(
+        opacity: animation,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.025),
+            end: Offset.zero,
+          ).animate(animation),
+          child: child,
         ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            TextButton(
-              key: ValueKey('boton_servicios_puesto_${puesto.id}'),
-              onPressed: () => _servicios(context, puesto),
-              child: const Text('Servicios'),
+      ),
+      child: KeyedSubtree(
+        key: ValueKey('${puesto.id}_${puesto.activo}_$servicios'),
+        child: Card(
+          key: ValueKey('tarjeta_puesto_${puesto.id}'),
+          margin: const EdgeInsets.only(bottom: 12),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 12, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Text(
+                        puesto.nombre,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    _InsigniaPuesto(activo: puesto.activo),
+                  ],
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  'Servicios: $servicios',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: 4,
+                  runSpacing: 4,
+                  children: <Widget>[
+                    OutlinedButton.icon(
+                      key: ValueKey('boton_servicios_puesto_${puesto.id}'),
+                      onPressed: () => _servicios(context, puesto),
+                      icon: const Icon(Icons.room_service_outlined, size: 18),
+                      label: const Text('Servicios'),
+                    ),
+                    if (puesto.activo)
+                      TextButton(
+                        key: ValueKey('boton_desactivar_puesto_${puesto.id}'),
+                        onPressed: () =>
+                            ref.read(puestosProvider.notifier).alternar(puesto),
+                        child: const Text('Desactivar'),
+                      )
+                    else
+                      TextButton(
+                        key: ValueKey('boton_activar_puesto_${puesto.id}'),
+                        onPressed: () =>
+                            ref.read(puestosProvider.notifier).alternar(puesto),
+                        child: const Text('Activar'),
+                      ),
+                  ],
+                ),
+              ],
             ),
-            if (puesto.activo)
-              TextButton(
-                key: ValueKey('boton_desactivar_puesto_${puesto.id}'),
-                onPressed: () =>
-                    ref.read(puestosProvider.notifier).alternar(puesto),
-                child: const Text('Desactivar'),
-              )
-            else
-              TextButton(
-                key: ValueKey('boton_activar_puesto_${puesto.id}'),
-                onPressed: () =>
-                    ref.read(puestosProvider.notifier).alternar(puesto),
-                child: const Text('Activar'),
-              ),
-          ],
+          ),
         ),
       ),
     );
@@ -223,10 +280,8 @@ class _PantallaPuestosState extends ConsumerState<PantallaPuestos> {
 
     final elegidos = await showDialog<List<String>>(
       context: context,
-      builder: (context) => _DialogoServicios(
-        tipos: catalogo.tipos,
-        seleccionados: actuales,
-      ),
+      builder: (context) =>
+          _DialogoServicios(tipos: catalogo.tipos, seleccionados: actuales),
     );
 
     if (elegidos == null) {
@@ -234,6 +289,35 @@ class _PantallaPuestosState extends ConsumerState<PantallaPuestos> {
     }
 
     await ref.read(puestosProvider.notifier).asignarTipos(puesto, elegidos);
+  }
+}
+
+class _InsigniaPuesto extends StatelessWidget {
+  const _InsigniaPuesto({required this.activo});
+
+  final bool activo;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = activo
+        ? const Color(0xFF059669)
+        : Theme.of(context).colorScheme.outline;
+    final texto = activo ? 'Activo' : 'Inactivo';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.32)),
+      ),
+      child: Text(
+        texto,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: color,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
   }
 }
 
