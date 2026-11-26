@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wash_points_app/app/app.dart';
+import 'package:wash_points_app/app/pantalla_inicio.dart';
 import 'package:wash_points_app/core/sesion/sesion.dart';
 import 'package:wash_points_app/core/sesion/sesion_provider.dart';
 import 'package:wash_points_app/features/misturnos/domain/turno_cliente.dart';
@@ -31,10 +32,12 @@ void main() {
     reembolsoMotivo: MotivoReembolso.clienteEnPlazo,
   );
 
-  testWidgets('el cliente llega a «Mis turnos» desde la búsqueda',
-      (tester) async {
+  testWidgets('el cliente llega a «Mis turnos» desde la búsqueda', (
+    tester,
+  ) async {
     final contenedor = ProviderContainer(
       overrides: <Override>[
+        duracionPantallaInicioProvider.overrideWithValue(Duration.zero),
         almacenSesionProvider.overrideWithValue(AlmacenSesionFalso()),
         repositorioMisTurnosProvider.overrideWithValue(
           RepositorioMisTurnosFalso(turnos: <TurnoCliente>[turno]),
@@ -43,7 +46,9 @@ void main() {
     );
     addTearDown(contenedor.dispose);
 
-    await contenedor.read(sesionProvider.notifier).iniciar(
+    await contenedor
+        .read(sesionProvider.notifier)
+        .iniciar(
           Sesion(
             usuarioId: 'usuario-1',
             token: 'token',

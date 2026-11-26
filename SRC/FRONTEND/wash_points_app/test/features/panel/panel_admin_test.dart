@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wash_points_app/app/app.dart';
+import 'package:wash_points_app/app/pantalla_inicio.dart';
 import 'package:wash_points_app/app/router.dart';
 import 'package:wash_points_app/core/sesion/sesion.dart';
 import 'package:wash_points_app/core/sesion/sesion_provider.dart';
@@ -54,6 +55,7 @@ void main() {
     final almacen = AlmacenSesionFalso();
     final contenedor = ProviderContainer(
       overrides: [
+        duracionPantallaInicioProvider.overrideWithValue(Duration.zero),
         almacenSesionProvider.overrideWithValue(almacen),
         // El panel construye los notifiers al abrir cada pestaña: sin estos
         // reemplazos el test saldría a la red.

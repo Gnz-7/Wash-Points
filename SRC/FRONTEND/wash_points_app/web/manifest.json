@@ -1,6 +1,6 @@
 {
-    "name": "wash_points_app",
-    "short_name": "wash_points_app",
+    "name": "Wash Points",
+    "short_name": "Wash Points",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#000000",

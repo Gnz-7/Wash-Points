@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'pantalla_inicio.dart';
 import 'router.dart';
 import 'tema.dart';
 
@@ -18,6 +19,8 @@ class WashPointsApp extends ConsumerWidget {
       theme: TemaWashPoints.claro,
       darkTheme: TemaWashPoints.oscuro,
       routerConfig: router,
+      builder: (context, child) =>
+          PuertaInicio(child: child ?? const SizedBox.shrink()),
     );
   }
 }
