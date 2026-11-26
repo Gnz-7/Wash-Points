@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:wash_points_app/core/errores/api_exception.dart';
+import 'package:wash_points_app/core/tiempo_real/evento_tiempo_real.dart';
+import 'package:wash_points_app/core/tiempo_real/tiempo_real_notifier.dart';
 
 import '../domain/catalogo_lavadero.dart';
 import '../domain/grilla_slots.dart';
@@ -65,6 +67,7 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva>
   bool _comprobanteMostrado = false;
 
   late final VoidCallback _detenerPolling;
+  StreamSubscription<EventoTiempoReal>? _eventosTiempoReal;
 
   EstadoReservaFlujo get _flujo =>
       ref.watch(reservaProvider(widget.lavaderoId));
@@ -76,11 +79,21 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva>
     _detenerPolling = ref
         .read(reservaProvider(widget.lavaderoId).notifier)
         .detenerPolling;
+    _eventosTiempoReal = ref
+        .read(eventosTiempoRealProvider)
+        .listen(_alRecibirEvento);
+    unawaited(_conectarTiempoReal());
+    unawaited(
+      ref
+          .read(reservaProvider(widget.lavaderoId).notifier)
+          .revalidarTurnoActivo(),
+    );
   }
 
   @override
   void dispose() {
     _detenerPolling();
+    unawaited(_eventosTiempoReal?.cancel());
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -96,7 +109,31 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva>
     final flujo = ref.read(reservaProvider(widget.lavaderoId));
     if (flujo.fase == FaseReserva.esperandoPago && flujo.reserva != null) {
       unawaited(_verificar(silencioso: true));
+    } else if (flujo.fase == FaseReserva.confirmada) {
+      unawaited(
+        ref
+            .read(reservaProvider(widget.lavaderoId).notifier)
+            .revalidarTurnoActivo(),
+      );
     }
+  }
+
+  Future<void> _conectarTiempoReal() async {
+    try {
+      final canal = ref.read(tiempoRealProvider.notifier);
+      await canal.iniciar();
+      await canal.unirseALavadero(widget.lavaderoId);
+    } on Object {
+      // El chequeo al volver al frente mantiene el flujo usable sin SignalR.
+    }
+  }
+
+  void _alRecibirEvento(EventoTiempoReal evento) {
+    unawaited(
+      ref
+          .read(reservaProvider(widget.lavaderoId).notifier)
+          .revalidarSiCambioTurno(evento),
+    );
   }
 
   Future<void> _verificar({bool silencioso = false}) => ref
@@ -110,6 +147,18 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva>
       // dejado de estar disponible, así que se suelta la selección.
       if (actual.mensaje != null && anterior?.mensaje != actual.mensaje) {
         setState(() => _slot = null);
+      }
+
+      if (anterior?.reserva != null &&
+          actual.reserva == null &&
+          actual.fase == FaseReserva.seleccionando) {
+        setState(() {
+          _slot = null;
+          _puestoId = null;
+          _tipoLavadoId = null;
+          _fecha = null;
+        });
+        _comprobanteMostrado = false;
       }
 
       // Slice-20 (CA-S20.17): al pasar a confirmada se empuja el comprobante
@@ -430,8 +479,27 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva>
           onPressed: () => context.go('/mis-turnos'),
           child: const Text('Ir a mis turnos'),
         ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(
+            key: const ValueKey('boton_reservar_otro_turno'),
+            onPressed: _iniciarNuevaReserva,
+            child: const Text('Reservar otro turno'),
+          ),
+        ),
       ],
     );
+  }
+
+  void _iniciarNuevaReserva() {
+    setState(() {
+      _slot = null;
+      _puestoId = null;
+      _tipoLavadoId = null;
+      _fecha = null;
+    });
+    _comprobanteMostrado = false;
+    ref.read(reservaProvider(widget.lavaderoId).notifier).reintentar();
   }
 
   Widget _rechazada(EstadoReservaFlujo flujo) => ListView(

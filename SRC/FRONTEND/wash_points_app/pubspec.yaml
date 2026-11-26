@@ -48,6 +48,7 @@ dependencies:
   mobile_scanner: ^7.0.0
   path_provider: ^2.1.6
   crypto: ^3.0.8
+  screen_brightness: 2.1.12
 
 dev_dependencies:
   flutter_test:

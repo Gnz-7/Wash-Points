@@ -13,15 +13,24 @@ enum EstadoReserva {
   desconocido;
 
   static EstadoReserva desdeValor(String? valor) => switch (valor) {
-        'pendiente_pago' => EstadoReserva.pendientePago,
-        'confirmado' => EstadoReserva.confirmada,
-        'en_curso' => EstadoReserva.enCurso,
-        'finalizado' => EstadoReserva.finalizada,
-        'cancelado' => EstadoReserva.cancelada,
-        'no_presentado' => EstadoReserva.noPresentado,
-        'expirado' => EstadoReserva.expirada,
-        _ => EstadoReserva.desconocido,
-      };
+    'pendiente_pago' => EstadoReserva.pendientePago,
+    'confirmado' => EstadoReserva.confirmada,
+    'en_curso' => EstadoReserva.enCurso,
+    'finalizado' => EstadoReserva.finalizada,
+    'cancelado' => EstadoReserva.cancelada,
+    'no_presentado' => EstadoReserva.noPresentado,
+    'no_show' => EstadoReserva.noPresentado,
+    'expirado' => EstadoReserva.expirada,
+    _ => EstadoReserva.desconocido,
+  };
+
+  bool get esTerminal => switch (this) {
+    EstadoReserva.finalizada ||
+    EstadoReserva.cancelada ||
+    EstadoReserva.noPresentado ||
+    EstadoReserva.expirada => true,
+    _ => false,
+  };
 
   /// Solo estos estados ocupan un puesto (RB-2).
   bool get ocupaPuesto =>
@@ -54,8 +63,9 @@ class Reserva {
       precioSena: precioSena,
       // Slice-20 (CA-S20.13): el monto exacto de la seña que el backend
       // congela al reservar. Si no viene, el precio de la seña lo reemplaza.
-      montoSena:
-          json['montoSena'] is num ? _decimal(json['montoSena']) : precioSena,
+      montoSena: json['montoSena'] is num
+          ? _decimal(json['montoSena'])
+          : precioSena,
       mpPreferenceId: json['mpPreferenceId'] as String?,
       initPoint: json['initPoint'] as String?,
     );

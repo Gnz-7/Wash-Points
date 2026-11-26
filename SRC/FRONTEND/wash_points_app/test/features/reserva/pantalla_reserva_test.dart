@@ -3,12 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:wash_points_app/core/errores/api_exception.dart';
+import 'package:wash_points_app/core/tiempo_real/evento_tiempo_real.dart';
+import 'package:wash_points_app/core/tiempo_real/tiempo_real_notifier.dart';
 import 'package:wash_points_app/features/reserva/domain/catalogo_lavadero.dart';
 import 'package:wash_points_app/features/reserva/domain/reserva.dart';
 import 'package:wash_points_app/features/reserva/presentation/pantalla_reserva.dart';
 import 'package:wash_points_app/features/reserva/presentation/reserva_notifier.dart';
 
 import '../../soporte/abridor_checkout_falso.dart';
+import '../../soporte/canal_tiempo_real_falso.dart';
 import '../../soporte/repositorio_reservas_falso.dart';
 
 void main() {
@@ -39,6 +42,7 @@ void main() {
     RepositorioReservasFalso repositorio, {
     AbridorCheckoutFalso? abridor,
     Duration intervaloPolling = Duration.zero,
+    CanalTiempoRealFalso? canal,
   }) {
     final router = GoRouter(
       initialLocation: '/reserva',
@@ -74,6 +78,9 @@ void main() {
             abridor ?? AbridorCheckoutFalso(),
           ),
           intervaloPollingPagoProvider.overrideWithValue(intervaloPolling),
+          if (canal != null) tokenTiempoRealProvider.overrideWithValue('token'),
+          if (canal != null)
+            canalTiempoRealProvider.overrideWithValue(() => canal),
         ],
         child: MaterialApp.router(routerConfig: router),
       ),
@@ -169,31 +176,32 @@ void main() {
     );
   });
 
-  testWidgets('un turno cancelado se muestra como rechazado y permite reintentar', (
-    tester,
-  ) async {
-    final repositorio = RepositorioReservasFalso(
-      estadoTurno: reservaDeEjemplo(estado: EstadoReserva.cancelada),
-    );
-    await tester.pumpWidget(app(repositorio));
-    await tester.pumpAndSettle();
+  testWidgets(
+    'un turno cancelado se muestra como rechazado y permite reintentar',
+    (tester) async {
+      final repositorio = RepositorioReservasFalso(
+        estadoTurno: reservaDeEjemplo(estado: EstadoReserva.cancelada),
+      );
+      await tester.pumpWidget(app(repositorio));
+      await tester.pumpAndSettle();
 
-    await elegirTodo(tester);
-    final confirmar = find.byKey(const ValueKey('boton_confirmar_reserva'));
-    await tester.ensureVisible(confirmar);
-    await tester.tap(confirmar);
-    await tester.pumpAndSettle();
+      await elegirTodo(tester);
+      final confirmar = find.byKey(const ValueKey('boton_confirmar_reserva'));
+      await tester.ensureVisible(confirmar);
+      await tester.tap(confirmar);
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('boton_verificar_pago')));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('boton_verificar_pago')));
+      await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('estado_rechazada')), findsOneWidget);
+      expect(find.byKey(const ValueKey('estado_rechazada')), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('boton_reintentar')));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('boton_reintentar')));
+      await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('opcion_tipo_tipo-1')), findsOneWidget);
-  });
+      expect(find.byKey(const ValueKey('opcion_tipo_tipo-1')), findsOneWidget);
+    },
+  );
 
   testWidgets('solo ofrece los puestos que atienden el servicio elegido', (
     tester,
@@ -212,9 +220,7 @@ void main() {
       tipos: catalogoDeEjemplo().tipos,
     );
 
-    await tester.pumpWidget(
-      app(RepositorioReservasFalso(catalogo: catalogo)),
-    );
+    await tester.pumpWidget(app(RepositorioReservasFalso(catalogo: catalogo)));
     await tester.pumpAndSettle();
 
     await elegirTodo(tester);
@@ -223,10 +229,7 @@ void main() {
       find.byKey(const ValueKey('opcion_puesto_puesto-1')),
       findsOneWidget,
     );
-    expect(
-      find.byKey(const ValueKey('opcion_puesto_puesto-2')),
-      findsNothing,
-    );
+    expect(find.byKey(const ValueKey('opcion_puesto_puesto-2')), findsNothing);
   });
 
   testWidgets('un día sin atención muestra que el lavadero está cerrado', (
@@ -283,10 +286,7 @@ void main() {
       find.byKey(const ValueKey('pantalla_comprobante_destino')),
       findsNothing,
     );
-    expect(
-      find.byKey(const ValueKey('boton_ver_comprobante')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const ValueKey('boton_ver_comprobante')), findsOneWidget);
   });
 
   testWidgets('un rechazo del servidor se muestra con su mensaje', (
@@ -398,16 +398,20 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('mientras espera el pago avisa que la pantalla se actualiza sola', (
-    tester,
-  ) async {
-    // Slice-21 (D-21.19): el cliente no debe volver a pagar ni quedar
-    // esperando un botón; se le dice que el pago se detecta automáticamente.
-    await llegarAEsperandoPago(tester, RepositorioReservasFalso());
+  testWidgets(
+    'mientras espera el pago avisa que la pantalla se actualiza sola',
+    (tester) async {
+      // Slice-21 (D-21.19): el cliente no debe volver a pagar ni quedar
+      // esperando un botón; se le dice que el pago se detecta automáticamente.
+      await llegarAEsperandoPago(tester, RepositorioReservasFalso());
 
-    expect(find.byKey(const ValueKey('aviso_pago_automatico')), findsOneWidget);
-    expect(find.textContaining('se actualiza sola'), findsOneWidget);
-  });
+      expect(
+        find.byKey(const ValueKey('aviso_pago_automatico')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('se actualiza sola'), findsOneWidget);
+    },
+  );
 
   testWidgets('al volver a la app verifica el pago sin tocar el botón', (
     tester,
@@ -454,6 +458,56 @@ void main() {
     );
   });
 
+  testWidgets('un evento terminal libera la pantalla para otra reserva', (
+    tester,
+  ) async {
+    final canal = CanalTiempoRealFalso();
+    final repositorio = RepositorioReservasFalso(
+      estadoTurno: reservaDeEjemplo(estado: EstadoReserva.confirmada),
+    );
+    final destino = appConRouter(tester, repositorio, canal: canal);
+    await tester.pumpWidget(destino.pantalla);
+    await tester.pumpAndSettle();
+    await elegirTodo(tester);
+
+    final confirmar = find.byKey(const ValueKey('boton_confirmar_reserva'));
+    await tester.ensureVisible(confirmar);
+    await tester.tap(confirmar);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('boton_verificar_pago')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('pantalla_comprobante_destino')),
+      findsOneWidget,
+    );
+
+    repositorio.estadoTurno = reservaDeEjemplo(
+      estado: EstadoReserva.finalizada,
+    );
+    canal.emitir(
+      EventoTiempoReal(
+        tipo: 'disponibilidad_actualizada',
+        lavaderoId: 'lav-1',
+        turnoId: 'turno-1',
+        puestoId: 'puesto-1',
+        origen: 'app',
+        estado: 'finalizado',
+        desdeUtc: DateTime.utc(2026, 10, 29, 13),
+        hastaUtc: DateTime.utc(2026, 10, 29, 13, 30),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    destino.router.pop();
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('boton_confirmar_reserva')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('estado_confirmada')), findsNothing);
+  });
+
   testWidgets('la vista confirmada ofrece ir a mis turnos', (tester) async {
     final repositorio = RepositorioReservasFalso(
       estadoTurno: reservaDeEjemplo(estado: EstadoReserva.confirmada),
@@ -475,6 +529,10 @@ void main() {
     destino.router.go('/reserva');
     await tester.pumpAndSettle();
 
+    expect(
+      find.byKey(const ValueKey('boton_reservar_otro_turno')),
+      findsOneWidget,
+    );
     final misTurnos = find.byKey(const ValueKey('boton_mis_turnos'));
     await tester.ensureVisible(misTurnos);
     await tester.tap(misTurnos);

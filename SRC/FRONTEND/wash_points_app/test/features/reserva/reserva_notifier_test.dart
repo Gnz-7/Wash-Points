@@ -119,6 +119,34 @@ void main() {
     expect(c.read(reservaProvider('lav-1')).fase, FaseReserva.rechazada);
   });
 
+  test('un estado no_show se interpreta como terminal', () {
+    expect(EstadoReserva.desdeValor('no_show'), EstadoReserva.noPresentado);
+    expect(EstadoReserva.noPresentado.esTerminal, isTrue);
+    expect(EstadoReserva.finalizada.esTerminal, isTrue);
+    expect(EstadoReserva.cancelada.esTerminal, isTrue);
+    expect(EstadoReserva.expirada.esTerminal, isTrue);
+  });
+
+  test('revalida y limpia el turno anterior cuando ya finalizó', () async {
+    final repositorio = RepositorioReservasFalso(
+      estadoTurno: reservaDeEjemplo(estado: EstadoReserva.confirmada),
+    );
+    final c = contenedor(repositorio, AbridorCheckoutFalso());
+
+    await confirmar(c);
+    await c.read(reservaProvider('lav-1').notifier).verificarEstado();
+    repositorio.estadoTurno = reservaDeEjemplo(
+      estado: EstadoReserva.finalizada,
+    );
+
+    await c.read(reservaProvider('lav-1').notifier).revalidarTurnoActivo();
+
+    final estado = c.read(reservaProvider('lav-1'));
+    expect(repositorio.consultas, ['turno-1']);
+    expect(estado.fase, FaseReserva.seleccionando);
+    expect(estado.reserva, isNull);
+  });
+
   test(
     'un turno expirado vuelve al camino de rechazo (regresión slice-20)',
     () async {

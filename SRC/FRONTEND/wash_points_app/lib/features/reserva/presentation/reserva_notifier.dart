@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:wash_points_app/core/errores/api_exception.dart';
 import 'package:wash_points_app/core/red/cliente_http.dart';
+import 'package:wash_points_app/core/tiempo_real/evento_tiempo_real.dart';
 
 import '../data/abridor_checkout_url_launcher.dart';
 import '../data/repositorio_reservas_http.dart';
@@ -156,6 +157,7 @@ final reservaProvider =
 /// [FaseReserva.confirmada].
 class ReservaNotifier extends FamilyNotifier<EstadoReservaFlujo, String> {
   Timer? _polling;
+  bool _revalidandoTurno = false;
 
   /// Rechazos que dejan la grilla vieja: se vuelve a pedir (D-17.9, §5.4).
   static const _codigosQueRecarganGrilla = <CodigoError>{
@@ -282,6 +284,56 @@ class ReservaNotifier extends FamilyNotifier<EstadoReservaFlujo, String> {
       );
       _sincronizarPolling();
     }
+  }
+
+  /// Confirma que un turno actualmente mostrado como activo siga vigente.
+  ///
+  /// El evento del hub solo invalida el estado local; el backend sigue siendo
+  /// la fuente de verdad antes de liberar el flujo para otra reserva.
+  Future<void> revalidarTurnoActivo() async {
+    final reserva = state.reserva;
+    if (reserva == null ||
+        state.fase != FaseReserva.confirmada ||
+        _revalidandoTurno) {
+      return;
+    }
+
+    _revalidandoTurno = true;
+    try {
+      final actual = await ref
+          .read(repositorioReservasProvider)
+          .consultarTurno(reserva.id);
+
+      if (state.reserva?.id != reserva.id) {
+        return;
+      }
+
+      if (actual.estado.esTerminal) {
+        reintentar();
+        return;
+      }
+
+      state = EstadoReservaFlujo(fase: state.fase, reserva: actual);
+    } on Object {
+      // Si no se puede revalidar por red, se conserva el estado conocido.
+    } finally {
+      _revalidandoTurno = false;
+    }
+  }
+
+  /// Revalida el turno si SignalR publicó un cambio para el lavadero y turno
+  /// actualmente mostrados.
+  Future<void> revalidarSiCambioTurno(EventoTiempoReal evento) {
+    final reserva = state.reserva;
+    if (reserva == null ||
+        state.fase != FaseReserva.confirmada ||
+        evento.lavaderoId != arg ||
+        evento.turnoId != reserva.id ||
+        !EstadoReserva.desdeValor(evento.estado).esTerminal) {
+      return Future<void>.value();
+    }
+
+    return revalidarTurnoActivo();
   }
 
   /// Vuelve a la selección para intentar otra reserva.

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:wash_points_app/core/errores/api_exception.dart';
 import 'package:wash_points_app/features/comprobante/presentation/comprobante_notifier.dart';
 import 'package:wash_points_app/features/comprobante/presentation/pantalla_comprobante.dart';
@@ -34,6 +35,12 @@ void main() {
     expect(find.byKey(const ValueKey('qr_comprobante')), findsOneWidget);
     expect(find.byKey(const ValueKey('codigo_comprobante')), findsOneWidget);
     expect(find.byKey(const ValueKey('detalle_comprobante')), findsOneWidget);
+    final qr = tester.widget<QrImageView>(
+      find.byKey(const ValueKey('qr_comprobante')),
+    );
+    expect(qr.backgroundColor, Colors.white);
+    expect(qr.eyeStyle.color, Colors.black);
+    expect(qr.dataModuleStyle.color, Colors.black);
     expect(find.text('WPK-7Q4M-2XB9'), findsOneWidget);
     expect(find.byKey(const ValueKey('boton_volver_inicio')), findsOneWidget);
   });

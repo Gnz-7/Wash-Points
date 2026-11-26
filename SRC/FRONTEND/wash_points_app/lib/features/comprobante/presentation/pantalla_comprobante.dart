@@ -1,8 +1,12 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:screen_brightness/screen_brightness.dart';
 
 import '../../../core/errores/api_exception.dart';
 import '../../reserva/domain/reserva.dart';
@@ -24,7 +28,7 @@ final _verificacionRetornoPagoProvider = FutureProvider.family<Reserva, String>(
 ///
 /// El cliente no valida ni canjea nada: el canje es del administrador
 /// (Slice 10).
-class PantallaComprobante extends ConsumerWidget {
+class PantallaComprobante extends ConsumerStatefulWidget {
   const PantallaComprobante({
     required this.turnoId,
     this.reserva,
@@ -37,9 +41,80 @@ class PantallaComprobante extends ConsumerWidget {
   final bool verificarPagoAlIngresar;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (verificarPagoAlIngresar) {
-      final verificacion = ref.watch(_verificacionRetornoPagoProvider(turnoId));
+  ConsumerState<PantallaComprobante> createState() =>
+      _PantallaComprobanteState();
+}
+
+class _PantallaComprobanteState extends ConsumerState<PantallaComprobante>
+    with WidgetsBindingObserver {
+  double? _brilloAnterior;
+  Future<void> _colaBrillo = Future<void>.value();
+
+  bool get _esMovil =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _subirBrillo();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _subirBrillo();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    if (_esMovil) {
+      unawaited(_restaurarBrillo());
+    }
+    super.dispose();
+  }
+
+  void _subirBrillo() {
+    if (_esMovil) {
+      _colaBrillo = _colaBrillo.then((_) => _aplicarBrilloMaximo());
+    }
+  }
+
+  Future<void> _aplicarBrilloMaximo() async {
+    try {
+      _brilloAnterior ??= await ScreenBrightness.instance.application;
+      await ScreenBrightness.instance.setApplicationScreenBrightness(1);
+    } on Object {
+      // El comprobante sigue disponible si el dispositivo no admite brillo.
+    }
+  }
+
+  Future<void> _restaurarBrillo() async {
+    await _colaBrillo;
+    final brilloAnterior = _brilloAnterior;
+    if (brilloAnterior == null) {
+      return;
+    }
+
+    try {
+      await ScreenBrightness.instance.setApplicationScreenBrightness(
+        brilloAnterior,
+      );
+    } on Object {
+      // Restaurar el brillo es best-effort y no debe bloquear la navegación.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.verificarPagoAlIngresar) {
+      final verificacion = ref.watch(
+        _verificacionRetornoPagoProvider(widget.turnoId),
+      );
       return Scaffold(
         key: const ValueKey('pantalla_comprobante'),
         appBar: AppBar(title: const Text('Comprobante')),
@@ -78,7 +153,7 @@ class PantallaComprobante extends ConsumerWidget {
   }
 
   Widget _contenido(BuildContext context, WidgetRef ref) {
-    final estado = ref.watch(comprobanteProvider(turnoId));
+    final estado = ref.watch(comprobanteProvider(widget.turnoId));
 
     return estado.when(
       loading: () => const Center(
@@ -94,7 +169,7 @@ class PantallaComprobante extends ConsumerWidget {
         alIrAMisTurnos: () => context.go('/mis-turnos'),
       ),
       data: (comprobante) =>
-          _Contenido(comprobante: comprobante, reserva: reserva),
+          _Contenido(comprobante: comprobante, reserva: widget.reserva),
     );
   }
 
@@ -171,6 +246,9 @@ class _Contenido extends StatelessWidget {
               data: comprobante.qr,
               version: QrVersions.auto,
               size: 220,
+              backgroundColor: Colors.white,
+              eyeStyle: const QrEyeStyle(color: Colors.black),
+              dataModuleStyle: const QrDataModuleStyle(color: Colors.black),
             ),
           ),
           const SizedBox(height: 16),
