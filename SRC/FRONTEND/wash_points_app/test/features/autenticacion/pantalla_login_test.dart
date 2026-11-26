@@ -31,6 +31,7 @@ void main() {
     await montar(tester, RepositorioAutenticacionFalso());
 
     expect(find.byKey(const ValueKey('pantalla_login')), findsOneWidget);
+    expect(find.byKey(const ValueKey('logo_login')), findsOneWidget);
     expect(find.byKey(const ValueKey('campo_usuario')), findsOneWidget);
     expect(find.byKey(const ValueKey('campo_contrasena')), findsOneWidget);
     expect(find.byKey(const ValueKey('boton_ingresar')), findsOneWidget);

@@ -72,11 +72,14 @@ class _PantallaLoginState extends ConsumerState<PantallaLogin> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(height: 24),
-                Text(
-                  'Wash Points',
-                  style: Theme.of(context).textTheme.headlineMedium,
-                  textAlign: TextAlign.center,
+                const SizedBox(height: 12),
+                Image.asset(
+                  'assets/images/logo.png',
+                  key: const ValueKey('logo_login'),
+                  width: 144,
+                  height: 144,
+                  fit: BoxFit.contain,
+                  semanticLabel: 'Wash Points',
                 ),
                 const SizedBox(height: 8),
                 Text(
