@@ -55,6 +55,14 @@ class RepositorioReservasHttp implements RepositorioReservas {
   @override
   Future<Reserva> consultarTurno(String turnoId) async =>
       Reserva.desdeJson(await _api.obtener('/api/turnos/$turnoId'));
+
+  @override
+  Future<Reserva> verificarPago(String turnoId) async => Reserva.desdeJson(
+    await _api.enviar(
+      '/api/turnos/$turnoId/verificar-pago',
+      cuerpo: const <String, dynamic>{},
+    ),
+  );
 }
 
 /// `yyyy-MM-dd` en hora local del dispositivo, sin zona: el backend interpreta

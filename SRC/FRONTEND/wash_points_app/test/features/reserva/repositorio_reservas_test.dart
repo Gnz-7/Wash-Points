@@ -163,6 +163,28 @@ void main() {
     expect(reserva.initPoint, isNull);
   });
 
+  test('verificar el pago pega en /api/turnos/{id}/verificar-pago', () async {
+    // Slice-21 (D-21.19): la verificación es un POST al backend, que consulta
+    // a Mercado Pago. No es la consulta de estado (esa no toca la pasarela).
+    final api = ClienteApiFalso(
+      respuesta: <String, dynamic>{
+        'id': 'turno-1',
+        'estado': 'confirmado',
+        'puestoId': 'puesto-1',
+        'desde': '2026-10-29T13:00:00Z',
+        'hasta': '2026-10-29T13:30:00Z',
+        'precioSena': 3000,
+        'conciliacion': 'Aplicado',
+      },
+    );
+
+    final reserva = await RepositorioReservasHttp(api).verificarPago('turno-1');
+
+    expect(api.llamadas.single.ruta, '/api/turnos/turno-1/verificar-pago');
+    expect(reserva.estado, EstadoReserva.confirmada);
+    expect(api.llamadasGet, isEmpty);
+  });
+
   test('un 409 slot_ya_ocupado se propaga como ApiException', () async {
     final api = ClienteApiFalso(
       error: const ApiException(CodigoError.slotYaOcupado, estado: 409),

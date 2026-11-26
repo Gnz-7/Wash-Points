@@ -15,12 +15,16 @@ void main() {
   Widget app(
     RepositorioReservasFalso repositorio, {
     AbridorCheckoutFalso? abridor,
+    Duration intervaloPolling = Duration.zero,
   }) => ProviderScope(
     overrides: <Override>[
       repositorioReservasProvider.overrideWithValue(repositorio),
       abridorCheckoutProvider.overrideWithValue(
         abridor ?? AbridorCheckoutFalso(),
       ),
+      // Sin sondeo en los widget tests: un Timer periódico deja el test
+      // pendiente al desmontar. Los tests que lo prueban lo bajan a mano.
+      intervaloPollingPagoProvider.overrideWithValue(intervaloPolling),
     ],
     child: const MaterialApp(
       home: PantallaReserva(lavaderoId: 'lav-1', clienteId: 'cli-1'),
@@ -34,6 +38,7 @@ void main() {
     WidgetTester tester,
     RepositorioReservasFalso repositorio, {
     AbridorCheckoutFalso? abridor,
+    Duration intervaloPolling = Duration.zero,
   }) {
     final router = GoRouter(
       initialLocation: '/reserva',
@@ -50,6 +55,13 @@ void main() {
             key: const ValueKey('pantalla_comprobante_destino'),
           ),
         ),
+        GoRoute(
+          path: '/mis-turnos',
+          builder: (context, state) => const Text(
+            'mis turnos',
+            key: ValueKey('pantalla_mis_turnos_destino'),
+          ),
+        ),
       ],
     );
     addTearDown(router.dispose);
@@ -61,6 +73,7 @@ void main() {
           abridorCheckoutProvider.overrideWithValue(
             abridor ?? AbridorCheckoutFalso(),
           ),
+          intervaloPollingPagoProvider.overrideWithValue(intervaloPolling),
         ],
         child: MaterialApp.router(routerConfig: router),
       ),
@@ -368,5 +381,108 @@ void main() {
     // Antes de elegir fecha no se pide ninguna grilla.
     expect(find.byKey(const ValueKey('grilla_cargando')), findsNothing);
     expect(find.byKey(const ValueKey('opcion_tipo_tipo-1')), findsOneWidget);
+  });
+
+  /// Confirma una reserva y deja la pantalla en «esperando el pago».
+  Future<void> llegarAEsperandoPago(
+    WidgetTester tester,
+    RepositorioReservasFalso repositorio,
+  ) async {
+    await tester.pumpWidget(app(repositorio));
+    await tester.pumpAndSettle();
+    await elegirTodo(tester);
+
+    final confirmar = find.byKey(const ValueKey('boton_confirmar_reserva'));
+    await tester.ensureVisible(confirmar);
+    await tester.tap(confirmar);
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('mientras espera el pago avisa que la pantalla se actualiza sola', (
+    tester,
+  ) async {
+    // Slice-21 (D-21.19): el cliente no debe volver a pagar ni quedar
+    // esperando un botón; se le dice que el pago se detecta automáticamente.
+    await llegarAEsperandoPago(tester, RepositorioReservasFalso());
+
+    expect(find.byKey(const ValueKey('aviso_pago_automatico')), findsOneWidget);
+    expect(find.textContaining('se actualiza sola'), findsOneWidget);
+  });
+
+  testWidgets('al volver a la app verifica el pago sin tocar el botón', (
+    tester,
+  ) async {
+    final repositorio = RepositorioReservasFalso();
+    await llegarAEsperandoPago(tester, repositorio);
+    expect(repositorio.verificaciones, isEmpty);
+
+    // Volver de la pestaña de Mercado Pago dispara `resumed`.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+
+    expect(repositorio.verificaciones, <String>['turno-1']);
+  });
+
+  testWidgets('el sondeo confirma el pago y abre el comprobante', (
+    tester,
+  ) async {
+    // Con un intervalo corto el sondeo corre dentro del test: la pantalla
+    // pasa a confirmada sin que el cliente toque «Ya pagué, verificar».
+    final repositorio = RepositorioReservasFalso(
+      estadoTurno: reservaDeEjemplo(estado: EstadoReserva.confirmada),
+    );
+    final destino = appConRouter(
+      tester,
+      repositorio,
+      intervaloPolling: const Duration(milliseconds: 10),
+    );
+    await tester.pumpWidget(destino.pantalla);
+    await tester.pumpAndSettle();
+    await elegirTodo(tester);
+
+    final confirmar = find.byKey(const ValueKey('boton_confirmar_reserva'));
+    await tester.ensureVisible(confirmar);
+    await tester.tap(confirmar);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 30));
+    await tester.pumpAndSettle();
+
+    expect(repositorio.verificaciones, isNotEmpty);
+    expect(
+      find.byKey(const ValueKey('pantalla_comprobante_destino')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('la vista confirmada ofrece ir a mis turnos', (tester) async {
+    final repositorio = RepositorioReservasFalso(
+      estadoTurno: reservaDeEjemplo(estado: EstadoReserva.confirmada),
+    );
+    final destino = appConRouter(tester, repositorio);
+    await tester.pumpWidget(destino.pantalla);
+    await tester.pumpAndSettle();
+    await elegirTodo(tester);
+
+    final confirmar = find.byKey(const ValueKey('boton_confirmar_reserva'));
+    await tester.ensureVisible(confirmar);
+    await tester.tap(confirmar);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('boton_verificar_pago')));
+    await tester.pumpAndSettle();
+
+    // El comprobante se abre solo; se vuelve para usar el botón nuevo.
+    destino.router.go('/reserva');
+    await tester.pumpAndSettle();
+
+    final misTurnos = find.byKey(const ValueKey('boton_mis_turnos'));
+    await tester.ensureVisible(misTurnos);
+    await tester.tap(misTurnos);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('pantalla_mis_turnos_destino')),
+      findsOneWidget,
+    );
   });
 }

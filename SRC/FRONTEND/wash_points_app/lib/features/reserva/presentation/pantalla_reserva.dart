@@ -19,8 +19,9 @@ import 'reserva_notifier.dart';
 /// Identificadores estables para Maestro: `pantalla_reserva`,
 /// `opcion_puesto_<id>`, `opcion_tipo_<id>`, `opcion_fecha_<yyyyMMdd>`,
 /// `opcion_slot_<HHmm>`, `boton_confirmar_reserva`, `estado_esperando_pago`,
-/// `boton_abrir_checkout`, `boton_verificar_pago`, `estado_confirmada`,
-/// `estado_rechazada`, `boton_reintentar`.
+/// `boton_abrir_checkout`, `boton_verificar_pago`, `aviso_pago_automatico`,
+/// `estado_verificando_pago`, `estado_confirmada`, `boton_ver_comprobante`,
+/// `boton_mis_turnos`, `estado_rechazada`, `boton_reintentar`.
 class PantallaReserva extends ConsumerStatefulWidget {
   const PantallaReserva({
     super.key,
@@ -37,7 +38,8 @@ class PantallaReserva extends ConsumerStatefulWidget {
   ConsumerState<PantallaReserva> createState() => _PantallaReservaState();
 }
 
-class _PantallaReservaState extends ConsumerState<PantallaReserva> {
+class _PantallaReservaState extends ConsumerState<PantallaReserva>
+    with WidgetsBindingObserver {
   /// Días que ofrece el selector. Es una comodidad de UI: el servidor sigue
   /// siendo la autoridad del horizonte y rechaza con `fuera_de_horizonte`.
   static const _diasOfrecidos = 8;
@@ -62,7 +64,44 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva> {
   /// una nueva reserva lo vuelva a abrir.
   bool _comprobanteMostrado = false;
 
-  EstadoReservaFlujo get _flujo => ref.watch(reservaProvider(widget.lavaderoId));
+  late final VoidCallback _detenerPolling;
+
+  EstadoReservaFlujo get _flujo =>
+      ref.watch(reservaProvider(widget.lavaderoId));
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _detenerPolling = ref
+        .read(reservaProvider(widget.lavaderoId).notifier)
+        .detenerPolling;
+  }
+
+  @override
+  void dispose() {
+    _detenerPolling();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Volver del checkout (otra pestaña en web, otra app en móvil) dispara
+    // `resumed`: es el momento en que el pago suele estar aprobado.
+    if (state != AppLifecycleState.resumed) {
+      return;
+    }
+
+    final flujo = ref.read(reservaProvider(widget.lavaderoId));
+    if (flujo.fase == FaseReserva.esperandoPago && flujo.reserva != null) {
+      unawaited(_verificar(silencioso: true));
+    }
+  }
+
+  Future<void> _verificar({bool silencioso = false}) => ref
+      .read(reservaProvider(widget.lavaderoId).notifier)
+      .verificarEstado(silencioso: silencioso);
 
   @override
   Widget build(BuildContext context) {
@@ -102,10 +141,7 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva> {
     return Column(
       children: <Widget>[
         if (mensaje != null)
-          _Aviso(
-            key: const ValueKey('mensaje_error'),
-            texto: mensaje,
-          ),
+          _Aviso(key: const ValueKey('mensaje_error'), texto: mensaje),
         Expanded(child: _porFase(flujo)),
       ],
     );
@@ -130,8 +166,7 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva> {
         mensaje: error is ApiException
             ? error.mensaje
             : 'No pudimos cargar el catálogo.',
-        onReintentar: () =>
-            ref.invalidate(catalogoProvider(widget.lavaderoId)),
+        onReintentar: () => ref.invalidate(catalogoProvider(widget.lavaderoId)),
       ),
       data: (datos) => datos.vacio
           ? const Center(
@@ -261,13 +296,15 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva> {
           TextButton(
             key: const ValueKey('boton_reintentar_grilla'),
             onPressed: () => unawaited(
-              ref.read(slotsProvider.notifier).cargar(
-                ConsultaSlots(
-                  lavaderoId: widget.lavaderoId,
-                  fecha: _fecha!,
-                  tipoLavadoId: tipo.id,
-                ),
-              ),
+              ref
+                  .read(slotsProvider.notifier)
+                  .cargar(
+                    ConsultaSlots(
+                      lavaderoId: widget.lavaderoId,
+                      fecha: _fecha!,
+                      tipoLavadoId: tipo.id,
+                    ),
+                  ),
             ),
             child: const Text('Reintentar'),
           ),
@@ -328,18 +365,43 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva> {
         const SizedBox(height: 16),
         FilledButton(
           key: const ValueKey('boton_abrir_checkout'),
-          onPressed: () =>
-              ref.read(reservaProvider(widget.lavaderoId).notifier)
-                  .abrirCheckout(),
+          onPressed: () => ref
+              .read(reservaProvider(widget.lavaderoId).notifier)
+              .abrirCheckout(),
           child: const Text('Pagar la seña'),
         ),
         const SizedBox(height: 8),
         OutlinedButton(
           key: const ValueKey('boton_verificar_pago'),
-          onPressed: () =>
-              ref.read(reservaProvider(widget.lavaderoId).notifier)
-                  .verificarEstado(),
-          child: const Text('Ya pagué, verificar'),
+          onPressed: flujo.verificando ? null : () => _verificar(),
+          child: Text(
+            flujo.verificando ? 'Verificando…' : 'Ya pagué, verificar',
+          ),
+        ),
+        const SizedBox(height: 12),
+        // Slice-21 (D-21.19): el pago se detecta solo al volver del checkout.
+        // El texto evita que el cliente reintente pagar una seña ya abonada.
+        Row(
+          key: const ValueKey('aviso_pago_automatico'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            if (flujo.verificando)
+              const Padding(
+                padding: EdgeInsets.only(right: 8, top: 2),
+                child: SizedBox(
+                  key: ValueKey('estado_verificando_pago'),
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            const Expanded(
+              child: Text(
+                'Si ya pagaste, esta pantalla se actualiza sola en unos '
+                'segundos. No hace falta pagar de nuevo.',
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -353,14 +415,21 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva> {
       padding: const EdgeInsets.all(24),
       children: <Widget>[
         const Text('¡Listo! Tu turno está confirmado.'),
+        const SizedBox(height: 8),
+        const Text('El pago de la seña se acreditó correctamente.'),
         const SizedBox(height: 16),
         if (reserva != null)
           FilledButton(
             key: const ValueKey('boton_ver_comprobante'),
-            onPressed: () =>
-                context.push('/turnos/${reserva.id}/comprobante'),
+            onPressed: () => context.push('/turnos/${reserva.id}/comprobante'),
             child: const Text('Ver comprobante'),
           ),
+        const SizedBox(height: 8),
+        OutlinedButton(
+          key: const ValueKey('boton_mis_turnos'),
+          onPressed: () => context.go('/mis-turnos'),
+          child: const Text('Ir a mis turnos'),
+        ),
       ],
     );
   }
@@ -399,13 +468,15 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva> {
     final fecha = _fecha;
     if (fecha != null) {
       unawaited(
-        ref.read(slotsProvider.notifier).cargar(
-          ConsultaSlots(
-            lavaderoId: widget.lavaderoId,
-            fecha: fecha,
-            tipoLavadoId: tipo.id,
-          ),
-        ),
+        ref
+            .read(slotsProvider.notifier)
+            .cargar(
+              ConsultaSlots(
+                lavaderoId: widget.lavaderoId,
+                fecha: fecha,
+                tipoLavadoId: tipo.id,
+              ),
+            ),
       );
     }
   }
@@ -417,13 +488,15 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva> {
     });
 
     unawaited(
-      ref.read(slotsProvider.notifier).cargar(
-        ConsultaSlots(
-          lavaderoId: widget.lavaderoId,
-          fecha: fecha,
-          tipoLavadoId: tipo.id,
-        ),
-      ),
+      ref
+          .read(slotsProvider.notifier)
+          .cargar(
+            ConsultaSlots(
+              lavaderoId: widget.lavaderoId,
+              fecha: fecha,
+              tipoLavadoId: tipo.id,
+            ),
+          ),
     );
   }
 

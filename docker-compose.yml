@@ -42,6 +42,10 @@ services:
       # ya documentado; con la clave real de MP, completarla en .env.
       Pagos__WebhookSecret: ${PAGOS_WEBHOOK_SECRET:-washpoints-webhook-secret-local}
       Pagos__UrlNotificacion: ${PAGOS_URL_NOTIFICACION:-}
+      # Origen público de la web: base del retorno del checkout
+      # (<origen>/turnos/{id}/comprobante?origen=mp). Sin él, MP devuelve a la URL por defecto y el
+      # cliente no puede reconciliar el pago al volver.
+      Pagos__UrlWeb: ${PAGOS_URL_WEB:-}
       Comprobantes__ClaveCifrado: ${COMPROBANTES_CLAVE_CIFRADO:-}
     ports:
       - "8080:8080"

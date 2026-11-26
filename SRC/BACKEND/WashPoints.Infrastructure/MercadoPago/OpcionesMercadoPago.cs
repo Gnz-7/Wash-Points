@@ -31,7 +31,18 @@ public sealed class OpcionesMercadoPago
     /// <summary>URL pública a la que Mercado Pago notifica los eventos. Nunca <c>localhost</c>.</summary>
     public string? UrlNotificacion { get; init; }
 
-    /// <summary>URL de retorno del checkout cuando el pago termina.</summary>
+    /// <summary>
+    /// Origen público de la web (<c>Pagos:UrlWeb</c>), p. ej. el túnel de
+    /// Cloudflare. Es la base del retorno del checkout cuando la preferencia no
+    /// trae su propia URL por turno.
+    /// </summary>
+    public string? UrlWeb { get; init; }
+
+    /// <summary>
+    /// URL de retorno del checkout cuando el pago termina. Sólo se usa si no hay
+    /// <see cref="UrlWeb"/>: la reserva arma una URL por turno para que la app
+    /// reconcilie el pago al volver.
+    /// </summary>
     public string UrlRetorno { get; init; } = "https://washpoints.app/pago";
 
     /// <summary>

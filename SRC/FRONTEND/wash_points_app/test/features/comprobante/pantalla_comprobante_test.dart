@@ -4,15 +4,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wash_points_app/core/errores/api_exception.dart';
 import 'package:wash_points_app/features/comprobante/presentation/comprobante_notifier.dart';
 import 'package:wash_points_app/features/comprobante/presentation/pantalla_comprobante.dart';
+import 'package:wash_points_app/features/reserva/presentation/reserva_notifier.dart';
 import 'package:wash_points_app/features/reserva/domain/reserva.dart';
 
 import '../../soporte/repositorio_comprobantes_falso.dart';
 import '../../soporte/repositorio_reservas_falso.dart';
 
 void main() {
-  testWidgets('muestra el QR, el código en texto y los detalles del turno',
-      (tester) async {
-    final falso = RepositorioComprobantesFalso(comprobante: comprobanteDeEjemplo());
+  testWidgets('muestra el QR, el código en texto y los detalles del turno', (
+    tester,
+  ) async {
+    final falso = RepositorioComprobantesFalso(
+      comprobante: comprobanteDeEjemplo(),
+    );
 
     await tester.pumpWidget(
       ProviderScope(
@@ -34,8 +38,9 @@ void main() {
     expect(find.byKey(const ValueKey('boton_volver_inicio')), findsOneWidget);
   });
 
-  testWidgets('sin comprobante emitido muestra el estado no disponible',
-      (tester) async {
+  testWidgets('sin comprobante emitido muestra el estado no disponible', (
+    tester,
+  ) async {
     final falso = RepositorioComprobantesFalso(
       error: const ApiException(CodigoError.comprobanteNoEncontrado),
     );
@@ -43,9 +48,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [repositorioComprobantesProvider.overrideWithValue(falso)],
-        child: const MaterialApp(
-          home: PantallaComprobante(turnoId: 'turno-1'),
-        ),
+        child: const MaterialApp(home: PantallaComprobante(turnoId: 'turno-1')),
       ),
     );
     await tester.pumpAndSettle();
@@ -55,22 +58,58 @@ void main() {
     expect(find.textContaining('todavía no está disponible'), findsOneWidget);
   });
 
-  testWidgets('el código en texto sigue visible aunque no haya reserva cargada',
-      (tester) async {
-    final falso = RepositorioComprobantesFalso(comprobante: comprobanteDeEjemplo());
+  testWidgets(
+    'el código en texto sigue visible aunque no haya reserva cargada',
+    (tester) async {
+      final falso = RepositorioComprobantesFalso(
+        comprobante: comprobanteDeEjemplo(),
+      );
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [repositorioComprobantesProvider.overrideWithValue(falso)],
-        child: const MaterialApp(
-          home: PantallaComprobante(turnoId: 'turno-9'),
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [repositorioComprobantesProvider.overrideWithValue(falso)],
+          child: const MaterialApp(
+            home: PantallaComprobante(turnoId: 'turno-9'),
+          ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.text('WPK-7Q4M-2XB9'), findsOneWidget);
-    expect(find.byKey(const ValueKey('detalle_comprobante')), findsNothing);
-    expect(falso.pedidos, ['turno-9']);
-  });
+      expect(find.text('WPK-7Q4M-2XB9'), findsOneWidget);
+      expect(find.byKey(const ValueKey('detalle_comprobante')), findsNothing);
+      expect(falso.pedidos, ['turno-9']);
+    },
+  );
+
+  testWidgets(
+    'el retorno de Mercado Pago verifica antes de cargar el comprobante',
+    (tester) async {
+      final reservas = RepositorioReservasFalso(
+        estadoTurno: reservaDeEjemplo(estado: EstadoReserva.confirmada),
+      );
+      final comprobantes = RepositorioComprobantesFalso(
+        comprobante: comprobanteDeEjemplo(),
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            repositorioReservasProvider.overrideWithValue(reservas),
+            repositorioComprobantesProvider.overrideWithValue(comprobantes),
+          ],
+          child: const MaterialApp(
+            home: PantallaComprobante(
+              turnoId: 'turno-1',
+              verificarPagoAlIngresar: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(reservas.verificaciones, ['turno-1']);
+      expect(comprobantes.pedidos, ['turno-1']);
+      expect(find.byKey(const ValueKey('qr_comprobante')), findsOneWidget);
+    },
+  );
 }

@@ -167,69 +167,13 @@ public sealed class RespaldoYExpiracionServicio
 
         foreach (var turno in candidatos)
         {
-            // Un aprobado ya registrado es la fuente de verdad: si no pudo
-            // confirmar (slot ocupado), queda para conciliación manual y no se
-            // vuelve a insertar (el único parcial de approved lo impediría).
-            var yaAprobado = await _contexto.Pagos
-                .AnyAsync(p => p.TurnoId == turno.Id && p.Resultado == ResultadoPago.Approved, ct);
-            if (yaAprobado)
-            {
-                continue;
-            }
-
-            // Timeout propio por llamada: un proveedor lento no retrasa el tick
-            // ni el ciclo de expiración del resto (T-21).
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(_opciones.TimeoutRespaldoSegundos));
-
             try
             {
-                // Slice-20 (D-20.5): el respaldo consulta con el token del
-                // lavadero del turno. Un token rechazado (401) refresca y
-                // reintenta una vez; un lavadero desvinculado cae en el
-                // catch general y se reintenta en el próximo tick.
-                var accessToken = await _tokensMp.ObtenerTokenVigenteAsync(
-                    turno.LavaderoId, timeout.Token);
-
-                // La preferencia no es un payment id: se busca el pago por la
-                // referencia externa del turno (slice-15 D-15.2/T-153).
-                ResultadoVerificacionPago verificacion;
-
-                try
+                var resultado = await ConciliarTurnoAsync(turno, ct);
+                if (resultado == ResultadoConciliacion.Aplicado)
                 {
-                    verificacion = await _pasarela.BuscarPagoPorTurnoAsync(
-                        turno.Id, accessToken, timeout.Token);
-                }
-                catch (PasarelaTokenInvalidoException)
-                {
-                    var tokenFresco = await _tokensMp.RefrescarTokenAsync(
-                        turno.LavaderoId, timeout.Token);
-                    verificacion = await _pasarela.BuscarPagoPorTurnoAsync(
-                        turno.Id, tokenFresco, timeout.Token);
-                }
-
-                var debeAplicar =
-                    (verificacion.Estado == EstadoVerificacionPago.Aprobado ||
-                     verificacion.Estado == EstadoVerificacionPago.Rechazado) &&
-                    !string.IsNullOrWhiteSpace(verificacion.MpPaymentId);
-
-                if (debeAplicar)
-                {
-                    // Si ese pago ya está registrado (webhook o tick anterior),
-                    // no se vuelve a insertar: el UNIQUE de mp_payment_id lo
-                    // rechazaría y ensuciaría el contexto del lote.
-                    var yaRegistrado = await _contexto.Pagos
-                        .AnyAsync(p => p.MpPaymentId == verificacion.MpPaymentId, ct);
-                    if (yaRegistrado)
-                    {
-                        continue;
-                    }
-
-                    await _aplicador.AplicarVerificacionAsync(
-                        turno, verificacion.MpPaymentId!, verificacion.Estado, ct);
                     respaldados++;
                 }
-                // `pending`/`in_process`: no se hace nada; el TTL decide.
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
@@ -245,6 +189,104 @@ public sealed class RespaldoYExpiracionServicio
 
         return (respaldados, fallidos);
     }
+
+    /// <summary>
+    /// Consulta la pasarela para un turno concreto y aplica el pago si ya está
+    /// resuelto. Es la ruta única del worker y del endpoint de verificación en
+    /// caliente (<c>POST /api/turnos/{id}/verificar-pago</c>): un solo lugar
+    /// decide con qué token se consulta y cuándo se registra el pago (RB-1).
+    ///
+    /// Las excepciones de pasarela se propagan: el worker las cuenta como
+    /// fallidas y el endpoint las mapea a 503/422.
+    /// </summary>
+    public async Task<ResultadoConciliacion> ConciliarTurnoAsync(
+        Turno turno,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(turno.MpPreferenceId))
+        {
+            return ResultadoConciliacion.SinPreferencia;
+        }
+
+        // Un aprobado ya registrado es la fuente de verdad: si no pudo
+        // confirmar (slot ocupado), queda para conciliación manual y no se
+        // vuelve a insertar (el único parcial de approved lo impediría).
+        var yaAprobado = await _contexto.Pagos
+            .AnyAsync(p => p.TurnoId == turno.Id && p.Resultado == ResultadoPago.Approved, ct);
+        if (yaAprobado)
+        {
+            return ResultadoConciliacion.YaRegistrado;
+        }
+
+        // Timeout propio por llamada: un proveedor lento no retrasa el tick
+        // ni el ciclo de expiración del resto (T-21).
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(_opciones.TimeoutRespaldoSegundos));
+
+        // Slice-20 (D-20.5): se consulta con el token del lavadero del turno.
+        // Un token rechazado (401) refresca y reintenta una vez; un lavadero
+        // desvinculado lanza y el llamador decide (tick: se reintenta; API: 422).
+        var accessToken = await _tokensMp.ObtenerTokenVigenteAsync(
+            turno.LavaderoId, timeout.Token);
+
+        // La preferencia no es un payment id: se busca el pago por la
+        // referencia externa del turno (slice-15 D-15.2/T-153).
+        ResultadoVerificacionPago verificacion;
+
+        try
+        {
+            verificacion = await _pasarela.BuscarPagoPorTurnoAsync(
+                turno.Id, accessToken, timeout.Token);
+        }
+        catch (PasarelaTokenInvalidoException)
+        {
+            var tokenFresco = await _tokensMp.RefrescarTokenAsync(
+                turno.LavaderoId, timeout.Token);
+            verificacion = await _pasarela.BuscarPagoPorTurnoAsync(
+                turno.Id, tokenFresco, timeout.Token);
+        }
+
+        var debeAplicar =
+            (verificacion.Estado == EstadoVerificacionPago.Aprobado ||
+             verificacion.Estado == EstadoVerificacionPago.Rechazado) &&
+            !string.IsNullOrWhiteSpace(verificacion.MpPaymentId);
+
+        if (!debeAplicar)
+        {
+            // `pending`/`in_process`: no hay nada que aplicar todavía.
+            return ResultadoConciliacion.SinPago;
+        }
+
+        // Si ese pago ya está registrado (webhook o tick anterior), no se
+        // vuelve a insertar: el UNIQUE de mp_payment_id lo rechazaría.
+        var yaRegistrado = await _contexto.Pagos
+            .AnyAsync(p => p.MpPaymentId == verificacion.MpPaymentId, ct);
+        if (yaRegistrado)
+        {
+            return ResultadoConciliacion.YaRegistrado;
+        }
+
+        await _aplicador.AplicarVerificacionAsync(
+            turno, verificacion.MpPaymentId!, verificacion.Estado, ct);
+
+        return ResultadoConciliacion.Aplicado;
+    }
+}
+
+/// <summary>Desenlace de una conciliación puntual contra la pasarela.</summary>
+public enum ResultadoConciliacion
+{
+    /// <summary>La pasarela todavía no informa un pago resoluble.</summary>
+    SinPago,
+
+    /// <summary>Se registró el pago y, si correspondía, se transicionó el turno.</summary>
+    Aplicado,
+
+    /// <summary>El pago ya estaba registrado; no se duplicó.</summary>
+    YaRegistrado,
+
+    /// <summary>El turno no tiene preferencia de pago que consultar.</summary>
+    SinPreferencia,
 }
 
 /// <summary>Resumen de un tick del worker, útil para logs y tests.</summary>

@@ -39,6 +39,18 @@ public sealed class PasarelaPagosMercadoPago : IPasarelaPagos
         string accessToken,
         CancellationToken ct)
     {
+        // La reserva arma una URL por turno (`/turnos/{id}/comprobante?origen=mp`)
+        // para que la web reconcilie al volver. Sin ella se usa `Pagos:UrlWeb`
+        // y, como último recurso, la URL configurada. El retorno del navegador
+        // nunca confirma nada (RB-1).
+        var retorno = preferencia.UrlRetorno;
+        if (string.IsNullOrWhiteSpace(retorno))
+        {
+            retorno = string.IsNullOrWhiteSpace(_opciones.UrlWeb)
+                ? _opciones.UrlRetorno
+                : $"{_opciones.UrlWeb!.TrimEnd('/')}/turnos/{preferencia.TurnoId}/comprobante?origen=mp";
+        }
+
         var request = new PreferenceRequest
         {
             Items =
@@ -56,9 +68,9 @@ public sealed class PasarelaPagosMercadoPago : IPasarelaPagos
             NotificationUrl = _opciones.UrlNotificacion,
             BackUrls = new PreferenceBackUrlsRequest
             {
-                Success = _opciones.UrlRetorno,
-                Failure = _opciones.UrlRetorno,
-                Pending = _opciones.UrlRetorno,
+                Success = retorno,
+                Failure = retorno,
+                Pending = retorno,
             },
             AutoReturn = "approved",
             StatementDescriptor = "WASHPOINTS",

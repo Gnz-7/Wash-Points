@@ -51,6 +51,10 @@ public sealed class ReservaServicioReglasTest
         Assert.Equal(10, ConversorHorario.ALocal(turno.InicioUtc).Hour);
         Assert.Single(contexto.Ocupacion.Agregados);
         Assert.Single(contexto.Pasarela.PreferenciasCreadas);
+        var preferencia = Assert.Single(contexto.Pasarela.PreferenciasCreadas);
+        Assert.Equal(
+            $"https://web.test/turnos/{preferencia.TurnoId}/comprobante?origen=mp",
+            preferencia.UrlRetorno);
     }
 
     [Fact]
@@ -193,7 +197,7 @@ public sealed class ReservaServicioReglasTest
                 new OutboxFake(),
                 Pasarela,
                 new TokensLaxos(),
-                new OpcionesPago(),
+                new OpcionesPago { UrlWeb = "https://web.test/" },
                 new RelojFijo(Ahora),
                 new ConversorHorarioPort(),
                 horarios,

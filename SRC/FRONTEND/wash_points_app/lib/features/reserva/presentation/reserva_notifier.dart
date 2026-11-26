@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:wash_points_app/core/errores/api_exception.dart';
 import 'package:wash_points_app/core/red/cliente_http.dart';
@@ -115,6 +117,7 @@ class EstadoReservaFlujo {
     this.reserva,
     this.mensaje,
     this.codigo,
+    this.verificando = false,
   });
 
   final FaseReserva fase;
@@ -127,8 +130,19 @@ class EstadoReservaFlujo {
   /// regla temporal. La pantalla muestra [mensaje] en ambos casos.
   final CodigoError? codigo;
 
+  /// Hay una verificación de pago en vuelo (slice-21, D-21.19): la pantalla
+  /// muestra que está consultando y no dispara otra en paralelo.
+  final bool verificando;
+
   bool get esperandoPago => fase == FaseReserva.esperandoPago;
 }
+
+/// Cada cuánto el flujo de reserva vuelve a preguntar por el pago
+/// (slice-21, D-21.19). `Duration.zero` desactiva el sondeo: los widget tests
+/// lo usan para no dejar temporizadores pendientes.
+final intervaloPollingPagoProvider = Provider<Duration>(
+  (ref) => const Duration(seconds: 3),
+);
 
 final reservaProvider =
     NotifierProvider.family<ReservaNotifier, EstadoReservaFlujo, String>(
@@ -141,6 +155,8 @@ final reservaProvider =
 /// [verificarEstado] —que consulta al backend— puede pasar a
 /// [FaseReserva.confirmada].
 class ReservaNotifier extends FamilyNotifier<EstadoReservaFlujo, String> {
+  Timer? _polling;
+
   /// Rechazos que dejan la grilla vieja: se vuelve a pedir (D-17.9, §5.4).
   static const _codigosQueRecarganGrilla = <CodigoError>{
     CodigoError.anticipacionInsuficiente,
@@ -151,7 +167,10 @@ class ReservaNotifier extends FamilyNotifier<EstadoReservaFlujo, String> {
   };
 
   @override
-  EstadoReservaFlujo build(String lavaderoId) => const EstadoReservaFlujo();
+  EstadoReservaFlujo build(String lavaderoId) {
+    ref.onDispose(detenerPolling);
+    return const EstadoReservaFlujo();
+  }
 
   Future<void> confirmar({
     required String puestoId,
@@ -176,6 +195,7 @@ class ReservaNotifier extends FamilyNotifier<EstadoReservaFlujo, String> {
         fase: FaseReserva.esperandoPago,
         reserva: reserva,
       );
+      _sincronizarPolling();
     } on ApiException catch (error) {
       state = EstadoReservaFlujo(mensaje: error.mensaje, codigo: error.codigo);
 
@@ -218,34 +238,84 @@ class ReservaNotifier extends FamilyNotifier<EstadoReservaFlujo, String> {
     return abierto;
   }
 
-  /// Única vía a [FaseReserva.confirmada]: lo dice el backend, no el navegador.
-  Future<void> verificarEstado() async {
+  /// Única vía a [FaseReserva.confirmada]: lo dice el backend, que a su vez
+  /// consulta a Mercado Pago (slice-21, D-21.19). El navegador no confirma.
+  ///
+  /// [silencioso] lo usan el sondeo y el retorno del foco: un fallo de red no
+  /// debe tapar la pantalla con un error cada tres segundos.
+  Future<void> verificarEstado({bool silencioso = false}) async {
     final reserva = state.reserva;
-    if (reserva == null) {
+    if (reserva == null || state.verificando) {
       return;
     }
+
+    state = EstadoReservaFlujo(
+      fase: state.fase,
+      reserva: reserva,
+      verificando: true,
+    );
 
     try {
       final actual = await ref
           .read(repositorioReservasProvider)
-          .consultarTurno(reserva.id);
+          .verificarPago(reserva.id);
 
-      state = EstadoReservaFlujo(
-        fase: _faseDe(actual.estado),
-        reserva: actual,
-      );
+      state = EstadoReservaFlujo(fase: _faseDe(actual.estado), reserva: actual);
+      _sincronizarPolling();
     } on ApiException catch (error) {
       state = EstadoReservaFlujo(
         fase: state.fase,
         reserva: reserva,
-        mensaje: error.mensaje,
-        codigo: error.codigo,
+        mensaje: silencioso ? null : error.mensaje,
+        codigo: silencioso ? null : error.codigo,
       );
+      _sincronizarPolling();
+    } catch (_) {
+      // Un fallo inesperado no puede dejar la pantalla bloqueada en
+      // «verificando»: se vuelve a la espera y el sondeo reintenta.
+      state = EstadoReservaFlujo(
+        fase: state.fase,
+        reserva: reserva,
+        mensaje: silencioso
+            ? null
+            : 'No pudimos verificar el pago. Intentá de nuevo.',
+      );
+      _sincronizarPolling();
     }
   }
 
   /// Vuelve a la selección para intentar otra reserva.
-  void reintentar() => state = const EstadoReservaFlujo();
+  void reintentar() {
+    detenerPolling();
+    state = const EstadoReservaFlujo();
+  }
+
+  /// Detiene el sondeo al salir de la pantalla o destruir el flujo.
+  void detenerPolling() {
+    _polling?.cancel();
+    _polling = null;
+  }
+
+  void _sincronizarPolling() {
+    if (!state.esperandoPago) {
+      detenerPolling();
+      return;
+    }
+
+    if (_polling != null) {
+      return;
+    }
+
+    final intervalo = ref.read(intervaloPollingPagoProvider);
+    if (intervalo <= Duration.zero) {
+      return;
+    }
+
+    _polling = Timer.periodic(
+      intervalo,
+      (_) => unawaited(verificarEstado(silencioso: true)),
+    );
+  }
 
   static FaseReserva _faseDe(EstadoReserva estado) => switch (estado) {
     EstadoReserva.confirmada ||

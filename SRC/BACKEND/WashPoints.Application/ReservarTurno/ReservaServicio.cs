@@ -196,7 +196,11 @@ public sealed class ReservaServicio
                     TurnoId: turno.Id,
                     Monto: tipo.PrecioSena,
                     Descripcion: $"Seña {tipo.Nombre}",
-                    ReferenciaExterna: turno.Id.ToString());
+                    ReferenciaExterna: turno.Id.ToString(),
+                    // La web vuelve a una ruta propia con el turno en la query:
+                    // así la app verifica el pago en caliente al regresar del
+                    // checkout (el navegador nunca confirma nada por sí solo).
+                    UrlRetorno: ConstruirUrlRetorno(turno.Id));
                 var creada = await _pasarela.CrearPreferenciaAsync(preferencia, accessToken, ctTransaccion);
 
                 turno.RegistrarPreferenciaDePago(creada.PreferenceId, creada.InitPoint);
@@ -213,6 +217,23 @@ public sealed class ReservaServicio
         {
             return await RecuperarPorClaveOPropagarAsync(idempotencyKey, ct);
         }
+    }
+
+    /// <summary>
+    /// URL de retorno del checkout:
+    /// <c>{UrlWeb}/turnos/{id}/comprobante?origen=mp</c>. Sin
+    /// <see cref="OpcionesPago.UrlWeb"/> devuelve <c>null</c> y el adaptador usa
+    /// su URL por defecto. La query es sólo una pista de navegación: el pago se
+    /// confirma contra la pasarela, nunca por el retorno del navegador (RB-1).
+    /// </summary>
+    private string? ConstruirUrlRetorno(Guid turnoId)
+    {
+        if (string.IsNullOrWhiteSpace(_opciones.UrlWeb))
+        {
+            return null;
+        }
+
+        return $"{_opciones.UrlWeb.TrimEnd('/')}/turnos/{turnoId}/comprobante?origen=mp";
     }
 
     /// <summary>

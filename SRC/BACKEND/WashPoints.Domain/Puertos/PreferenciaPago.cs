@@ -11,8 +11,15 @@ namespace WashPoints.Domain.Puertos;
 /// Clave estable que la pasarela devuelve en el webhook; permite asociar el
 /// pago al turno sin confiar en el orden de llegada.
 /// </param>
+/// <param name="UrlRetorno">
+/// URL de la web a la que el checkout devuelve al cliente tras pagar. Es
+/// específica del turno (<c>/turnos/{id}/comprobante?origen=mp</c>) para que
+/// la app pueda reconciliar el pago al volver. Si es <c>null</c>, el adaptador
+/// usa la URL configurada por defecto.
+/// </param>
 public sealed record PreferenciaPago(
     Guid TurnoId,
     decimal Monto,
     string Descripcion,
-    string ReferenciaExterna);
+    string ReferenciaExterna,
+    string? UrlRetorno = null);

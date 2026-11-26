@@ -105,6 +105,24 @@ final routerProvider = Provider<GoRouter>((ref) {
         name: 'adminHorarios',
         builder: (context, state) => const PantallaHorarios(),
       ),
+      // Retorno anterior del checkout de Mercado Pago. Las preferencias nuevas
+      // vuelven directamente a `/turnos/:id/comprobante?origen=mp`; se conserva
+      // `/pago` para URLs ya emitidas. El cliente nunca confirma por parámetros
+      // de MP: la pantalla de comprobante verifica el pago contra el backend.
+      GoRoute(
+        path: '/pago',
+        name: 'retornoPago',
+        redirect: (context, state) {
+          final turnoId = state.uri.queryParameters['turnoId'] ??
+              state.uri.queryParameters['external_reference'];
+
+          if (turnoId == null || turnoId.isEmpty) {
+            return '/mis-turnos';
+          }
+
+          return '/turnos/$turnoId/comprobante?origen=mp';
+        },
+      ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navegacion) => PanelAdmin(
           navegacion: navegacion,
@@ -169,10 +187,15 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/turnos/:id/comprobante',
         name: 'comprobante',
-        builder: (context, state) => PantallaComprobante(
-          turnoId: state.pathParameters['id'] ?? '',
-          reserva: state.extra is Reserva ? state.extra! as Reserva : null,
-        ),
+        builder: (context, state) {
+          final turnoId = state.pathParameters['id'] ?? '';
+          return PantallaComprobante(
+            turnoId: turnoId,
+            reserva: state.extra is Reserva ? state.extra! as Reserva : null,
+            verificarPagoAlIngresar:
+                state.uri.queryParameters['origen'] == 'mp',
+          );
+        },
       ),
       GoRoute(
         path: '/lavaderos/:id',

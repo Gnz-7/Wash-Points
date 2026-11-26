@@ -772,21 +772,67 @@ app.MapGet("/api/turnos/{id:guid}", async (
         return Results.NotFound(new { error = "turno_no_encontrado" });
     }
 
-    return Results.Ok(new
-    {
-        id = turno.Id,
-        estado = EstadoAJson(turno.Estado),
-        puestoId = turno.PuestoId,
-        lavaderoId = turno.LavaderoId,
-        desde = ConversorHorario.ALocal(turno.InicioUtc),
-        hasta = ConversorHorario.ALocal(turno.FinUtc),
-        precioSena = turno.PrecioSena,
-        montoSena = turno.PrecioSena, // slice-20 (D-20.4): monto exacto de la seña.
-        mpPreferenceId = turno.MpPreferenceId,
-        initPoint = turno.InitPoint,
-    });
+    return Results.Ok(TurnoAJson(turno));
 })
 .WithName("ConsultarTurno")
+.RequireAuthorization()
+.WithOpenApi();
+
+// Verificación en caliente de la seña (slice-21, D-21.19): al volver del
+// checkout el cliente pide conciliar contra Mercado Pago. Nunca confirma por el
+// retorno del navegador (RB-1): consulta la pasarela con el token del lavadero y
+// aplica la misma regla que el webhook y el worker (`ConciliarTurnoAsync`). Es
+// idempotente: con el turno ya resuelto no toca la pasarela.
+app.MapPost("/api/turnos/{id:guid}/verificar-pago", async (
+    Guid id,
+    ClaimsPrincipal usuario,
+    IOcupacionRepositorio repositorio,
+    RespaldoYExpiracionServicio conciliador,
+    WashPointsDbContext contexto,
+    CancellationToken ct) =>
+{
+    var identidad = IdentidadDelToken.De(usuario);
+    if (identidad is null)
+    {
+        return Results.NotFound(new { error = "turno_no_encontrado" });
+    }
+
+    var turno = await repositorio.ObtenerAsync(id, ct);
+    if (turno is null || !EsTurnoDelPortador(turno, identidad))
+    {
+        return Results.NotFound(new { error = "turno_no_encontrado" });
+    }
+
+    string? conciliacion = null;
+    if (turno.Estado is EstadoTurno.PendientePago or EstadoTurno.Expirado)
+    {
+        try
+        {
+            conciliacion = (await conciliador.ConciliarTurnoAsync(turno, ct)).ToString();
+        }
+        catch (MercadoPagoNoVinculadoException ex)
+        {
+            return Results.Json(
+                new { error = "mercadopago_no_vinculado", detalle = ex.Message },
+                statusCode: StatusCodes.Status422UnprocessableEntity);
+        }
+        catch (PasarelaNoDisponibleException)
+        {
+            return Results.Json(
+                new { error = "pasarela_no_disponible" },
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    }
+
+    // Relee sin tracking: si el slot lo tomó otra vía, el servicio descartó la
+    // transición y la copia en memoria no refleja lo persistido.
+    var actual = await contexto.Turnos
+        .AsNoTracking()
+        .SingleAsync(t => t.Id == id, ct);
+
+    return Results.Ok(TurnoAJson(actual) with { Conciliacion = conciliacion });
+})
+.WithName("VerificarPagoTurno")
 .RequireAuthorization()
 .WithOpenApi();
 
@@ -2187,6 +2233,23 @@ static string EstadoAJson(EstadoTurno estado) => estado switch
     _ => estado.ToString().ToLowerInvariant(),
 };
 
+/// <summary>
+/// Vista HTTP de un turno propio: la comparten <c>ConsultarTurno</c> y
+/// <c>verificar-pago</c> para que el cliente parsee una sola forma.
+/// </summary>
+static TurnoRespuesta TurnoAJson(Turno turno) => new(
+    Id: turno.Id,
+    Estado: EstadoAJson(turno.Estado),
+    PuestoId: turno.PuestoId,
+    LavaderoId: turno.LavaderoId,
+    Desde: ConversorHorario.ALocal(turno.InicioUtc),
+    Hasta: ConversorHorario.ALocal(turno.FinUtc),
+    PrecioSena: turno.PrecioSena,
+    MontoSena: turno.PrecioSena, // slice-20 (D-20.4): monto exacto de la seña.
+    MpPreferenceId: turno.MpPreferenceId,
+    InitPoint: turno.InitPoint,
+    Conciliacion: null);
+
 /// <summary>Proyección JSON de un puesto (CU-05, §5.1).</summary>
 static object PuestoAJson(Puesto puesto) => new
 {
@@ -2417,3 +2480,20 @@ public sealed record SolicitudTiposLavadoPuestoHttp(List<Guid>? TiposLavadoIds);
 
 /// <summary>Punto de entrada para los tests de integración (WebApplicationFactory).</summary>
 public partial class Program;
+
+/// <summary>
+/// Vista HTTP de un turno propio: la comparten <c>ConsultarTurno</c> y
+/// <c>verificar-pago</c> para que el cliente parsee una sola forma.
+/// </summary>
+public sealed record TurnoRespuesta(
+    Guid Id,
+    string Estado,
+    Guid PuestoId,
+    Guid LavaderoId,
+    DateTime Desde,
+    DateTime Hasta,
+    decimal PrecioSena,
+    decimal MontoSena,
+    string? MpPreferenceId,
+    string? InitPoint,
+    string? Conciliacion);

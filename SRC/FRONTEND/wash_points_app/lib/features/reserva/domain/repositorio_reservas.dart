@@ -29,4 +29,11 @@ abstract interface class RepositorioReservas {
   });
 
   Future<Reserva> consultarTurno(String turnoId);
+
+  /// Pide al backend que consulte a Mercado Pago el pago del turno y aplique
+  /// el resultado (slice-21, D-21.19).
+  ///
+  /// Es la única forma de que el cliente vea la confirmación cuando el webhook
+  /// no llega: el navegador nunca confirma nada por sí solo (RB-1).
+  Future<Reserva> verificarPago(String turnoId);
 }

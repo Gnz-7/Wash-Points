@@ -19,6 +19,13 @@ public sealed class OpcionesPago
     public int IntervaloWorkerSegundos { get; set; } = 30;
 
     /// <summary>
+    /// Origen público de la web (p. ej. <c>https://mate.trycloudflare.com</c>)
+    /// al que Mercado Pago devuelve al cliente después de pagar. Sin este valor
+    /// la preferencia usa la URL de retorno por defecto.
+    /// </summary>
+    public string? UrlWeb { get; set; }
+
+    /// <summary>
     /// Segundos máximos que el worker espera una respuesta de la pasarela
     /// durante el respaldo. Acota la llamada de red para que un proveedor lento
     /// no retrase el ciclo de expiración local (T-21).

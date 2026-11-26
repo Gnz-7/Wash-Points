@@ -84,6 +84,7 @@ class RepositorioReservasFalso implements RepositorioReservas {
     this.errorSlots,
     this.errorCrear,
     this.errorConsultar,
+    this.errorVerificar,
   }) : catalogo = catalogo ?? catalogoDeEjemplo(),
        grilla = grilla ?? grillaDeEjemplo(),
        creada = creada ?? reservaDeEjemplo(),
@@ -97,6 +98,7 @@ class RepositorioReservasFalso implements RepositorioReservas {
   Object? errorSlots;
   final Object? errorCrear;
   final Object? errorConsultar;
+  Object? errorVerificar;
 
   final List<String> catalogosPedidos = <String>[];
   final List<({String lavaderoId, DateTime fecha, String tipoLavadoId})>
@@ -119,6 +121,7 @@ class RepositorioReservasFalso implements RepositorioReservas {
         DateTime inicio,
       })>[];
   final List<String> consultas = <String>[];
+  final List<String> verificaciones = <String>[];
 
   @override
   Future<CatalogoLavadero> obtenerCatalogo(String lavaderoId) async {
@@ -174,6 +177,15 @@ class RepositorioReservasFalso implements RepositorioReservas {
     consultas.add(turnoId);
     if (errorConsultar != null) {
       throw errorConsultar!;
+    }
+    return estadoTurno;
+  }
+
+  @override
+  Future<Reserva> verificarPago(String turnoId) async {
+    verificaciones.add(turnoId);
+    if (errorVerificar != null) {
+      throw errorVerificar!;
     }
     return estadoTurno;
   }

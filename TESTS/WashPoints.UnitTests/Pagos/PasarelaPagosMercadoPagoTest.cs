@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using MercadoPago.Http;
 using WashPoints.Domain.Puertos;
 using WashPoints.Infrastructure.MercadoPago;
@@ -16,15 +17,16 @@ public sealed class PasarelaPagosMercadoPagoTest
     private static readonly Guid TurnoId = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private const string TokenDelLavadero = "TOKEN-LAVADERO";
 
-    private static OpcionesMercadoPago Opciones() => new()
+    private static OpcionesMercadoPago Opciones(string? urlWeb = null) => new()
     {
         AccessToken = "TEST-123",
         WebhookSecret = "secreto",
         UrlNotificacion = "https://washpoints.app/api/webhooks/mercadopago",
+        UrlWeb = urlWeb,
     };
 
-    private static PasarelaPagosMercadoPago Crear(HandlerFalso handler) =>
-        new(Opciones(), new DefaultHttpClient(new HttpClient(handler)));
+    private static PasarelaPagosMercadoPago Crear(HandlerFalso handler, string? urlWeb = null) =>
+        new(Opciones(urlWeb), new DefaultHttpClient(new HttpClient(handler)));
 
     private static HttpResponseMessage Json(string cuerpo, HttpStatusCode estado = HttpStatusCode.OK) =>
         new(estado)
@@ -59,6 +61,57 @@ public sealed class PasarelaPagosMercadoPagoTest
         Assert.Contains("\"auto_return\":\"approved\"", llamada.Cuerpo);
         Assert.Contains("\"unit_price\":1500.0", llamada.Cuerpo);
         Assert.Contains("\"currency_id\":\"ARS\"", llamada.Cuerpo);
+        // Sin UrlWeb ni UrlRetorno por turno, cae al último recurso configurado.
+        Assert.Contains("https://washpoints.app/pago", llamada.Cuerpo);
+    }
+
+    [Fact]
+    public async Task CrearPreferenciaUsaElRetornoDelTurnoCuandoLaPreferenciaLoTrae()
+    {
+        var handler = new HandlerFalso((_, _) => Json(
+            """{"id":"pref-1","init_point":"https://checkout.test/pref-1"}"""));
+        var pasarela = Crear(handler, urlWeb: "https://web.test");
+
+        await pasarela.CrearPreferenciaAsync(
+            new PreferenciaPago(
+                TurnoId,
+                1500m,
+                "Seña",
+                TurnoId.ToString(),
+                $"https://web.test/turnos/{TurnoId}/comprobante?origen=mp"),
+            TokenDelLavadero,
+            CancellationToken.None);
+
+        var llamada = Assert.Single(handler.Llamadas);
+        var retorno = $"https://web.test/turnos/{TurnoId}/comprobante?origen=mp";
+        using var documento = JsonDocument.Parse(llamada.Cuerpo);
+        var urls = documento.RootElement.GetProperty("back_urls");
+        Assert.Equal(retorno, urls.GetProperty("success").GetString());
+        Assert.Equal(retorno, urls.GetProperty("failure").GetString());
+        Assert.Equal(retorno, urls.GetProperty("pending").GetString());
+    }
+
+    [Fact]
+    public async Task CrearPreferenciaArmaElRetornoConUrlWebSiLaPreferenciaNoLoTraelo()
+    {
+        var handler = new HandlerFalso((_, _) => Json(
+            """{"id":"pref-1","init_point":"https://checkout.test/pref-1"}"""));
+        var pasarela = Crear(handler, urlWeb: "https://web.test/");
+
+        await pasarela.CrearPreferenciaAsync(
+            new PreferenciaPago(TurnoId, 1500m, "Seña", TurnoId.ToString()),
+            TokenDelLavadero,
+            CancellationToken.None);
+
+        var llamada = Assert.Single(handler.Llamadas);
+        using var documento = JsonDocument.Parse(llamada.Cuerpo);
+        // TrimEnd('/') evita la doble barra en la URL de retorno.
+        Assert.Equal(
+            $"https://web.test/turnos/{TurnoId}/comprobante?origen=mp",
+            documento.RootElement
+                .GetProperty("back_urls")
+                .GetProperty("success")
+                .GetString());
     }
 
     [Fact]

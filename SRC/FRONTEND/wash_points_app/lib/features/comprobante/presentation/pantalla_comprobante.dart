@@ -6,8 +6,14 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../core/errores/api_exception.dart';
 import '../../reserva/domain/reserva.dart';
+import '../../reserva/presentation/reserva_notifier.dart';
 import '../domain/comprobante.dart';
 import 'comprobante_notifier.dart';
+
+final _verificacionRetornoPagoProvider = FutureProvider.family<Reserva, String>(
+  (ref, turnoId) =>
+      ref.watch(repositorioReservasProvider).verificarPago(turnoId),
+);
 
 /// Comprobante digital del turno confirmado (RB-3, CA-S9.15).
 ///
@@ -19,64 +25,122 @@ import 'comprobante_notifier.dart';
 /// El cliente no valida ni canjea nada: el canje es del administrador
 /// (Slice 10).
 class PantallaComprobante extends ConsumerWidget {
-  const PantallaComprobante({required this.turnoId, this.reserva, super.key});
+  const PantallaComprobante({
+    required this.turnoId,
+    this.reserva,
+    this.verificarPagoAlIngresar = false,
+    super.key,
+  });
 
   final String turnoId;
   final Reserva? reserva;
+  final bool verificarPagoAlIngresar;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (verificarPagoAlIngresar) {
+      final verificacion = ref.watch(_verificacionRetornoPagoProvider(turnoId));
+      return Scaffold(
+        key: const ValueKey('pantalla_comprobante'),
+        appBar: AppBar(title: const Text('Comprobante')),
+        body: SafeArea(
+          child: verificacion.when(
+            loading: () => const Center(
+              key: ValueKey('estado_verificando_pago_retorno'),
+              child: CircularProgressIndicator(),
+            ),
+            error: (error, _) => _NoDisponible(
+              mensaje: error is ApiException
+                  ? error.mensaje
+                  : 'No pudimos verificar el pago. Intentá nuevamente desde Mis turnos.',
+              alIrAMisTurnos: () => context.go('/mis-turnos'),
+            ),
+            data: (turno) {
+              if (turno.estado != EstadoReserva.confirmada &&
+                  turno.estado != EstadoReserva.enCurso &&
+                  turno.estado != EstadoReserva.finalizada) {
+                return _NoDisponible(
+                  mensaje:
+                      'El pago todavía no está confirmado. '
+                      'Consultá el estado del turno en Mis turnos.',
+                  alIrAMisTurnos: () => context.go('/mis-turnos'),
+                );
+              }
+
+              return _contenido(context, ref);
+            },
+          ),
+        ),
+      );
+    }
+
+    return _marco(context, _contenido(context, ref));
+  }
+
+  Widget _contenido(BuildContext context, WidgetRef ref) {
     final estado = ref.watch(comprobanteProvider(turnoId));
 
-    return Scaffold(
-      key: const ValueKey('pantalla_comprobante'),
-      appBar: AppBar(title: const Text('Comprobante')),
-      body: SafeArea(
-        child: estado.when(
-          loading: () => const Center(
-            key: ValueKey('estado_cargando'),
-            child: CircularProgressIndicator(),
-          ),
-          error: (error, _) => _NoDisponible(
-            mensaje: error is ApiException
-                ? error.mensaje
-                : 'El comprobante todavía no está disponible.',
-          ),
-          data: (comprobante) =>
-              _Contenido(comprobante: comprobante, reserva: reserva),
-        ),
+    return estado.when(
+      loading: () => const Center(
+        key: ValueKey('estado_cargando'),
+        child: CircularProgressIndicator(),
       ),
+      error: (error, _) => _NoDisponible(
+        mensaje: error is ApiException
+            ? error.mensaje
+            : 'El comprobante todavía no está disponible.',
+        // Slice-21 (D-21.19): «Mis turnos» es la salida útil si el backend
+        // todavía no emitió el comprobante.
+        alIrAMisTurnos: () => context.go('/mis-turnos'),
+      ),
+      data: (comprobante) =>
+          _Contenido(comprobante: comprobante, reserva: reserva),
     );
   }
+
+  Widget _marco(BuildContext context, Widget contenido) => Scaffold(
+    key: const ValueKey('pantalla_comprobante'),
+    appBar: AppBar(title: const Text('Comprobante')),
+    body: SafeArea(child: contenido),
+  );
 }
 
 /// Estado de «todavía no hay comprobante»: el turno puede no estar confirmado.
 class _NoDisponible extends StatelessWidget {
-  const _NoDisponible({required this.mensaje});
+  const _NoDisponible({required this.mensaje, this.alIrAMisTurnos});
 
   final String mensaje;
+  final VoidCallback? alIrAMisTurnos;
 
   @override
   Widget build(BuildContext context) => Center(
-        key: const ValueKey('estado_no_disponible'),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              const Icon(Icons.hourglass_empty, size: 48),
-              const SizedBox(height: 12),
-              Text(mensaje, textAlign: TextAlign.center),
-              const SizedBox(height: 16),
-              OutlinedButton(
-                key: const ValueKey('boton_volver_inicio'),
-                onPressed: () => context.go('/'),
-                child: const Text('Volver al inicio'),
-              ),
-            ],
+    key: const ValueKey('estado_no_disponible'),
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const Icon(Icons.hourglass_empty, size: 48),
+          const SizedBox(height: 12),
+          Text(mensaje, textAlign: TextAlign.center),
+          if (alIrAMisTurnos != null) ...<Widget>[
+            const SizedBox(height: 16),
+            OutlinedButton(
+              key: const ValueKey('boton_mis_turnos'),
+              onPressed: alIrAMisTurnos,
+              child: const Text('Ir a Mis turnos'),
+            ),
+          ],
+          const SizedBox(height: 16),
+          OutlinedButton(
+            key: const ValueKey('boton_volver_inicio'),
+            onPressed: () => context.go('/'),
+            child: const Text('Volver al inicio'),
           ),
-        ),
-      );
+        ],
+      ),
+    ),
+  );
 }
 
 class _Contenido extends StatelessWidget {
@@ -134,8 +198,9 @@ class _Contenido extends StatelessWidget {
                     children: <Widget>[
                       _Detalle(
                         etiqueta: 'Fecha',
-                        valor: DateFormat('dd/MM/yyyy HH:mm')
-                            .format(reserva.desde.toLocal()),
+                        valor: DateFormat(
+                          'dd/MM/yyyy HH:mm',
+                        ).format(reserva.desde.toLocal()),
                       ),
                       _Detalle(
                         etiqueta: 'Seña abonada',
@@ -147,8 +212,9 @@ class _Contenido extends StatelessWidget {
                       ),
                       _Detalle(
                         etiqueta: 'Vence',
-                        valor: DateFormat('dd/MM/yyyy HH:mm')
-                            .format(comprobante.expiraEn.toLocal()),
+                        valor: DateFormat(
+                          'dd/MM/yyyy HH:mm',
+                        ).format(comprobante.expiraEn.toLocal()),
                       ),
                     ],
                   ),
@@ -176,12 +242,12 @@ class _Detalle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          children: <Widget>[
-            SizedBox(width: 120, child: Text(etiqueta)),
-            Expanded(child: Text(valor)),
-          ],
-        ),
-      );
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: Row(
+      children: <Widget>[
+        SizedBox(width: 120, child: Text(etiqueta)),
+        Expanded(child: Text(valor)),
+      ],
+    ),
+  );
 }
