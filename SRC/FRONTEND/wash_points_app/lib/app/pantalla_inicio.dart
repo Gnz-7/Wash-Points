@@ -3,8 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+/// Duración total del splash: 2,8 s (menos de 3 s).
 final duracionPantallaInicioProvider = Provider<Duration>(
-  (ref) => const Duration(milliseconds: 1800),
+  (ref) => const Duration(milliseconds: 2800),
 );
 
 class PuertaInicio extends ConsumerStatefulWidget {
@@ -17,10 +18,12 @@ class PuertaInicio extends ConsumerStatefulWidget {
 }
 
 class _PuertaInicioState extends ConsumerState<PuertaInicio> {
-  static const _duracionSalidaMaxima = Duration(milliseconds: 200);
+  /// Tramo final (2200 → 2800 ms) dedicado al desvanecimiento.
+  static const _duracionSalidaMaxima = Duration(milliseconds: 600);
 
   Timer? _timer;
   late final Duration _duracionSalida;
+  late final Duration _duracionAnimacion;
   var _mostrar = true;
   var _saliendo = false;
 
@@ -31,7 +34,8 @@ class _PuertaInicioState extends ConsumerState<PuertaInicio> {
     _duracionSalida = duracion < _duracionSalidaMaxima
         ? duracion
         : _duracionSalidaMaxima;
-    _timer = Timer(duracion - _duracionSalida, _iniciarSalida);
+    _duracionAnimacion = duracion - _duracionSalida;
+    _timer = Timer(_duracionAnimacion, _iniciarSalida);
   }
 
   void _iniciarSalida() {
@@ -67,7 +71,7 @@ class _PuertaInicioState extends ConsumerState<PuertaInicio> {
               opacity: _saliendo ? 0 : 1,
               duration: _duracionSalida,
               curve: Curves.easeOut,
-              child: const PantallaInicioAnimada(),
+              child: PantallaInicioAnimada(duracion: _duracionAnimacion),
             ),
           ),
         ),
@@ -76,7 +80,10 @@ class _PuertaInicioState extends ConsumerState<PuertaInicio> {
 }
 
 class PantallaInicioAnimada extends StatefulWidget {
-  const PantallaInicioAnimada({super.key});
+  const PantallaInicioAnimada({this.duracion, super.key});
+
+  /// Tramos 1 y 2 del splash (aparición + pulso/onda).
+  final Duration? duracion;
 
   @override
   State<PantallaInicioAnimada> createState() => _PantallaInicioAnimadaState();
@@ -84,25 +91,94 @@ class PantallaInicioAnimada extends StatefulWidget {
 
 class _PantallaInicioAnimadaState extends State<PantallaInicioAnimada>
     with SingleTickerProviderStateMixin {
+  static const _colorFondo = Color(0xFF0A0D12);
+  static const _colorCeleste = Color(0xFF38BDF8);
+
   late final AnimationController _controlador;
-  late final Animation<double> _opacidad;
-  late final Animation<double> _escala;
+  late final Animation<double> _opacidadLogo;
+  late final Animation<double> _escalaLogo;
+  late final Animation<double> _pulso;
+  late final Animation<double> _opacidadTitulo;
+  late final Animation<Offset> _desplazamientoTitulo;
+  late final Animation<double> _ondaEscala;
+  late final Animation<double> _ondaOpacidad;
 
   @override
   void initState() {
     super.initState();
+    final total = (widget.duracion ?? const Duration(milliseconds: 2200))
+        .inMilliseconds;
+    final duracionControlador = Duration(milliseconds: total <= 0 ? 1 : total);
     _controlador = AnimationController(
-      duration: const Duration(milliseconds: 1800),
+      duration: duracionControlador,
       vsync: this,
     )..forward();
-    _opacidad = CurvedAnimation(
-      parent: _controlador,
-      curve: Curves.easeOutCubic,
+
+    // Duración cero (tests de arranque): estado final estático, sin animar.
+    if (total <= 0) {
+      _opacidadLogo = const AlwaysStoppedAnimation<double>(1);
+      _escalaLogo = const AlwaysStoppedAnimation<double>(1);
+      _pulso = const AlwaysStoppedAnimation<double>(1);
+      _opacidadTitulo = const AlwaysStoppedAnimation<double>(1);
+      _desplazamientoTitulo = const AlwaysStoppedAnimation<Offset>(
+        Offset.zero,
+      );
+      _ondaEscala = const AlwaysStoppedAnimation<double>(1);
+      _ondaOpacidad = const AlwaysStoppedAnimation<double>(0);
+      return;
+    }
+
+    // Intervalos absolutos del guion: 0–800 ms aparición, 800–2200 ms pulso.
+    Interval tramo(int desdeMs, int hastaMs) => Interval(
+      (desdeMs / duracionControlador.inMilliseconds).clamp(0.0, 1.0),
+      (hastaMs / duracionControlador.inMilliseconds).clamp(0.0, 1.0),
     );
-    _escala = Tween<double>(
-      begin: 0.84,
-      end: 1,
-    ).animate(CurvedAnimation(parent: _controlador, curve: Curves.easeOutBack));
+
+    _opacidadLogo = CurvedAnimation(
+      parent: _controlador,
+      curve: tramo(0, 800),
+    );
+    _escalaLogo = Tween<double>(begin: 0.72, end: 1).animate(
+      CurvedAnimation(parent: _controlador, curve: tramo(0, 800)),
+    );
+    _pulso = TweenSequence<double>(<TweenSequenceItem<double>>[
+      TweenSequenceItem<double>(
+        tween: Tween<double>(begin: 1, end: 1.08).chain(
+          CurveTween(curve: Curves.easeInOutBack),
+        ),
+        weight: 50,
+      ),
+      TweenSequenceItem<double>(
+        tween: Tween<double>(begin: 1.08, end: 1).chain(
+          CurveTween(curve: Curves.elasticOut),
+        ),
+        weight: 50,
+      ),
+    ]).animate(
+      CurvedAnimation(parent: _controlador, curve: tramo(800, 2200)),
+    );
+    _opacidadTitulo = CurvedAnimation(
+      parent: _controlador,
+      curve: tramo(1000, 1700),
+    );
+    _desplazamientoTitulo = Tween<Offset>(
+      begin: const Offset(0, 0.45),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(
+        parent: _controlador,
+        curve: Curves.easeOutCubic,
+      ),
+    );
+    _ondaEscala = Tween<double>(begin: 1, end: 1.9).animate(
+      CurvedAnimation(parent: _controlador, curve: tramo(800, 2200)),
+    );
+    _ondaOpacidad = Tween<double>(begin: 0.55, end: 0).animate(
+      CurvedAnimation(
+        parent: _controlador,
+        curve: Curves.easeOut,
+      ),
+    );
   }
 
   @override
@@ -114,58 +190,81 @@ class _PantallaInicioAnimadaState extends State<PantallaInicioAnimada>
   @override
   Widget build(BuildContext context) => Scaffold(
     key: const ValueKey('pantalla_splash'),
-    backgroundColor: const Color(0xFF07131F),
+    backgroundColor: _colorFondo,
     body: Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          FadeTransition(
-            opacity: _opacidad,
-            child: ScaleTransition(
-              scale: _escala,
-              child: AnimatedBuilder(
-                animation: _controlador,
-                builder: (context, child) {
-                  final progreso = _controlador.value;
-                  return Container(
-                    width: 216,
-                    height: 216,
-                    alignment: Alignment.center,
+          SizedBox(
+            width: 196,
+            height: 196,
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: <Widget>[
+                AnimatedBuilder(
+                  key: const ValueKey('onda_splash'),
+                  animation: _controlador,
+                  builder: (context, child) => IgnorePointer(
+                    child: Opacity(
+                      opacity: _ondaOpacidad.value,
+                      child: Transform.scale(
+                        scale: _ondaEscala.value,
+                        child: child,
+                      ),
+                    ),
+                  ),
+                  child: Container(
+                    width: 196,
+                    height: 196,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
+                      border: Border.all(color: _colorCeleste, width: 2),
                       boxShadow: <BoxShadow>[
                         BoxShadow(
-                          color: Colors.cyanAccent.withValues(
-                            alpha: 0.18 * progreso,
-                          ),
-                          blurRadius: 30 * progreso,
-                          spreadRadius: 3 * progreso,
+                          color: _colorCeleste.withValues(alpha: 0.35),
+                          blurRadius: 18,
+                          spreadRadius: 2,
                         ),
                       ],
                     ),
-                    child: child,
-                  );
-                },
-                child: Image.asset(
-                  'assets/images/logo.png',
-                  key: const ValueKey('logo_splash'),
-                  width: 196,
-                  height: 196,
-                  fit: BoxFit.contain,
-                  semanticLabel: 'Wash Points',
+                  ),
                 ),
-              ),
+                FadeTransition(
+                  opacity: _opacidadLogo,
+                  child: ScaleTransition(
+                    key: const ValueKey('escala_splash'),
+                    scale: _escalaLogo,
+                    child: ScaleTransition(
+                      key: const ValueKey('pulso_splash'),
+                      scale: _pulso,
+                      child: Image.asset(
+                        'assets/images/logo.png',
+                        key: const ValueKey('logo_splash'),
+                        width: 196,
+                        height: 196,
+                        fit: BoxFit.contain,
+                        semanticLabel: 'Wash Points',
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 22),
           FadeTransition(
-            opacity: _opacidad,
-            child: Text(
-              'Wash Points',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                color: const Color(0xFFF2FAFF),
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.4,
+            opacity: _opacidadTitulo,
+            child: SlideTransition(
+              position: _desplazamientoTitulo,
+              child: Text(
+                'Wash Points',
+                key: const ValueKey('titulo_splash'),
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  color: const Color(0xFFF2FAFF),
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.4,
+                ),
               ),
             ),
           ),
