@@ -161,8 +161,8 @@ class _MapaWidgetState extends State<_MapaWidget> {
       final seleccionado = punto.id == widget.seleccionadoId;
       return Marker(
         point: LatLng(punto.latitud, punto.longitud),
-        width: 52,
-        height: 52,
+        width: 56,
+        height: 56,
         alignment: Alignment.topCenter,
         child: Semantics(
           button: true,
@@ -171,13 +171,7 @@ class _MapaWidgetState extends State<_MapaWidget> {
           child: GestureDetector(
             key: ValueKey('pin_${punto.id}'),
             onTap: () => widget.alSeleccionar?.call(punto.id),
-            child: Icon(
-              Icons.location_on,
-              size: seleccionado ? 46 : 36,
-              color: seleccionado
-                  ? tema.colorScheme.primary
-                  : tema.colorScheme.onSurface,
-            ),
+            child: _PinLavadero(seleccionado: seleccionado),
           ),
         ),
       );
@@ -217,6 +211,15 @@ class _MapaWidgetState extends State<_MapaWidget> {
             ),
           ];
 
+    final oscuro = tema.brightness == Brightness.dark;
+
+    final capaTeselas = TileLayer(
+      urlTemplate: widget.teselas.urlPlantilla,
+      subdomains: widget.teselas.subdominios,
+      userAgentPackageName: 'com.washpoints.app',
+      tileProvider: widget.tileProvider,
+    );
+
     final mapa = FlutterMap(
       mapController: _nativo,
       options: MapOptions(
@@ -242,20 +245,42 @@ class _MapaWidgetState extends State<_MapaWidget> {
         },
       ),
       children: [
-        TileLayer(
-          urlTemplate: widget.teselas.urlPlantilla,
-          subdomains: widget.teselas.subdominios,
-          userAgentPackageName: 'com.washpoints.app',
-          tileProvider: widget.tileProvider,
-        ),
+        // En la identidad oscura las teselas claras de OSM/MapTiler se
+        // oscurecen y se tiñen de azul sin tocar pines ni ruta (D-21.8).
+        if (oscuro)
+          ColorFiltered(
+            colorFilter: const ColorFilter.matrix(<double>[
+              0.34,
+              0.02,
+              0.02,
+              0,
+              4,
+              0.02,
+              0.4,
+              0.02,
+              0,
+              8,
+              0.02,
+              0.04,
+              0.5,
+              0,
+              16,
+              0,
+              0,
+              0,
+              1,
+              0,
+            ]),
+            child: capaTeselas,
+          )
+        else
+          capaTeselas,
         ...capasRuta,
         MarkerLayer(markers: marcadores),
         RichAttributionWidget(
           key: const ValueKey('atribucion_teselas'),
           showFlutterMapAttribution: false,
-          attributions: [
-            TextSourceAttribution(widget.teselas.atribucion),
-          ],
+          attributions: [TextSourceAttribution(widget.teselas.atribucion)],
         ),
       ],
     );
@@ -289,4 +314,52 @@ class _MapaWidgetState extends State<_MapaWidget> {
   static String _distancia(double metros) => metros < 1000
       ? '${metros.toStringAsFixed(0)} m'
       : '${(metros / 1000).toStringAsFixed(1)} km';
+}
+
+/// Pin del lavadero: gota celeste con auto y halo suave (identidad oscura).
+class _PinLavadero extends StatelessWidget {
+  const _PinLavadero({required this.seleccionado});
+
+  final bool seleccionado;
+
+  static const Color _celeste = Color(0xFF38BDF8);
+  static const Color _fondo = Color(0xFF0B0F19);
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 56,
+    height: 56,
+    child: Stack(
+      alignment: Alignment.center,
+      children: <Widget>[
+        Container(
+          width: seleccionado ? 52 : 42,
+          height: seleccionado ? 52 : 42,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: _celeste.withValues(alpha: seleccionado ? 0.22 : 0.12),
+          ),
+        ),
+        Icon(
+          Icons.location_on_rounded,
+          size: seleccionado ? 50 : 42,
+          color: _celeste,
+          shadows: <Shadow>[
+            Shadow(
+              color: _celeste.withValues(alpha: 0.55),
+              blurRadius: seleccionado ? 16 : 10,
+            ),
+          ],
+        ),
+        Positioned(
+          top: seleccionado ? 9 : 8,
+          child: Icon(
+            Icons.directions_car_filled_rounded,
+            size: seleccionado ? 15 : 13,
+            color: _fondo,
+          ),
+        ),
+      ],
+    ),
+  );
 }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../app/estilo_cliente.dart';
 import '../../../core/config/entorno.dart';
 import '../../../core/errores/api_exception.dart';
 import '../../../core/mapas/capa_ruta.dart';
@@ -268,146 +269,210 @@ class _PantallaBusquedaState extends ConsumerState<PantallaBusqueda>
         )
         .toList(growable: false);
 
-    return Semantics(
-      identifier: 'pantalla_busqueda',
-      child: Scaffold(
-        key: const ValueKey('pantalla_busqueda'),
-        appBar: AppBar(
-          title: const Text('Lavaderos cercanos'),
-          actions: <Widget>[
-            IconButton(
-              key: const ValueKey('boton_restablecer_busqueda'),
-              tooltip: 'Restablecer búsqueda',
-              onPressed: estado.isLoading ? null : _restablecerBusqueda,
-              icon: estado.isLoading
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.refresh),
-            ),
-            IconButton(
-              key: const ValueKey('boton_mis_turnos'),
-              tooltip: 'Mis turnos',
-              onPressed: () => context.push('/mis-turnos'),
-              icon: const Icon(Icons.event_note_outlined),
-            ),
-            IconButton(
-              key: const ValueKey('boton_cerrar_sesion'),
-              tooltip: 'Cerrar sesión',
-              onPressed: () => ref.read(sesionProvider.notifier).cerrar(),
-              icon: const Icon(Icons.logout),
-            ),
-          ],
-        ),
-        body: Stack(
-          children: <Widget>[
-            Positioned.fill(
-              child: mapa.construir(
-                context,
-                puntos: puntos,
-                radioMetros:
-                    (resultado?.radioMetros ?? entorno.radioMetrosPorDefecto)
-                        .toDouble(),
-                centroLatitud: resultado?.latitud ?? entorno.centroLatitud,
-                centroLongitud: resultado?.longitud ?? entorno.centroLongitud,
-                seleccionadoId: seleccionadoId,
-                alSeleccionar: (id) =>
-                    ref.read(seleccionLavaderoProvider.notifier).state =
-                        id.isEmpty ? null : id,
-                controlador: _mapa,
-                posicionUsuario: _posicion,
-                ruta: _capaRuta(ruta, seleccionado),
-                siguiendo: _siguiendo,
-                alMoverMapa: _alMoverMapa,
-                alto: null,
+    return Theme(
+      data: EstiloCliente.tema,
+      child: FondoCliente(
+        child: Semantics(
+          identifier: 'pantalla_busqueda',
+          child: Scaffold(
+            key: const ValueKey('pantalla_busqueda'),
+            backgroundColor: Colors.transparent,
+            appBar: AppBar(
+              title: const FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text('Lavaderos cercanos'),
               ),
+              actions: <Widget>[
+                IconButton(
+                  key: const ValueKey('boton_restablecer_busqueda'),
+                  tooltip: 'Restablecer búsqueda',
+                  onPressed: estado.isLoading ? null : _restablecerBusqueda,
+                  icon: estado.isLoading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh_rounded),
+                ),
+                IconButton(
+                  key: const ValueKey('boton_mis_turnos'),
+                  tooltip: 'Mis turnos',
+                  onPressed: () => context.push('/mis-turnos'),
+                  icon: const Icon(Icons.event_note_outlined),
+                ),
+                IconButton(
+                  key: const ValueKey('boton_cerrar_sesion'),
+                  tooltip: 'Cerrar sesión',
+                  onPressed: () => ref.read(sesionProvider.notifier).cerrar(),
+                  icon: const Icon(Icons.logout_rounded),
+                ),
+              ],
             ),
-            Positioned(
-              top: 8,
-              left: 12,
-              right: 8,
-              child: SafeArea(bottom: false, child: _filaBusqueda()),
-            ),
-            if (!mapa.disponible)
-              Positioned(
-                top: 76,
-                left: 16,
-                right: 16,
-                child: Container(
-                  key: const ValueKey('banner_mapa_no_disponible'),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    mapa.motivoNoDisponible ??
-                        'El mapa no está disponible; usá la lista.',
+            body: Stack(
+              children: <Widget>[
+                Positioned.fill(
+                  child: mapa.construir(
+                    context,
+                    puntos: puntos,
+                    radioMetros:
+                        (resultado?.radioMetros ??
+                                entorno.radioMetrosPorDefecto)
+                            .toDouble(),
+                    centroLatitud: resultado?.latitud ?? entorno.centroLatitud,
+                    centroLongitud:
+                        resultado?.longitud ?? entorno.centroLongitud,
+                    seleccionadoId: seleccionadoId,
+                    alSeleccionar: (id) =>
+                        ref.read(seleccionLavaderoProvider.notifier).state =
+                            id.isEmpty ? null : id,
+                    controlador: _mapa,
+                    posicionUsuario: _posicion,
+                    ruta: _capaRuta(ruta, seleccionado),
+                    siguiendo: _siguiendo,
+                    alMoverMapa: _alMoverMapa,
+                    alto: null,
                   ),
                 ),
-              ),
-            _hojaResultados(estado, seleccionado, ruta),
-            Positioned(
-              right: 16,
-              bottom: 16,
-              child: SafeArea(
-                top: false,
-                left: false,
-                child: FloatingActionButton(
-                  key: const ValueKey('boton_centrar_mapa'),
-                  heroTag: null,
-                  tooltip: 'Centrar en mi ubicación',
-                  onPressed: _centrarEnMiUbicacion,
-                  child: Icon(_siguiendo ? Icons.gps_fixed : Icons.my_location),
+                Positioned(
+                  top: 8,
+                  left: 12,
+                  right: 8,
+                  child: SafeArea(bottom: false, child: _filaBusqueda()),
                 ),
-              ),
+                if (!mapa.disponible)
+                  Positioned(
+                    top: 76,
+                    left: 16,
+                    right: 16,
+                    child: Container(
+                      key: const ValueKey('banner_mapa_no_disponible'),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xE61A2233),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: EstiloCliente.ambar.withValues(alpha: 0.45),
+                        ),
+                      ),
+                      child: Row(
+                        children: <Widget>[
+                          const Icon(
+                            Icons.map_outlined,
+                            size: 18,
+                            color: EstiloCliente.ambar,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              mapa.motivoNoDisponible ??
+                                  'El mapa no está disponible; usá la lista.',
+                              style: const TextStyle(
+                                fontSize: 12.5,
+                                color: EstiloCliente.texto,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                _hojaResultados(estado, seleccionado, ruta),
+                Positioned(
+                  right: 16,
+                  bottom: 16,
+                  child: SafeArea(
+                    top: false,
+                    left: false,
+                    child: _BotonCentrarMapa(
+                      key: const ValueKey('boton_centrar_mapa'),
+                      siguiendo: _siguiendo,
+                      onPressed: _centrarEnMiUbicacion,
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
   }
 
   Widget _filaBusqueda() {
-    return Material(
-      elevation: 3,
-      borderRadius: BorderRadius.circular(12),
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xE6141B29),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: EstiloCliente.borde),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.35),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 2, 4, 2),
+        padding: const EdgeInsets.fromLTRB(14, 2, 6, 2),
         child: Row(
           children: <Widget>[
+            const Icon(
+              Icons.search_rounded,
+              color: EstiloCliente.celeste,
+              size: 21,
+            ),
+            const SizedBox(width: 8),
             Expanded(
               child: TextField(
                 key: const ValueKey('campo_direccion'),
                 controller: _direccion,
                 textInputAction: TextInputAction.search,
                 onSubmitted: (_) => _buscarPorTexto(),
+                style: const TextStyle(
+                  fontSize: 14.5,
+                  color: EstiloCliente.texto,
+                ),
                 decoration: const InputDecoration(
-                  labelText: 'Buscar lavadero o dirección',
+                  hintText: 'Buscar lavadero o dirección',
+                  hintStyle: TextStyle(
+                    color: EstiloCliente.textoSuave,
+                    fontSize: 13.5,
+                  ),
                   isDense: true,
+                  filled: false,
                   border: InputBorder.none,
-                  prefixIcon: Icon(Icons.search),
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  contentPadding: EdgeInsets.symmetric(vertical: 12),
                 ),
               ),
             ),
             IconButton(
               key: const ValueKey('boton_buscar_direccion'),
               tooltip: 'Buscar por nombre o dirección',
+              visualDensity: VisualDensity.compact,
               onPressed: _buscarPorTexto,
-              icon: const Icon(Icons.travel_explore),
+              icon: const Icon(
+                Icons.travel_explore,
+                color: EstiloCliente.celeste,
+                size: 21,
+              ),
             ),
             IconButton(
               key: const ValueKey('boton_mi_ubicacion'),
               tooltip: 'Usar mi ubicación',
+              visualDensity: VisualDensity.compact,
               onPressed: _usarMiUbicacion,
-              icon: const Icon(Icons.my_location),
+              icon: const Icon(
+                Icons.my_location,
+                color: EstiloCliente.texto,
+                size: 20,
+              ),
             ),
           ],
         ),
@@ -427,24 +492,37 @@ class _PantallaBusquedaState extends ConsumerState<PantallaBusqueda>
       maxChildSize: 0.85,
       builder: (context, scroll) => Material(
         key: const ValueKey('hoja_resultados'),
-        elevation: 8,
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-        clipBehavior: Clip.antiAlias,
-        child: ListView(
-          controller: scroll,
-          padding: const EdgeInsets.only(bottom: 12),
-          children: <Widget>[
-            const _AsaHoja(),
-            if (seleccionado != null)
-              TarjetaLavaderoSeleccionado(
-                lavadero: seleccionado,
-                ruta: ruta,
-                alReservar: () =>
-                    context.push('/lavaderos/${seleccionado.lavaderoId}'),
+        elevation: 0,
+        color: Colors.transparent,
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xF2111A2B),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            border: const Border(top: BorderSide(color: EstiloCliente.borde)),
+            boxShadow: <BoxShadow>[
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.4),
+                blurRadius: 26,
+                offset: const Offset(0, -6),
               ),
-            ..._contenido(estado, seleccionado?.lavaderoId),
-          ],
+            ],
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: ListView(
+            controller: scroll,
+            padding: const EdgeInsets.only(bottom: 20),
+            children: <Widget>[
+              const _AsaHoja(),
+              if (seleccionado != null)
+                TarjetaLavaderoSeleccionado(
+                  lavadero: seleccionado,
+                  ruta: ruta,
+                  alReservar: () =>
+                      context.push('/lavaderos/${seleccionado.lavaderoId}'),
+                ),
+              ..._contenido(estado, seleccionado?.lavaderoId),
+            ],
+          ),
         ),
       ),
     );
@@ -479,9 +557,22 @@ class _PantallaBusquedaState extends ConsumerState<PantallaBusqueda>
                 Padding(
                   key: const ValueKey('resultados_por_nombre'),
                   padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-                  child: Text(
-                    'Resultados por nombre',
-                    style: Theme.of(context).textTheme.titleSmall,
+                  child: Row(
+                    children: <Widget>[
+                      const Icon(
+                        Icons.travel_explore,
+                        size: 16,
+                        color: EstiloCliente.celeste,
+                      ),
+                      const SizedBox(width: 7),
+                      Text(
+                        'Resultados por nombre',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: EstiloCliente.textoSuave,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ]
@@ -490,13 +581,10 @@ class _PantallaBusquedaState extends ConsumerState<PantallaBusqueda>
         if (resultado.vacio) {
           return <Widget>[
             ...encabezado,
-            SizedBox(
-              height: 280,
-              child: _EstadoVacio(
-                porNombre: resultado.porNombre,
-                alAmpliar: () =>
-                    ref.read(busquedaProvider.notifier).ampliarRadio(),
-              ),
+            _EstadoVacio(
+              porNombre: resultado.porNombre,
+              alAmpliar: () =>
+                  ref.read(busquedaProvider.notifier).ampliarRadio(),
             ),
           ];
         }
@@ -557,7 +645,7 @@ class _AsaHoja extends StatelessWidget {
         width: 36,
         height: 4,
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.outlineVariant,
+          color: EstiloCliente.celeste.withValues(alpha: 0.35),
           borderRadius: BorderRadius.circular(2),
         ),
       ),
@@ -577,17 +665,22 @@ class _EstadoVacio extends StatelessWidget {
   Widget build(BuildContext context) => Center(
     key: const ValueKey('estado_vacio'),
     child: Padding(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          const Icon(Icons.search_off, size: 48),
-          const SizedBox(height: 12),
+          const _IlustracionMapaPin(),
+          const SizedBox(height: 16),
           Text(
             porNombre
                 ? 'No encontramos lavaderos con ese nombre.'
                 : 'No hay lavaderos en este radio.',
-            style: Theme.of(context).textTheme.titleMedium,
+            style: const TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              color: EstiloCliente.texto,
+              letterSpacing: -0.2,
+            ),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 8),
@@ -595,17 +688,89 @@ class _EstadoVacio extends StatelessWidget {
             const Text(
               'Probá ampliar la búsqueda para encontrar más locales.',
               textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: EstiloCliente.textoSuave,
+                height: 1.35,
+              ),
             ),
-          if (!porNombre) const SizedBox(height: 16),
+          if (!porNombre) const SizedBox(height: 20),
           if (!porNombre)
-            FilledButton.icon(
+            BotonDegradadoCliente(
               key: const ValueKey('boton_ampliar_radio'),
+              icono: Icons.zoom_out_map_rounded,
+              texto: 'Ampliar el radio de búsqueda',
               onPressed: alAmpliar,
-              icon: const Icon(Icons.zoom_out_map),
-              label: const Text('Ampliar el radio de búsqueda'),
             ),
         ],
       ),
+    ),
+  );
+}
+
+/// Composición minimalista mapa + pin con auto para el estado vacío.
+class _IlustracionMapaPin extends StatelessWidget {
+  const _IlustracionMapaPin();
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 132,
+    height: 104,
+    child: Stack(
+      alignment: Alignment.center,
+      children: <Widget>[
+        Container(
+          width: 104,
+          height: 104,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: RadialGradient(
+              colors: <Color>[
+                EstiloCliente.azul.withValues(alpha: 0.22),
+                EstiloCliente.azul.withValues(alpha: 0),
+              ],
+            ),
+          ),
+        ),
+        Container(
+          width: 88,
+          height: 72,
+          decoration: BoxDecoration(
+            color: const Color(0xCC141D2E),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: EstiloCliente.borde),
+          ),
+          child: Icon(
+            Icons.map_rounded,
+            size: 38,
+            color: EstiloCliente.textoSuave.withValues(alpha: 0.55),
+          ),
+        ),
+        Positioned(
+          top: 14,
+          right: 18,
+          child: Icon(
+            Icons.location_on_rounded,
+            size: 42,
+            color: EstiloCliente.celeste,
+            shadows: <Shadow>[
+              Shadow(
+                color: EstiloCliente.celeste.withValues(alpha: 0.5),
+                blurRadius: 14,
+              ),
+            ],
+          ),
+        ),
+        const Positioned(
+          top: 24,
+          right: 31,
+          child: Icon(
+            Icons.directions_car_filled_rounded,
+            size: 12,
+            color: EstiloCliente.fondo,
+          ),
+        ),
+      ],
     ),
   );
 }
@@ -643,18 +808,38 @@ class _EstadoError extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            const Icon(Icons.error_outline, size: 48),
-            const SizedBox(height: 12),
+            Container(
+              width: 62,
+              height: 62,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: EstiloCliente.rojo.withValues(alpha: 0.12),
+                border: Border.all(
+                  color: EstiloCliente.rojo.withValues(alpha: 0.35),
+                ),
+              ),
+              child: const Icon(
+                Icons.error_outline_rounded,
+                size: 30,
+                color: EstiloCliente.rojo,
+              ),
+            ),
+            const SizedBox(height: 14),
             Text(
               mensaje,
-              style: Theme.of(context).textTheme.titleMedium,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: EstiloCliente.texto,
+                height: 1.35,
+              ),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
             FilledButton.icon(
               key: const ValueKey('boton_reintentar'),
               onPressed: alReintentar,
-              icon: const Icon(Icons.refresh),
+              icon: const Icon(Icons.refresh_rounded),
               label: const Text('Reintentar'),
             ),
           ],
@@ -683,34 +868,107 @@ class _TarjetaLavadero extends StatelessWidget {
     final direccion = lavadero.direccion;
     final ocupacion = lavadero.ocupacion;
 
-    return Card(
-      key: ValueKey('tarjeta_lavadero_${lavadero.lavaderoId}'),
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      color: seleccionado
-          ? Theme.of(context).colorScheme.secondaryContainer
-          : null,
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        onTap: alTocar,
-        title: Text(lavadero.nombre),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              if (direccion != null) Text(direccion),
-              Text(
-                '${_distancia(lavadero.distanciaMetros)} · '
-                '${ocupacion.puestosLibres} de ${ocupacion.puestosActivos} libres',
-              ),
-            ],
-          ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+      child: Container(
+        key: ValueKey('tarjeta_lavadero_${lavadero.lavaderoId}'),
+        decoration: EstiloCliente.tarjeta(
+          radio: 18,
+          color: seleccionado ? const Color(0xE617304A) : null,
+          bordeColor: seleccionado
+              ? EstiloCliente.celeste.withValues(alpha: 0.55)
+              : null,
         ),
-        trailing: IconButton(
-          key: ValueKey('abrir_lavadero_${lavadero.lavaderoId}'),
-          tooltip: 'Ver lavadero',
-          onPressed: alAbrir,
-          icon: const Icon(Icons.chevron_right),
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: alTocar,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+              child: Row(
+                children: <Widget>[
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: const LinearGradient(
+                        colors: <Color>[
+                          EstiloCliente.celeste,
+                          EstiloCliente.azulProfundo,
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      boxShadow: <BoxShadow>[
+                        BoxShadow(
+                          color: EstiloCliente.celeste.withValues(alpha: 0.25),
+                          blurRadius: 12,
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.local_car_wash_rounded,
+                      size: 21,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          lavadero.nombre,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: EstiloCliente.texto,
+                          ),
+                        ),
+                        if (direccion != null) ...<Widget>[
+                          const SizedBox(height: 2),
+                          Text(
+                            direccion,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              color: EstiloCliente.textoSuave,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 4),
+                        Text(
+                          '${_distancia(lavadero.distanciaMetros)} · '
+                          '${ocupacion.puestosLibres} de '
+                          '${ocupacion.puestosActivos} libres',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: EstiloCliente.celeste,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    key: ValueKey('abrir_lavadero_${lavadero.lavaderoId}'),
+                    tooltip: 'Ver lavadero',
+                    onPressed: alAbrir,
+                    icon: const Icon(
+                      Icons.arrow_forward_ios_rounded,
+                      size: 15,
+                      color: EstiloCliente.celeste,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -719,4 +977,41 @@ class _TarjetaLavadero extends StatelessWidget {
   static String _distancia(double metros) => metros < 1000
       ? '${metros.toStringAsFixed(1)} m'
       : '${(metros / 1000).toStringAsFixed(1)} km';
+}
+
+/// FAB cuadrado con degradado celeste→azul y glow para centrar el mapa.
+class _BotonCentrarMapa extends StatelessWidget {
+  const _BotonCentrarMapa({
+    super.key,
+    required this.siguiendo,
+    required this.onPressed,
+  });
+
+  final bool siguiendo;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(18),
+      boxShadow: <BoxShadow>[
+        BoxShadow(
+          color: EstiloCliente.celeste.withValues(alpha: 0.35),
+          blurRadius: 20,
+          offset: const Offset(0, 8),
+        ),
+      ],
+    ),
+    child: FloatingActionButton(
+      heroTag: null,
+      tooltip: 'Centrar en mi ubicación',
+      elevation: 0,
+      highlightElevation: 0,
+      backgroundColor: EstiloCliente.celeste,
+      foregroundColor: EstiloCliente.fondo,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      onPressed: onPressed,
+      child: Icon(siguiendo ? Icons.gps_fixed : Icons.my_location),
+    ),
+  );
 }

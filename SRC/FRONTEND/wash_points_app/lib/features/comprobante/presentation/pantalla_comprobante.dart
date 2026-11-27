@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 
+import '../../../app/estilo_cliente.dart';
 import '../../../core/errores/api_exception.dart';
 import '../../../core/tiempo_real/evento_tiempo_real.dart';
 import '../../../core/tiempo_real/tiempo_real_notifier.dart';
@@ -262,10 +263,16 @@ class _PantallaComprobanteState extends ConsumerState<PantallaComprobante>
     );
   }
 
-  Widget _marco(BuildContext context, Widget contenido) => Scaffold(
-    key: const ValueKey('pantalla_comprobante'),
-    appBar: AppBar(title: const Text('Comprobante')),
-    body: SafeArea(child: contenido),
+  Widget _marco(BuildContext context, Widget contenido) => Theme(
+    data: EstiloCliente.tema,
+    child: FondoCliente(
+      child: Scaffold(
+        key: const ValueKey('pantalla_comprobante'),
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(title: const Text('Comprobante')),
+        body: SafeArea(child: contenido),
+      ),
+    ),
   );
 }
 
@@ -364,40 +371,69 @@ class _Contenido extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tema = Theme.of(context);
-
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         children: <Widget>[
-          Text(
+          const Text(
             'Mostrá este código al llegar',
-            style: tema.textTheme.titleMedium,
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              color: EstiloCliente.texto,
+              letterSpacing: -0.2,
+            ),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 16),
-          Semantics(
-            identifier: 'qr_comprobante',
-            label: 'Código QR del comprobante',
-            child: QrImageView(
-              key: const ValueKey('qr_comprobante'),
-              data: comprobante.qr,
-              version: QrVersions.auto,
-              size: 220,
-              backgroundColor: Colors.white,
-              eyeStyle: const QrEyeStyle(color: Colors.black),
-              dataModuleStyle: const QrDataModuleStyle(color: Colors.black),
+          const SizedBox(height: 18),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(22),
+              boxShadow: <BoxShadow>[
+                BoxShadow(
+                  color: EstiloCliente.celeste.withValues(alpha: 0.24),
+                  blurRadius: 28,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Semantics(
+              identifier: 'qr_comprobante',
+              label: 'Código QR del comprobante',
+              child: QrImageView(
+                key: const ValueKey('qr_comprobante'),
+                data: comprobante.qr,
+                version: QrVersions.auto,
+                size: 220,
+                backgroundColor: Colors.white,
+                eyeStyle: const QrEyeStyle(color: Colors.black),
+                dataModuleStyle: const QrDataModuleStyle(color: Colors.black),
+              ),
             ),
           ),
-          const SizedBox(height: 16),
-          Text('Código de respaldo', style: tema.textTheme.labelLarge),
+          const SizedBox(height: 18),
+          const Text(
+            'Código de respaldo',
+            style: TextStyle(
+              fontSize: 12,
+              color: EstiloCliente.textoSuave,
+              letterSpacing: 0.4,
+            ),
+          ),
           const SizedBox(height: 4),
           Semantics(
             identifier: 'codigo_comprobante',
             child: SelectableText(
               comprobante.codigo,
               key: const ValueKey('codigo_comprobante'),
-              style: tema.textTheme.headlineSmall,
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+                color: EstiloCliente.celeste,
+                letterSpacing: 1.2,
+              ),
               textAlign: TextAlign.center,
             ),
           ),
@@ -458,11 +494,29 @@ class _Detalle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 4),
+    padding: const EdgeInsets.symmetric(vertical: 5),
     child: Row(
       children: <Widget>[
-        SizedBox(width: 120, child: Text(etiqueta)),
-        Expanded(child: Text(valor)),
+        SizedBox(
+          width: 120,
+          child: Text(
+            etiqueta,
+            style: const TextStyle(
+              fontSize: 12.5,
+              color: EstiloCliente.textoSuave,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            valor,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: EstiloCliente.texto,
+            ),
+          ),
+        ),
       ],
     ),
   );

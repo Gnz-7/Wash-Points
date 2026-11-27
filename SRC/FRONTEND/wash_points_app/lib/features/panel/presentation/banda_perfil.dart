@@ -86,13 +86,9 @@ class _BandaPerfilState extends ConsumerState<BandaPerfil> {
     final vinculado = _vinculado(perfil);
     final error = estado.mensajeError == null
         ? null
-        : Tooltip(
+        : const Tooltip(
             message: 'No pudimos actualizar el perfil.',
-            child: Icon(
-              Icons.cloud_off_rounded,
-              size: 17,
-              color: Colors.red,
-            ),
+            child: Icon(Icons.cloud_off_rounded, size: 17, color: Colors.red),
           );
 
     return Container(
@@ -149,8 +145,11 @@ class _BandaPerfilState extends ConsumerState<BandaPerfil> {
       ),
       child: Row(
         children: <Widget>[
-          const Icon(Icons.schedule_rounded,
-              size: 18, color: Color(0xFFFBBF24)),
+          const Icon(
+            Icons.schedule_rounded,
+            size: 18,
+            color: Color(0xFFFBBF24),
+          ),
           const SizedBox(width: 7),
           const Expanded(
             child: Text(
@@ -178,8 +177,10 @@ class _BandaPerfilState extends ConsumerState<BandaPerfil> {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),
               ),
-              textStyle:
-                  const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+              textStyle: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
             ),
             child: const Text('Pagar (Mock)'),
           ),
@@ -215,11 +216,8 @@ class _BandaPerfilState extends ConsumerState<BandaPerfil> {
         foregroundColor: EstiloPanel.texto,
         backgroundColor: const Color(0x1A38BDF8),
         side: BorderSide(color: EstiloPanel.celeste.withValues(alpha: 0.38)),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-        textStyle:
-            const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        textStyle: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700),
       ),
     );
   }

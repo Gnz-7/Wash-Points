@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:wash_points_app/app/estilo_cliente.dart';
 import 'package:wash_points_app/core/errores/api_exception.dart';
 import 'package:wash_points_app/core/tiempo_real/evento_tiempo_real.dart';
 import 'package:wash_points_app/core/tiempo_real/tiempo_real_notifier.dart';
@@ -177,12 +178,18 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva>
       }
     });
 
-    return Semantics(
-      identifier: 'pantalla_reserva',
-      child: Scaffold(
-        key: const ValueKey('pantalla_reserva'),
-        appBar: AppBar(title: const Text('Reservar turno')),
-        body: _cuerpo(_flujo),
+    return Theme(
+      data: EstiloCliente.tema,
+      child: FondoCliente(
+        child: Semantics(
+          identifier: 'pantalla_reserva',
+          child: Scaffold(
+            key: const ValueKey('pantalla_reserva'),
+            backgroundColor: Colors.transparent,
+            appBar: AppBar(title: const Text('Reservar turno')),
+            body: _cuerpo(_flujo),
+          ),
+        ),
       ),
     );
   }
@@ -239,9 +246,9 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva>
         : catalogo.puestos.where((p) => p.atiende(tipo.id)).toList();
 
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       children: <Widget>[
-        const Text('Elegí el servicio'),
+        const _Etiqueta('Elegí el servicio'),
         const SizedBox(height: 8),
         Wrap(
           spacing: 8,
@@ -260,7 +267,7 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva>
         ),
         const SizedBox(height: 16),
         if (tipo != null) ...<Widget>[
-          const Text('Elegí la fecha'),
+          const _Etiqueta('Elegí la fecha'),
           const SizedBox(height: 8),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -284,7 +291,7 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva>
         ],
         const SizedBox(height: 16),
         if (_slot != null) ...<Widget>[
-          const Text('Elegí el puesto'),
+          const _Etiqueta('Elegí el puesto'),
           const SizedBox(height: 8),
           if (puestosCompatibles.isEmpty)
             const Text(
@@ -306,21 +313,72 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva>
               ],
             ),
         ],
-        const SizedBox(height: 16),
-        if (tipo != null)
-          Text(
-            'Seña: ${_importe(tipo.precioSena)} · '
-            '${tipo.duracionMinutos} min',
-          ),
-        const SizedBox(height: 12),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: FilledButton(
-            key: const ValueKey('boton_confirmar_reserva'),
-            onPressed: _puedeConfirmar(flujo) ? () => _confirmar(tipo!) : null,
-            child: Text(
-              flujo.fase == FaseReserva.creando ? 'Creando…' : 'Confirmar',
-            ),
+        const SizedBox(height: 20),
+        TarjetaCliente(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              if (tipo != null) ...<Widget>[
+                Row(
+                  children: <Widget>[
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: EstiloCliente.celeste.withValues(alpha: 0.14),
+                      ),
+                      child: const Icon(
+                        Icons.lock_outline_rounded,
+                        size: 19,
+                        color: EstiloCliente.celeste,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'Seña',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: EstiloCliente.texto,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      _importe(tipo.precioSena),
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: EstiloCliente.celeste,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${tipo.duracionMinutos} min · pago seguro con Mercado Pago',
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    color: EstiloCliente.textoSuave,
+                  ),
+                ),
+                const SizedBox(height: 14),
+              ],
+              FilledButton(
+                key: const ValueKey('boton_confirmar_reserva'),
+                onPressed: _puedeConfirmar(flujo)
+                    ? () => _confirmar(tipo!)
+                    : null,
+                child: Text(
+                  flujo.fase == FaseReserva.creando
+                      ? 'Creando…'
+                      : 'Confirmar reserva',
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -405,55 +463,102 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva>
 
     return ListView(
       key: const ValueKey('estado_esperando_pago'),
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(20),
       children: <Widget>[
-        const Text('Turno reservado. Falta pagar la seña.'),
-        const SizedBox(height: 8),
-        if (reserva != null)
-          Text(
-            '${_fechaDe(reserva.desde)} · '
-            'Seña ${_importe(reserva.montoSena ?? reserva.precioSena)}',
-          ),
-        const SizedBox(height: 16),
-        FilledButton(
-          key: const ValueKey('boton_abrir_checkout'),
-          onPressed: () => ref
-              .read(reservaProvider(widget.lavaderoId).notifier)
-              .abrirCheckout(),
-          child: const Text('Pagar la seña'),
-        ),
-        const SizedBox(height: 8),
-        OutlinedButton(
-          key: const ValueKey('boton_verificar_pago'),
-          onPressed: flujo.verificando ? null : () => _verificar(),
-          child: Text(
-            flujo.verificando ? 'Verificando…' : 'Ya pagué, verificar',
-          ),
-        ),
-        const SizedBox(height: 12),
-        // Slice-21 (D-21.19): el pago se detecta solo al volver del checkout.
-        // El texto evita que el cliente reintente pagar una seña ya abonada.
-        Row(
-          key: const ValueKey('aviso_pago_automatico'),
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            if (flujo.verificando)
-              const Padding(
-                padding: EdgeInsets.only(right: 8, top: 2),
-                child: SizedBox(
-                  key: ValueKey('estado_verificando_pago'),
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+        TarjetaCliente(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: EstiloCliente.ambar.withValues(alpha: 0.14),
+                    ),
+                    child: const Icon(
+                      Icons.hourglass_top_rounded,
+                      size: 21,
+                      color: EstiloCliente.ambar,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'Turno reservado. Falta pagar la seña.',
+                      style: TextStyle(
+                        fontSize: 15.5,
+                        fontWeight: FontWeight.w700,
+                        color: EstiloCliente.texto,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (reserva != null) ...<Widget>[
+                const SizedBox(height: 12),
+                Text(
+                  '${_fechaDe(reserva.desde)} · '
+                  'Seña ${_importe(reserva.montoSena ?? reserva.precioSena)}',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: EstiloCliente.textoSuave,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 18),
+              FilledButton(
+                key: const ValueKey('boton_abrir_checkout'),
+                onPressed: () => ref
+                    .read(reservaProvider(widget.lavaderoId).notifier)
+                    .abrirCheckout(),
+                child: const Text('Pagar la seña'),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton(
+                key: const ValueKey('boton_verificar_pago'),
+                onPressed: flujo.verificando ? null : () => _verificar(),
+                child: Text(
+                  flujo.verificando ? 'Verificando…' : 'Ya pagué, verificar',
                 ),
               ),
-            const Expanded(
-              child: Text(
-                'Si ya pagaste, esta pantalla se actualiza sola en unos '
-                'segundos. No hace falta pagar de nuevo.',
+              const SizedBox(height: 14),
+              // Slice-21 (D-21.19): el pago se detecta solo al volver del
+              // checkout. El texto evita que el cliente reintente pagar una
+              // seña ya abonada.
+              Row(
+                key: const ValueKey('aviso_pago_automatico'),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  if (flujo.verificando)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 8, top: 2),
+                      child: SizedBox(
+                        key: ValueKey('estado_verificando_pago'),
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  const Expanded(
+                    child: Text(
+                      'Si ya pagaste, esta pantalla se actualiza sola en unos '
+                      'segundos. No hace falta pagar de nuevo.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: EstiloCliente.textoSuave,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ],
     );
@@ -464,33 +569,75 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva>
 
     return ListView(
       key: const ValueKey('estado_confirmada'),
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(20),
       children: <Widget>[
-        const Text('¡Listo! Tu turno está confirmado.'),
-        const SizedBox(height: 8),
-        const Text('El pago de la seña se acreditó correctamente.'),
-        const SizedBox(height: 16),
-        if (reserva != null)
-          FilledButton(
-            key: const ValueKey('boton_ver_comprobante'),
-            onPressed: () => context.push(
-              '/turnos/${reserva.id}/comprobante',
-              extra: widget.lavaderoId,
-            ),
-            child: const Text('Ver comprobante'),
-          ),
-        const SizedBox(height: 8),
-        OutlinedButton(
-          key: const ValueKey('boton_mis_turnos'),
-          onPressed: () => context.go('/mis-turnos'),
-          child: const Text('Ir a mis turnos'),
-        ),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton(
-            key: const ValueKey('boton_reservar_otro_turno'),
-            onPressed: _iniciarNuevaReserva,
-            child: const Text('Reservar otro turno'),
+        TarjetaCliente(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: EstiloCliente.verde.withValues(alpha: 0.14),
+                    ),
+                    child: const Icon(
+                      Icons.check_rounded,
+                      size: 24,
+                      color: EstiloCliente.verde,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      '¡Listo! Tu turno está confirmado.',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: EstiloCliente.texto,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'El pago de la seña se acreditó correctamente.',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  color: EstiloCliente.textoSuave,
+                ),
+              ),
+              const SizedBox(height: 18),
+              if (reserva != null)
+                FilledButton(
+                  key: const ValueKey('boton_ver_comprobante'),
+                  onPressed: () => context.push(
+                    '/turnos/${reserva.id}/comprobante',
+                    extra: widget.lavaderoId,
+                  ),
+                  child: const Text('Ver comprobante'),
+                ),
+              const SizedBox(height: 8),
+              OutlinedButton(
+                key: const ValueKey('boton_mis_turnos'),
+                onPressed: () => context.go('/mis-turnos'),
+                child: const Text('Ir a mis turnos'),
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  key: const ValueKey('boton_reservar_otro_turno'),
+                  onPressed: _iniciarNuevaReserva,
+                  child: const Text('Reservar otro turno'),
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -510,21 +657,58 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva>
 
   Widget _rechazada(EstadoReservaFlujo flujo) => ListView(
     key: const ValueKey('estado_rechazada'),
-    padding: const EdgeInsets.all(24),
+    padding: const EdgeInsets.all(20),
     children: <Widget>[
-      const Text('El turno no quedó confirmado.'),
-      const SizedBox(height: 16),
-      FilledButton(
-        key: const ValueKey('boton_reintentar'),
-        onPressed: () {
-          setState(() {
-            _slot = null;
-            _puestoId = null;
-          });
-          _comprobanteMostrado = false;
-          ref.read(reservaProvider(widget.lavaderoId).notifier).reintentar();
-        },
-        child: const Text('Reservar otro turno'),
+      TarjetaCliente(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: EstiloCliente.rojo.withValues(alpha: 0.14),
+                  ),
+                  child: const Icon(
+                    Icons.close_rounded,
+                    size: 24,
+                    color: EstiloCliente.rojo,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'El turno no quedó confirmado.',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: EstiloCliente.texto,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            FilledButton(
+              key: const ValueKey('boton_reintentar'),
+              onPressed: () {
+                setState(() {
+                  _slot = null;
+                  _puestoId = null;
+                });
+                _comprobanteMostrado = false;
+                ref
+                    .read(reservaProvider(widget.lavaderoId).notifier)
+                    .reintentar();
+              },
+              child: const Text('Reservar otro turno'),
+            ),
+          ],
+        ),
       ),
     ],
   );
@@ -644,6 +828,39 @@ class _PantallaReservaState extends ConsumerState<PantallaReserva>
   }
 }
 
+class _Etiqueta extends StatelessWidget {
+  const _Etiqueta(this.texto);
+
+  final String texto;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 8, top: 2),
+    child: Row(
+      children: <Widget>[
+        Container(
+          width: 3,
+          height: 15,
+          decoration: BoxDecoration(
+            color: EstiloCliente.celeste,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          texto,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: EstiloCliente.textoSuave,
+            letterSpacing: 0.5,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class _Aviso extends StatelessWidget {
   const _Aviso({required this.texto, super.key});
 
@@ -652,11 +869,33 @@ class _Aviso extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     width: double.infinity,
-    color: Theme.of(context).colorScheme.errorContainer,
+    margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
     padding: const EdgeInsets.all(12),
-    child: Text(
-      texto,
-      style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer),
+    decoration: BoxDecoration(
+      color: EstiloCliente.rojo.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: EstiloCliente.rojo.withValues(alpha: 0.4)),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const Icon(
+          Icons.error_outline_rounded,
+          size: 18,
+          color: EstiloCliente.rojo,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            texto,
+            style: const TextStyle(
+              fontSize: 12.5,
+              color: EstiloCliente.texto,
+              height: 1.35,
+            ),
+          ),
+        ),
+      ],
     ),
   );
 }
@@ -670,17 +909,34 @@ class _ErrorCatalogo extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Center(
     key: const ValueKey('estado_error'),
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        Text(mensaje),
-        const SizedBox(height: 8),
-        FilledButton(
-          key: const ValueKey('boton_reintentar'),
-          onPressed: onReintentar,
-          child: const Text('Reintentar'),
-        ),
-      ],
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const Icon(
+            Icons.error_outline_rounded,
+            size: 40,
+            color: EstiloCliente.rojo,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            mensaje,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 14,
+              color: EstiloCliente.texto,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton(
+            key: const ValueKey('boton_reintentar'),
+            onPressed: onReintentar,
+            child: const Text('Reintentar'),
+          ),
+        ],
+      ),
     ),
   );
 }

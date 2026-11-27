@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../../app/estilo_cliente.dart';
 import '../../../core/errores/api_exception.dart';
 import '../domain/turno_cliente.dart';
 import 'mis_turnos_notifier.dart';
@@ -20,30 +21,37 @@ class PantallaMisTurnos extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final estado = ref.watch(misTurnosProvider);
 
-    return Semantics(
-      identifier: 'pantalla_mis_turnos',
-      child: Scaffold(
-        key: const ValueKey('pantalla_mis_turnos'),
-        appBar: AppBar(
-          title: const Text('Mis turnos'),
-          actions: <Widget>[
-            IconButton(
-              key: const ValueKey('boton_actualizar_mis_turnos'),
-              tooltip: 'Actualizar',
-              icon: const Icon(Icons.refresh),
-              onPressed: () => ref.read(misTurnosProvider.notifier).recargar(),
+    return Theme(
+      data: EstiloCliente.tema,
+      child: FondoCliente(
+        child: Semantics(
+          identifier: 'pantalla_mis_turnos',
+          child: Scaffold(
+            key: const ValueKey('pantalla_mis_turnos'),
+            backgroundColor: Colors.transparent,
+            appBar: AppBar(
+              title: const Text('Mis turnos'),
+              actions: <Widget>[
+                IconButton(
+                  key: const ValueKey('boton_actualizar_mis_turnos'),
+                  tooltip: 'Actualizar',
+                  icon: const Icon(Icons.refresh_rounded),
+                  onPressed: () =>
+                      ref.read(misTurnosProvider.notifier).recargar(),
+                ),
+              ],
             ),
-          ],
-        ),
-        body: SafeArea(
-          child: estado.when(
-            loading: () => const Center(
-              child: CircularProgressIndicator(
-                key: ValueKey('estado_cargando'),
+            body: SafeArea(
+              child: estado.when(
+                loading: () => const Center(
+                  child: CircularProgressIndicator(
+                    key: ValueKey('estado_cargando'),
+                  ),
+                ),
+                error: (error, _) => _EstadoError(error: error),
+                data: (datos) => _Contenido(datos: datos),
               ),
             ),
-            error: (error, _) => _EstadoError(error: error),
-            data: (datos) => _Contenido(datos: datos),
           ),
         ),
       ),
@@ -69,19 +77,38 @@ class _EstadoError extends ConsumerWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            const Icon(Icons.error_outline, size: 48),
-            const SizedBox(height: 12),
+            Container(
+              width: 62,
+              height: 62,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: EstiloCliente.rojo.withValues(alpha: 0.12),
+                border: Border.all(
+                  color: EstiloCliente.rojo.withValues(alpha: 0.35),
+                ),
+              ),
+              child: const Icon(
+                Icons.error_outline_rounded,
+                size: 30,
+                color: EstiloCliente.rojo,
+              ),
+            ),
+            const SizedBox(height: 14),
             Text(
               mensaje,
-              style: Theme.of(context).textTheme.titleMedium,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: EstiloCliente.texto,
+                height: 1.35,
+              ),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
             FilledButton.icon(
               key: const ValueKey('boton_reintentar_mis_turnos'),
-              onPressed: () =>
-                  ref.read(misTurnosProvider.notifier).recargar(),
-              icon: const Icon(Icons.refresh),
+              onPressed: () => ref.read(misTurnosProvider.notifier).recargar(),
+              icon: const Icon(Icons.refresh_rounded),
               label: const Text('Reintentar'),
             ),
           ],
@@ -126,7 +153,8 @@ class _Contenido extends ConsumerWidget {
           if (datos.datosDesactualizados) ...<Widget>[
             const _Banner(
               key: ValueKey('datos_desactualizados'),
-              texto: 'No pudimos actualizar tus turnos. Lo que ves puede estar '
+              texto:
+                  'No pudimos actualizar tus turnos. Lo que ves puede estar '
                   'desactualizado.',
             ),
             const SizedBox(height: 8),
@@ -163,13 +191,31 @@ class _TituloSeccion extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(top: 4, bottom: 6),
-        child: Text(
+    padding: const EdgeInsets.only(top: 10, bottom: 8, left: 2),
+    child: Row(
+      children: <Widget>[
+        Container(
+          width: 3,
+          height: 16,
+          decoration: BoxDecoration(
+            color: EstiloCliente.celeste,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
           texto,
           key: ValueKey(clave),
-          style: Theme.of(context).textTheme.titleMedium,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: EstiloCliente.textoSuave,
+            letterSpacing: 0.8,
+          ),
         ),
-      );
+      ],
+    ),
+  );
 }
 
 class _Vacio extends StatelessWidget {
@@ -177,25 +223,172 @@ class _Vacio extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(top: 96),
-        child: Column(
-          children: <Widget>[
-            const Icon(Icons.event_note, size: 48),
-            const SizedBox(height: 12),
-            const Text(
-              'Todavía no reservaste ningún turno',
-              key: ValueKey('estado_vacio'),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Buscá un lavadero cercano para reservar tu primer turno.',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
+    padding: const EdgeInsets.fromLTRB(20, 44, 20, 24),
+    child: Column(
+      children: <Widget>[
+        const _IlustracionTurnos(),
+        const SizedBox(height: 22),
+        const Text(
+          'Todavía no reservaste ningún turno',
+          key: ValueKey('estado_vacio'),
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: EstiloCliente.texto,
+            letterSpacing: -0.2,
+          ),
         ),
-      );
+        const SizedBox(height: 8),
+        const Text(
+          'Buscá un lavadero cercano para reservar tu primer turno.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 13,
+            color: EstiloCliente.textoSuave,
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(height: 24),
+        BotonDegradadoCliente(
+          key: const ValueKey('boton_buscar_lavadero'),
+          icono: Icons.search_rounded,
+          texto: 'Buscar lavadero',
+          onPressed: () => context.go('/'),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Ilustración calendario + reloj + gota para el vacío de «Mis turnos».
+class _IlustracionTurnos extends StatelessWidget {
+  const _IlustracionTurnos();
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 160,
+    height: 130,
+    child: Stack(
+      alignment: Alignment.center,
+      children: <Widget>[
+        Container(
+          width: 130,
+          height: 130,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: RadialGradient(
+              colors: <Color>[
+                EstiloCliente.celeste.withValues(alpha: 0.2),
+                EstiloCliente.celeste.withValues(alpha: 0),
+              ],
+            ),
+          ),
+        ),
+        Positioned(
+          top: 6,
+          child: Container(
+            width: 94,
+            height: 88,
+            decoration: BoxDecoration(
+              color: const Color(0xCC141D2E),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: EstiloCliente.borde),
+              boxShadow: <BoxShadow>[
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.28),
+                  blurRadius: 16,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              children: <Widget>[
+                Container(
+                  height: 20,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: <Color>[
+                        EstiloCliente.celeste,
+                        EstiloCliente.azulProfundo,
+                      ],
+                    ),
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(17),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: List<Widget>.generate(
+                    3,
+                    (fila) => Column(
+                      children: List<Widget>.generate(
+                        3,
+                        (columna) => Container(
+                          width: 9,
+                          height: 7,
+                          margin: const EdgeInsets.all(3),
+                          decoration: BoxDecoration(
+                            color: fila == 0 && columna == 1
+                                ? EstiloCliente.celeste
+                                : EstiloCliente.textoSuave.withValues(
+                                    alpha: 0.35,
+                                  ),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        Positioned(
+          left: 4,
+          bottom: 8,
+          child: Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: const Color(0xFF16243A),
+              border: Border.all(color: EstiloCliente.celeste),
+              boxShadow: <BoxShadow>[
+                BoxShadow(
+                  color: EstiloCliente.celeste.withValues(alpha: 0.25),
+                  blurRadius: 14,
+                ),
+              ],
+            ),
+            child: const Icon(
+              Icons.schedule_rounded,
+              color: EstiloCliente.celeste,
+              size: 26,
+            ),
+          ),
+        ),
+        Positioned(
+          right: 2,
+          bottom: 2,
+          child: Icon(
+            Icons.water_drop_rounded,
+            size: 40,
+            color: EstiloCliente.celeste,
+            shadows: <Shadow>[
+              Shadow(
+                color: EstiloCliente.celeste.withValues(alpha: 0.5),
+                blurRadius: 14,
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _Banner extends StatelessWidget {
@@ -205,24 +398,33 @@ class _Banner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.secondaryContainer,
-          borderRadius: BorderRadius.circular(8),
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: EstiloCliente.ambar.withValues(alpha: 0.1),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: EstiloCliente.ambar.withValues(alpha: 0.35)),
+    ),
+    child: Row(
+      children: <Widget>[
+        const Icon(
+          Icons.cloud_off_rounded,
+          size: 18,
+          color: EstiloCliente.ambar,
         ),
-        child: Row(
-          children: <Widget>[
-            const Icon(Icons.cloud_off, size: 18),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                texto,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            texto,
+            style: const TextStyle(
+              fontSize: 12,
+              color: EstiloCliente.textoSuave,
+              height: 1.35,
             ),
-          ],
+          ),
         ),
-      );
+      ],
+    ),
+  );
 }
 
 class _Tarjeta extends ConsumerWidget {
@@ -232,87 +434,135 @@ class _Tarjeta extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final tema = Theme.of(context);
-    final estilo = tema.textTheme.bodySmall;
     final direccion = turno.direccion;
     final reembolso = turno.reembolso;
+    final colorEstado = _colorEstado(turno.estado);
 
-    return Card(
+    return Container(
       key: ValueKey('tarjeta_turno_${turno.turnoId}'),
-      margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: EstiloCliente.tarjeta(radio: 18),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  turno.lavaderoNombre,
+                  style: const TextStyle(
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w700,
+                    color: EstiloCliente.texto,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              InsigniaCliente(texto: turno.estado.etiqueta, color: colorEstado),
+            ],
+          ),
+          if (direccion != null) ...<Widget>[
+            const SizedBox(height: 3),
+            Text(
+              direccion,
+              style: const TextStyle(
+                fontSize: 11.5,
+                color: EstiloCliente.textoSuave,
+              ),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Row(
+            children: <Widget>[
+              const Icon(
+                Icons.schedule_rounded,
+                size: 14,
+                color: EstiloCliente.celeste,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                _fecha(turno.inicio),
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  color: EstiloCliente.texto,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${turno.tipoLavado} · ${turno.duracionMinutos} min',
+            style: const TextStyle(
+              fontSize: 12,
+              color: EstiloCliente.textoSuave,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Precio total: ${_importe(turno.precioTotal)} · '
+            'Seña: ${_importe(turno.precioSena)}',
+            style: const TextStyle(
+              fontSize: 12,
+              color: EstiloCliente.textoSuave,
+            ),
+          ),
+          if (reembolso != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '${reembolso.estado.etiqueta} · ${_importe(reembolso.monto)}',
+                key: ValueKey('reembolso_${turno.turnoId}'),
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: EstiloCliente.ambar,
+                ),
+              ),
+            ),
+          if (turno.comprobanteDisponible || turno.cancelable) ...<Widget>[
+            const SizedBox(height: 4),
+            const Divider(height: 14),
             Row(
+              mainAxisAlignment: MainAxisAlignment.end,
               children: <Widget>[
-                Expanded(
-                  child: Text(
-                    turno.lavaderoNombre,
-                    style: tema.textTheme.titleMedium,
+                if (turno.comprobanteDisponible)
+                  TextButton(
+                    key: ValueKey('boton_comprobante_${turno.turnoId}'),
+                    onPressed: () => context.push(
+                      '/turnos/${turno.turnoId}/comprobante',
+                      extra: turno.lavaderoId,
+                    ),
+                    child: const Text('Ver comprobante'),
                   ),
-                ),
-                Text(
-                  turno.estado.etiqueta,
-                  style: TextStyle(
-                    color: turno.estado.vigente
-                        ? tema.colorScheme.primary
-                        : tema.colorScheme.outline,
+                if (turno.cancelable)
+                  TextButton(
+                    key: ValueKey('boton_cancelar_${turno.turnoId}'),
+                    onPressed: () => _confirmarCancelacion(context, ref, turno),
+                    style: TextButton.styleFrom(
+                      foregroundColor: EstiloCliente.rojo,
+                    ),
+                    child: const Text('Cancelar'),
                   ),
-                ),
               ],
             ),
-            if (direccion != null) Text(direccion, style: estilo),
-            const SizedBox(height: 2),
-            Text(
-              '${turno.tipoLavado} · ${turno.duracionMinutos} min',
-              style: estilo,
-            ),
-            Text(_fecha(turno.inicio), style: estilo),
-            const SizedBox(height: 2),
-            Text(
-              'Precio total: ${_importe(turno.precioTotal)} · '
-              'Seña: ${_importe(turno.precioSena)}',
-              style: estilo,
-            ),
-            if (reembolso != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  '${reembolso.estado.etiqueta} · ${_importe(reembolso.monto)}',
-                  key: ValueKey('reembolso_${turno.turnoId}'),
-                  style: estilo,
-                ),
-              ),
-            if (turno.comprobanteDisponible || turno.cancelable)
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: <Widget>[
-                  if (turno.comprobanteDisponible)
-                    TextButton(
-                      key: ValueKey('boton_comprobante_${turno.turnoId}'),
-                      onPressed: () => context.push(
-                        '/turnos/${turno.turnoId}/comprobante',
-                        extra: turno.lavaderoId,
-                      ),
-                      child: const Text('Ver comprobante'),
-                    ),
-                  if (turno.cancelable)
-                    TextButton(
-                      key: ValueKey('boton_cancelar_${turno.turnoId}'),
-                      onPressed: () =>
-                          _confirmarCancelacion(context, ref, turno),
-                      child: const Text('Cancelar'),
-                    ),
-                ],
-              ),
           ],
-        ),
+        ],
       ),
     );
   }
 }
+
+Color _colorEstado(EstadoTurnoCliente estado) => switch (estado) {
+  EstadoTurnoCliente.pendientePago => EstiloCliente.ambar,
+  EstadoTurnoCliente.confirmado ||
+  EstadoTurnoCliente.enCurso => EstiloCliente.celeste,
+  EstadoTurnoCliente.finalizado => EstiloCliente.verde,
+  EstadoTurnoCliente.cancelado ||
+  EstadoTurnoCliente.noPresentado ||
+  EstadoTurnoCliente.expirado => EstiloCliente.rojo,
+  EstadoTurnoCliente.desconocido => EstiloCliente.textoSuave,
+};
 
 /// Pide confirmación mostrando el reintegro estimado que informó el servidor.
 Future<void> _confirmarCancelacion(
@@ -322,33 +572,36 @@ Future<void> _confirmarCancelacion(
 ) async {
   final confirmado = await showDialog<bool>(
     context: context,
-    builder: (contexto) => AlertDialog(
-      key: const ValueKey('dialogo_cancelar_turno'),
-      title: const Text('Cancelar turno'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text('${turno.lavaderoNombre} · ${_fecha(turno.inicio)}'),
-          const SizedBox(height: 8),
-          Text(
-            _textoReintegro(turno),
-            key: const ValueKey('texto_reintegro'),
+    builder: (contexto) => Theme(
+      data: EstiloCliente.tema,
+      child: AlertDialog(
+        key: const ValueKey('dialogo_cancelar_turno'),
+        title: const Text('Cancelar turno'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text('${turno.lavaderoNombre} · ${_fecha(turno.inicio)}'),
+            const SizedBox(height: 8),
+            Text(
+              _textoReintegro(turno),
+              key: const ValueKey('texto_reintegro'),
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          TextButton(
+            key: const ValueKey('boton_volver_dialogo'),
+            onPressed: () => Navigator.of(contexto).pop(false),
+            child: const Text('Volver'),
+          ),
+          FilledButton(
+            key: const ValueKey('boton_confirmar_cancelacion'),
+            onPressed: () => Navigator.of(contexto).pop(true),
+            child: const Text('Cancelar turno'),
           ),
         ],
       ),
-      actions: <Widget>[
-        TextButton(
-          key: const ValueKey('boton_volver_dialogo'),
-          onPressed: () => Navigator.of(contexto).pop(false),
-          child: const Text('Volver'),
-        ),
-        FilledButton(
-          key: const ValueKey('boton_confirmar_cancelacion'),
-          onPressed: () => Navigator.of(contexto).pop(true),
-          child: const Text('Cancelar turno'),
-        ),
-      ],
     ),
   );
 
@@ -377,7 +630,7 @@ String _fecha(DateTime utc) =>
 
 /// Importe en pesos, sin decimales (los importes del contrato son enteros).
 String _importe(double valor) => NumberFormat.currency(
-      locale: 'es_AR',
-      symbol: r'$',
-      decimalDigits: 0,
-    ).format(valor);
+  locale: 'es_AR',
+  symbol: r'$',
+  decimalDigits: 0,
+).format(valor);

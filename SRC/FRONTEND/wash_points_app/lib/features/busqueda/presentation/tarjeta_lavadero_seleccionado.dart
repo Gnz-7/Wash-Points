@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../app/estilo_cliente.dart';
 import '../domain/abridor_url.dart';
 import '../domain/resultado_busqueda.dart';
 import 'abridor_url_provider.dart';
@@ -41,40 +42,79 @@ class TarjetaLavaderoSeleccionado extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final tema = Theme.of(context);
     final ocupacion = lavadero.ocupacion;
 
-    return Card(
+    return Container(
       key: const ValueKey('tarjeta_seleccionada'),
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      decoration: EstiloCliente.tarjeta(
+        radio: 20,
+        color: const Color(0xE6132338),
+        bordeColor: EstiloCliente.celeste.withValues(alpha: 0.42),
+      ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Text(
-              lavadero.nombre,
-              style: tema.textTheme.titleMedium,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            Row(
+              children: <Widget>[
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: EstiloCliente.celeste.withValues(alpha: 0.16),
+                  ),
+                  child: const Icon(
+                    Icons.local_car_wash_rounded,
+                    size: 19,
+                    color: EstiloCliente.celeste,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        lavadero.nombre,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: EstiloCliente.texto,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (lavadero.direccion != null)
+                        Text(
+                          lavadero.direccion!,
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            color: EstiloCliente.textoSuave,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            if (lavadero.direccion != null)
-              Text(
-                lavadero.direccion!,
-                style: tema.textTheme.bodySmall,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             _FilaRuta(ruta: ruta),
             const SizedBox(height: 4),
             Text(
               '${formatearDistancia(lavadero.distanciaMetros)} · '
               '${ocupacion.puestosLibres} de ${ocupacion.puestosActivos} libres',
-              style: tema.textTheme.bodyMedium,
+              style: const TextStyle(
+                fontSize: 12.5,
+                color: EstiloCliente.textoSuave,
+              ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             Row(
               children: <Widget>[
                 Expanded(
@@ -125,21 +165,18 @@ class _FilaRuta extends StatelessWidget {
   Widget build(BuildContext context) {
     final tema = Theme.of(context);
 
-    Widget texto(Key clave, String contenido) => Text(
-          contenido,
-          key: clave,
-          style: tema.textTheme.bodyMedium,
-        );
+    Widget texto(Key clave, String contenido) =>
+        Text(contenido, key: clave, style: tema.textTheme.bodyMedium);
 
     final datos = switch (ruta) {
       RutaDisponible(:final ruta) => (
-          distancia: formatearDistancia(ruta.distanciaMetros),
-          duracion: formatearDuracion(ruta.duracionSegundos),
-        ),
+        distancia: formatearDistancia(ruta.distanciaMetros),
+        duracion: formatearDuracion(ruta.duracionSegundos),
+      ),
       RutaCalculando(:final anterior) when anterior != null => (
-          distancia: formatearDistancia(anterior.distanciaMetros),
-          duracion: formatearDuracion(anterior.duracionSegundos),
-        ),
+        distancia: formatearDistancia(anterior.distanciaMetros),
+        duracion: formatearDuracion(anterior.duracionSegundos),
+      ),
       _ => null,
     };
 
