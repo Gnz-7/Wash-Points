@@ -10,6 +10,7 @@ import '../../../../core/tiempo_real/tiempo_real_notifier.dart';
 import '../../domain/estado_turno_agenda.dart';
 import '../../domain/puesto_admin.dart';
 import '../../domain/turno_agenda.dart';
+import '../estilo_panel.dart';
 import '../lavadero_actual.dart';
 import '../puestos/puestos_notifier.dart';
 import '../banner_canjes_pendientes.dart';
@@ -159,12 +160,17 @@ class _PantallaAgendaState extends ConsumerState<PantallaAgenda> {
                 margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.secondaryContainer,
-                  borderRadius: BorderRadius.circular(8),
+                  color: const Color(0x1FF59E0B),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0x33F59E0B)),
                 ),
                 child: Row(
                   children: <Widget>[
-                    const Icon(Icons.cloud_off, size: 18),
+                    const Icon(
+                      Icons.cloud_off_rounded,
+                      size: 18,
+                      color: Color(0xFFFBBF24),
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -177,17 +183,17 @@ class _PantallaAgendaState extends ConsumerState<PantallaAgenda> {
                 ),
               ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton.icon(
-                  key: const ValueKey('boton_registrar_espontanea'),
-                  onPressed: () => showDialog<void>(
-                    context: context,
-                    builder: (_) => const DialogoEspontanea(),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: BotonDegradado(
+                key: const ValueKey('boton_registrar_espontanea'),
+                icono: Icons.person_add_alt_1_rounded,
+                texto: 'Demanda espontánea',
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (_) => Theme(
+                    data: EstiloPanel.tema,
+                    child: const DialogoEspontanea(),
                   ),
-                  icon: const Icon(Icons.person_add_alt_1),
-                  label: const Text('Demanda espontánea'),
                 ),
               ),
             ),
@@ -257,35 +263,7 @@ class _PantallaAgendaState extends ConsumerState<PantallaAgenda> {
                           key: ValueKey(
                             'agenda_sin_turnos_${filtros.estado?.name ?? 'todos'}',
                           ),
-                          child: Card(
-                            margin: const EdgeInsets.all(4),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 6,
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: <Widget>[
-                                  Icon(
-                                    Icons.event_available_outlined,
-                                    size: 20,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  const Flexible(
-                                    child: Text(
-                                      'No hay turnos para esta fecha.',
-                                      key: ValueKey('estado_vacio'),
-                                      textAlign: TextAlign.center,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
+                          child: const _EstadoVacio(),
                         )
                       : RefreshIndicator(
                           key: ValueKey(
@@ -296,7 +274,7 @@ class _PantallaAgendaState extends ConsumerState<PantallaAgenda> {
                           child: ListView.builder(
                             key: const ValueKey('lista_agenda'),
                             physics: const AlwaysScrollableScrollPhysics(),
-                            padding: const EdgeInsets.all(16),
+                            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                             itemCount: estado.turnos.length,
                             itemBuilder: (context, indice) =>
                                 _TarjetaTurno(turno: estado.turnos[indice]),
@@ -326,42 +304,70 @@ class _Filtros extends ConsumerWidget {
         const <PuestoAdmin>[];
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          OutlinedButton.icon(
-            key: const ValueKey('selector_fecha'),
-            style: OutlinedButton.styleFrom(
-              alignment: Alignment.centerLeft,
-              side: BorderSide(
-                color: Theme.of(context).colorScheme.outlineVariant,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
+          Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              key: const ValueKey('selector_fecha'),
+              borderRadius: BorderRadius.circular(16),
+              onTap: () => _elegirFecha(context, notifier),
+              child: Container(
+                height: 56,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                decoration: BoxDecoration(
+                  color: const Color(0x14FFFFFF),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0x3393C5FD)),
+                ),
+                child: Row(
+                  children: <Widget>[
+                    Text(
+                      _fechaCorta(filtros.fecha),
+                      style: const TextStyle(
+                        fontSize: 16.5,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                    const Spacer(),
+                    const Icon(
+                      Icons.calendar_month_rounded,
+                      size: 21,
+                      color: EstiloPanel.celeste,
+                    ),
+                  ],
+                ),
               ),
             ),
-            onPressed: () => _elegirFecha(context, notifier),
-            icon: const Icon(Icons.event),
-            label: Text(_fechaCorta(filtros.fecha)),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 12),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            height: 56,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             decoration: BoxDecoration(
-              color: Theme.of(
-                context,
-              ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: Theme.of(context).colorScheme.outlineVariant,
-              ),
+              color: const Color(0x14FFFFFF),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0x3393C5FD)),
             ),
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String?>(
                 key: const ValueKey('filtro_puesto'),
                 value: filtros.puestoId,
                 isExpanded: true,
+                dropdownColor: EstiloPanel.superficie,
+                borderRadius: BorderRadius.circular(16),
+                icon: const Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  color: EstiloPanel.textoSuave,
+                ),
+                style: const TextStyle(
+                  color: EstiloPanel.texto,
+                  fontSize: 15.5,
+                  fontWeight: FontWeight.w500,
+                ),
                 hint: const Text('Todos los puestos'),
                 items: <DropdownMenuItem<String?>>[
                   const DropdownMenuItem<String?>(
@@ -378,38 +384,18 @@ class _Filtros extends ConsumerWidget {
               ),
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 14),
           Wrap(
-            spacing: 6,
-            runSpacing: 4,
+            spacing: 8,
+            runSpacing: 8,
             children: <Widget>[
               for (final estado in _estadosFiltrables)
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  curve: Curves.easeOutCubic,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(24),
-                    boxShadow: filtros.estado == estado
-                        ? <BoxShadow>[
-                            BoxShadow(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.primary.withValues(alpha: 0.16),
-                              blurRadius: 10,
-                              spreadRadius: 1,
-                            ),
-                          ]
-                        : null,
-                  ),
-                  child: ChoiceChip(
-                    key: ValueKey('filtro_estado_${estado.codigo}'),
-                    label: Text(_etiquetaFiltro(estado)),
-                    labelPadding: const EdgeInsets.symmetric(horizontal: 6),
-                    visualDensity: VisualDensity.compact,
-                    selected: filtros.estado == estado,
-                    onSelected: (_) => notifier.cambiarEstado(
-                      filtros.estado == estado ? null : estado,
-                    ),
+                _ChipFiltro(
+                  key: ValueKey('filtro_estado_${estado.codigo}'),
+                  etiqueta: _etiquetaFiltro(estado),
+                  activo: filtros.estado == estado,
+                  onTap: () => notifier.cambiarEstado(
+                    filtros.estado == estado ? null : estado,
                   ),
                 ),
             ],
@@ -436,6 +422,151 @@ class _Filtros extends ConsumerWidget {
   }
 }
 
+/// Píldora de filtro con glow celeste cuando está activa.
+class _ChipFiltro extends StatelessWidget {
+  const _ChipFiltro({
+    required this.etiqueta,
+    required this.activo,
+    required this.onTap,
+    super.key,
+  });
+
+  final String etiqueta;
+  final bool activo;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => AnimatedContainer(
+    duration: const Duration(milliseconds: 180),
+    curve: Curves.easeOutCubic,
+    decoration: BoxDecoration(
+      gradient: activo
+          ? const LinearGradient(
+              colors: <Color>[EstiloPanel.celeste, EstiloPanel.azul],
+            )
+          : null,
+      color: activo ? null : const Color(0x14FFFFFF),
+      borderRadius: BorderRadius.circular(22),
+      border: Border.all(
+        color: activo ? const Color(0x0038BDF8) : const Color(0x1AFFFFFF),
+      ),
+      boxShadow: activo
+          ? <BoxShadow>[
+              BoxShadow(
+                color: EstiloPanel.celeste.withValues(alpha: 0.35),
+                blurRadius: 14,
+                spreadRadius: 1,
+                offset: const Offset(0, 4),
+              ),
+            ]
+          : null,
+    ),
+    child: Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(22),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          child: Text(
+            etiqueta,
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: activo ? FontWeight.w700 : FontWeight.w500,
+              color: activo ? Colors.white : const Color(0xFFCBD5E1),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+/// Ilustración minimalista (auto, reloj y gota) para el estado vacío.
+class _EstadoVacio extends StatelessWidget {
+  const _EstadoVacio();
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          SizedBox(
+            width: 132,
+            height: 100,
+            child: Stack(
+              alignment: Alignment.center,
+              children: <Widget>[
+                Container(
+                  width: 88,
+                  height: 88,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: <Color>[Color(0x2E38BDF8), Color(0x0038BDF8)],
+                    ),
+                  ),
+                ),
+                const Icon(
+                  Icons.directions_car_filled_rounded,
+                  size: 48,
+                  color: Color(0xFF8FA3BE),
+                ),
+                Positioned(
+                  top: 2,
+                  right: 6,
+                  child: Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF16233A),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: const Color(0x3338BDF8)),
+                    ),
+                    child: const Icon(
+                      Icons.schedule_rounded,
+                      size: 17,
+                      color: EstiloPanel.celeste,
+                    ),
+                  ),
+                ),
+                const Positioned(
+                  bottom: 4,
+                  left: 8,
+                  child: Icon(
+                    Icons.water_drop_rounded,
+                    size: 22,
+                    color: EstiloPanel.celeste,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'No hay turnos para esta fecha.',
+            key: ValueKey('estado_vacio'),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: EstiloPanel.texto,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Probá con otra fecha o con otro puesto.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: EstiloPanel.textoSuave, fontSize: 12.5),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 class _TarjetaTurno extends ConsumerWidget {
   const _TarjetaTurno({required this.turno});
 
@@ -445,57 +576,132 @@ class _TarjetaTurno extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final notifier = ref.read(agendaProvider.notifier);
 
-    return Card(
+    return Container(
       key: ValueKey('tarjeta_turno_${turno.turnoId}'),
       margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: Text(
-                    turno.puesto,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+      decoration: EstiloPanel.tarjeta(radio: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  turno.puesto,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.1,
                   ),
                 ),
-                _InsigniaTurno(estado: turno.estado),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text('${_hora(turno.desde)} a ${_hora(turno.hasta)}'),
-            Text(turno.tipoLavado),
-            Text(turno.origen.etiqueta),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 4,
-              children: <Widget>[
-                TextButton(
-                  key: ValueKey('boton_finalizar_${turno.turnoId}'),
-                  onPressed: () => notifier.finalizar(turno.turnoId),
-                  child: const Text('Finalizar'),
+              ),
+              _InsigniaTurno(estado: turno.estado),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: <Widget>[
+              const Icon(
+                Icons.schedule_rounded,
+                size: 15,
+                color: EstiloPanel.textoSuave,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '${_hora(turno.desde)} a ${_hora(turno.hasta)}',
+                style: const TextStyle(
+                  color: EstiloPanel.texto,
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w500,
                 ),
-                TextButton(
-                  key: ValueKey('boton_cancelar_${turno.turnoId}'),
-                  onPressed: () => notifier.cancelar(turno.turnoId),
-                  child: const Text('Cancelar'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: <Widget>[
+              const Icon(
+                Icons.local_car_wash_outlined,
+                size: 15,
+                color: EstiloPanel.textoSuave,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  turno.tipoLavado,
+                  style: const TextStyle(
+                    color: EstiloPanel.texto,
+                    fontSize: 13.5,
+                  ),
                 ),
-                TextButton(
-                  key: ValueKey('boton_no_presentado_${turno.turnoId}'),
-                  onPressed: () => notifier.noPresentado(turno.turnoId),
-                  child: const Text('No se presentó'),
+              ),
+              Text(
+                turno.origen.etiqueta,
+                style: const TextStyle(
+                  color: EstiloPanel.textoSuave,
+                  fontSize: 12,
                 ),
-              ],
-            ),
-          ],
-        ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Divider(height: 1),
+          const SizedBox(height: 2),
+          Wrap(
+            spacing: 4,
+            children: <Widget>[
+              _AccionTurno(
+                clave: 'boton_finalizar_${turno.turnoId}',
+                texto: 'Finalizar',
+                color: EstiloPanel.celeste,
+                onPressed: () => notifier.finalizar(turno.turnoId),
+              ),
+              _AccionTurno(
+                clave: 'boton_cancelar_${turno.turnoId}',
+                texto: 'Cancelar',
+                color: const Color(0xFFF87171),
+                onPressed: () => notifier.cancelar(turno.turnoId),
+              ),
+              _AccionTurno(
+                clave: 'boton_no_presentado_${turno.turnoId}',
+                texto: 'No se presentó',
+                color: const Color(0xFFFBBF24),
+                onPressed: () => notifier.noPresentado(turno.turnoId),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
+}
+
+class _AccionTurno extends StatelessWidget {
+  const _AccionTurno({
+    required this.clave,
+    required this.texto,
+    required this.color,
+    required this.onPressed,
+  });
+
+  final String clave;
+  final String texto;
+  final Color color;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => TextButton(
+    key: ValueKey(clave),
+    onPressed: onPressed,
+    style: TextButton.styleFrom(
+      foregroundColor: color,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      minimumSize: const Size(0, 34),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+    ),
+    child: Text(texto),
+  );
 }
 
 class _InsigniaTurno extends StatelessWidget {
@@ -509,16 +715,16 @@ class _InsigniaTurno extends StatelessWidget {
     final Color color;
     switch (estado) {
       case EstadoTurnoAgenda.pendientePago:
-        color = Colors.amber.shade700;
+        color = const Color(0xFFFBBF24);
       case EstadoTurnoAgenda.confirmado:
-        color = esquema.primary;
+        color = EstiloPanel.celeste;
       case EstadoTurnoAgenda.enCurso:
-        color = const Color(0xFF0891B2);
+        color = const Color(0xFF22D3EE);
       case EstadoTurnoAgenda.finalizado:
-        color = const Color(0xFF059669);
+        color = const Color(0xFF34D399);
       case EstadoTurnoAgenda.cancelado:
       case EstadoTurnoAgenda.noPresentado:
-        color = esquema.error;
+        color = const Color(0xFFF87171);
       case EstadoTurnoAgenda.expirado:
       case EstadoTurnoAgenda.desconocido:
         color = esquema.outline;
@@ -531,12 +737,23 @@ class _InsigniaTurno extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: color.withValues(alpha: 0.35)),
       ),
-      child: Text(
-        estado.etiqueta,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: color,
-          fontWeight: FontWeight.w700,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            estado.etiqueta,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }

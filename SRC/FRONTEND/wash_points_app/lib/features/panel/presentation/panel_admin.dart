@@ -8,6 +8,7 @@ import '../../../core/sesion/sesion_provider.dart';
 import 'agenda/agenda_notifier.dart';
 import 'banda_perfil.dart';
 import 'catalogo/catalogo_notifier.dart';
+import 'estilo_panel.dart';
 import 'metricas/metricas_notifier.dart';
 import 'perfil_notifier.dart';
 import 'puestos/puestos_notifier.dart';
@@ -125,130 +126,113 @@ class _PanelAdminState extends ConsumerState<PanelAdmin>
 
   @override
   Widget build(BuildContext context) {
-    final esquema = Theme.of(context).colorScheme;
-    final temaPanel = Theme.of(context).copyWith(
-      cardTheme: CardThemeData(
-        color: esquema.surfaceContainerLow,
-        surfaceTintColor: Colors.transparent,
-        elevation: 1,
-        shadowColor: esquema.shadow.withValues(alpha: 0.12),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-          side: BorderSide(
-            color: esquema.outlineVariant.withValues(alpha: 0.5),
-          ),
-        ),
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: esquema.surfaceContainerHighest.withValues(alpha: 0.45),
-        isDense: true,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: esquema.outlineVariant),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: esquema.outlineVariant),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: esquema.primary, width: 1.6),
-        ),
-      ),
-    );
-
     return Theme(
-      data: temaPanel,
+      data: EstiloPanel.tema,
       child: Semantics(
         identifier: 'pantalla_panel',
-        child: Scaffold(
-          appBar: AppBar(
-            title: Text(_titulos[widget.navegacion.currentIndex]),
-            bottom: const BandaPerfil(),
-            actions: [
-              Semantics(
-                identifier: 'boton_refrescar_panel',
-                child: IconButton(
-                  key: const ValueKey('boton_refrescar_panel'),
-                  tooltip:
-                      'Actualizar ${_titulos[widget.navegacion.currentIndex].toLowerCase()}',
-                  onPressed: _refrescando ? null : _refrescarSeccion,
-                  icon: _refrescando
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.refresh),
+        child: FondoPanel(
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            appBar: AppBar(
+              title: Text(_titulos[widget.navegacion.currentIndex]),
+              bottom: const BandaPerfil(),
+              actions: [
+                Semantics(
+                  identifier: 'boton_refrescar_panel',
+                  child: IconButton(
+                    key: const ValueKey('boton_refrescar_panel'),
+                    tooltip:
+                        'Actualizar ${_titulos[widget.navegacion.currentIndex].toLowerCase()}',
+                    onPressed: _refrescando ? null : _refrescarSeccion,
+                    icon: _refrescando
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.refresh),
+                  ),
                 ),
-              ),
-              // Horarios de atención (slice-17, T-188): pantalla propia fuera del
-              // shell, abierta con push para no sumar una sexta pestaña.
-              Semantics(
-                identifier: 'boton_horarios',
-                child: IconButton(
-                  key: const ValueKey('boton_horarios'),
-                  tooltip: 'Horarios de atención',
-                  icon: const Icon(Icons.schedule),
-                  onPressed: () => context.push('/admin/horarios'),
+                // Horarios de atención (slice-17, T-188): pantalla propia fuera del
+                // shell, abierta con push para no sumar una sexta pestaña.
+                Semantics(
+                  identifier: 'boton_horarios',
+                  child: IconButton(
+                    key: const ValueKey('boton_horarios'),
+                    tooltip: 'Horarios de atención',
+                    icon: const Icon(Icons.schedule),
+                    onPressed: () => context.push('/admin/horarios'),
+                  ),
                 ),
-              ),
-              Semantics(
-                identifier: 'boton_cerrar_sesion',
-                child: IconButton(
-                  key: const ValueKey('boton_cerrar_sesion'),
-                  tooltip: 'Cerrar sesión',
-                  icon: const Icon(Icons.logout),
-                  onPressed: () => ref.read(sesionProvider.notifier).cerrar(),
+                Semantics(
+                  identifier: 'boton_cerrar_sesion',
+                  child: IconButton(
+                    key: const ValueKey('boton_cerrar_sesion'),
+                    tooltip: 'Cerrar sesión',
+                    icon: const Icon(Icons.logout),
+                    onPressed: () => ref.read(sesionProvider.notifier).cerrar(),
+                  ),
                 ),
-              ),
-            ],
-          ),
-          body: FadeTransition(
-            opacity: _opacidadPestana,
-            child: widget.navegacion,
-          ),
-          bottomNavigationBar: NavigationBar(
-            selectedIndex: widget.navegacion.currentIndex,
-            onDestinationSelected: (indice) => widget.navegacion.goBranch(
-              indice,
-              // Tocar la pestaña activa vuelve a su raíz, como en cualquier
-              // barra de navegación nativa.
-              initialLocation: indice == widget.navegacion.currentIndex,
+              ],
             ),
-            destinations: const [
-              NavigationDestination(
-                key: ValueKey('pestana_agenda'),
-                icon: Icon(Icons.calendar_today_outlined),
-                selectedIcon: Icon(Icons.calendar_today),
-                label: 'Agenda',
+            body: FadeTransition(
+              opacity: _opacidadPestana,
+              child: widget.navegacion,
+            ),
+            bottomNavigationBar: Container(
+              decoration: BoxDecoration(
+                color: const Color(0xE60B1220),
+                border: const Border(top: BorderSide(color: Color(0x14FFFFFF))),
+                boxShadow: <BoxShadow>[
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    blurRadius: 24,
+                    offset: const Offset(0, -6),
+                  ),
+                ],
               ),
-              NavigationDestination(
-                key: ValueKey('pestana_puestos'),
-                icon: Icon(Icons.local_car_wash_outlined),
-                selectedIcon: Icon(Icons.local_car_wash),
-                label: 'Puestos',
+              child: NavigationBar(
+                selectedIndex: widget.navegacion.currentIndex,
+                onDestinationSelected: (indice) => widget.navegacion.goBranch(
+                  indice,
+                  // Tocar la pestaña activa vuelve a su raíz, como en
+                  // cualquier barra de navegación nativa.
+                  initialLocation: indice == widget.navegacion.currentIndex,
+                ),
+                destinations: const [
+                  NavigationDestination(
+                    key: ValueKey('pestana_agenda'),
+                    icon: Icon(Icons.calendar_today_outlined),
+                    selectedIcon: Icon(Icons.calendar_today_rounded),
+                    label: 'Agenda',
+                  ),
+                  NavigationDestination(
+                    key: ValueKey('pestana_puestos'),
+                    icon: Icon(Icons.local_car_wash_outlined),
+                    selectedIcon: Icon(Icons.local_car_wash),
+                    label: 'Puestos',
+                  ),
+                  NavigationDestination(
+                    key: ValueKey('pestana_catalogo'),
+                    icon: Icon(Icons.room_service_outlined),
+                    selectedIcon: Icon(Icons.room_service),
+                    label: 'Catálogo',
+                  ),
+                  NavigationDestination(
+                    key: ValueKey('pestana_validar'),
+                    icon: Icon(Icons.vpn_key_outlined),
+                    selectedIcon: Icon(Icons.vpn_key_rounded),
+                    label: 'Validar',
+                  ),
+                  NavigationDestination(
+                    key: ValueKey('pestana_metricas'),
+                    icon: Icon(Icons.show_chart_outlined),
+                    selectedIcon: Icon(Icons.show_chart_rounded),
+                    label: 'Métricas',
+                  ),
+                ],
               ),
-              NavigationDestination(
-                key: ValueKey('pestana_catalogo'),
-                icon: Icon(Icons.room_service_outlined),
-                selectedIcon: Icon(Icons.room_service),
-                label: 'Catálogo',
-              ),
-              NavigationDestination(
-                key: ValueKey('pestana_validar'),
-                icon: Icon(Icons.qr_code_scanner_outlined),
-                selectedIcon: Icon(Icons.qr_code_scanner),
-                label: 'Validar',
-              ),
-              NavigationDestination(
-                key: ValueKey('pestana_metricas'),
-                icon: Icon(Icons.insights_outlined),
-                selectedIcon: Icon(Icons.insights),
-                label: 'Métricas',
-              ),
-            ],
+            ),
           ),
         ),
       ),

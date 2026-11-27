@@ -4,12 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../domain/perfil.dart';
+import 'estilo_panel.dart';
 import 'perfil_notifier.dart';
 
 /// Banda de encabezado del panel (T-224, CA-S20.8/S20.9/S20.10).
 ///
-/// Presenta los estados de suscripción y de Mercado Pago en una banda compacta.
-/// El cobro mensual mock pide confirmación en un modal (D-20.7).
+/// Presenta los estados de suscripción y de Mercado Pago en una única tarjeta
+/// glassmorphic compacta. El cobro mensual mock pide confirmación en un modal
+/// (D-20.7).
 ///
 /// Vive en `AppBar.bottom`: no resta espacio al cuerpo de las pestañas.
 class BandaPerfil extends ConsumerStatefulWidget
@@ -17,7 +19,7 @@ class BandaPerfil extends ConsumerStatefulWidget
   const BandaPerfil({super.key});
 
   @override
-  Size get preferredSize => const Size.fromHeight(68);
+  Size get preferredSize => const Size.fromHeight(70);
 
   @override
   ConsumerState<BandaPerfil> createState() => _BandaPerfilState();
@@ -42,26 +44,29 @@ class _BandaPerfilState extends ConsumerState<BandaPerfil> {
   void _pagar() {
     showDialog<void>(
       context: context,
-      builder: (BuildContext contextoModal) => AlertDialog(
-        title: const Text('Pagar suscripción mensual (Mock)'),
-        content: const Text(
-          'Se registra el cobro mensual de prueba y la suscripción queda '
-          'activa 30 días. ¿Confirmás?',
+      builder: (BuildContext contextoModal) => Theme(
+        data: EstiloPanel.tema,
+        child: AlertDialog(
+          title: const Text('Pagar suscripción mensual (Mock)'),
+          content: const Text(
+            'Se registra el cobro mensual de prueba y la suscripción queda '
+            'activa 30 días. ¿Confirmás?',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(contextoModal).pop(),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              key: const ValueKey('boton_confirmar_pago_suscripcion'),
+              onPressed: () async {
+                Navigator.of(contextoModal).pop();
+                await ref.read(perfilProvider.notifier).pagarSuscripcion();
+              },
+              child: const Text('Pagar'),
+            ),
+          ],
         ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(contextoModal).pop(),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            key: const ValueKey('boton_confirmar_pago_suscripcion'),
-            onPressed: () async {
-              Navigator.of(contextoModal).pop();
-              await ref.read(perfilProvider.notifier).pagarSuscripcion();
-            },
-            child: const Text('Pagar'),
-          ),
-        ],
       ),
     );
   }
@@ -74,198 +79,183 @@ class _BandaPerfilState extends ConsumerState<BandaPerfil> {
     if (perfil == null) {
       // Cargando (o sin lavadero): fila vacía pero del alto pactado, para no
       // mover el resto de la barra cuando llega el perfil.
-      return const SizedBox(height: 68, key: ValueKey('banda_perfil'));
+      return const SizedBox(height: 70, key: ValueKey('banda_perfil'));
     }
 
-    final esquema = Theme.of(context).colorScheme;
-    final compacta = MediaQuery.sizeOf(context).width < 900;
-
-    final suscripcion = _suscripcion(context, perfil, compacta: compacta);
-    final vinculado = _vinculado(context, perfil, compacta: compacta);
+    final suscripcion = _suscripcion(perfil);
+    final vinculado = _vinculado(perfil);
+    final error = estado.mensajeError == null
+        ? null
+        : Tooltip(
+            message: 'No pudimos actualizar el perfil.',
+            child: Icon(
+              Icons.cloud_off_rounded,
+              size: 17,
+              color: Colors.red,
+            ),
+          );
 
     return Container(
       key: const ValueKey('banda_perfil'),
-      height: 68,
+      height: 70,
       width: double.infinity,
-      margin: const EdgeInsets.symmetric(horizontal: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       decoration: BoxDecoration(
-        color: esquema.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: esquema.outlineVariant.withValues(alpha: 0.6),
-        ),
+        color: const Color(0xFF141B29),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0x2493C5FD)),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.28),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
-      alignment: Alignment.centerLeft,
-      child: AnimatedSize(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-        child: Wrap(
-          spacing: compacta ? 4 : 10,
-          runSpacing: 2,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: <Widget>[
-            suscripcion,
-            vinculado,
-            if (estado.mensajeError != null)
-              _pildora(
-                context,
-                icono: Icons.cloud_off_outlined,
-                color: esquema.error,
-                texto: 'No pudimos actualizar el perfil.',
-                compacta: compacta,
-              ),
-          ],
-        ),
+      child: Row(
+        children: <Widget>[
+          Expanded(child: suscripcion),
+          const SizedBox(width: 8),
+          Expanded(child: vinculado),
+          if (error != null) ...<Widget>[const SizedBox(width: 8), error],
+        ],
       ),
     );
   }
 
-  Widget _suscripcion(
-    BuildContext context,
-    PerfilLavadero perfil, {
-    required bool compacta,
-  }) {
+  Widget _suscripcion(PerfilLavadero perfil) {
     if (perfil.suscripcionActiva) {
       final venceEl = perfil.suscripcionVenceEl;
-      return _pildora(
-        context,
-        icono: Icons.verified_outlined,
-        color: Theme.of(context).colorScheme.primary,
-        texto: venceEl == null
-            ? 'Suscripción activa'
-            : 'Suscripción activa hasta ${_fecha(venceEl)}',
-        compacta: compacta,
+      final texto = venceEl == null
+          ? 'Suscripción activa'
+          : 'Suscripción activa hasta ${_fecha(venceEl)}';
+
+      return _bloqueEstado(
+        color: const Color(0xFF34D399),
+        icono: Icons.verified_rounded,
+        texto: texto,
+        fondo: const Color(0x2034D399),
       );
     }
 
-    return _pildora(
-      context,
-      icono: Icons.schedule_outlined,
-      color: Colors.amber.shade700,
-      texto: 'Suscripción pendiente',
-      compacta: compacta,
-      accion: _botonTexto(
-        clave: 'boton_pagar_suscripcion_mock',
-        texto: 'Pagar (Mock)',
-        onPressed: _pagar,
-        compacta: compacta,
+    return Container(
+      height: 54,
+      padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
+      decoration: BoxDecoration(
+        color: const Color(0x33F59E0B),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0x66F59E0B)),
+      ),
+      child: Row(
+        children: <Widget>[
+          const Icon(Icons.schedule_rounded,
+              size: 18, color: Color(0xFFFBBF24)),
+          const SizedBox(width: 7),
+          const Expanded(
+            child: Text(
+              'Suscripción pendiente',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: EstiloPanel.texto,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          OutlinedButton(
+            key: const ValueKey('boton_pagar_suscripcion_mock'),
+            onPressed: _pagar,
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(0, 34),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+              foregroundColor: const Color(0xFFFDE68A),
+              side: const BorderSide(color: Color(0x99F59E0B)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              textStyle:
+                  const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+            ),
+            child: const Text('Pagar (Mock)'),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _vinculado(
-    BuildContext context,
-    PerfilLavadero perfil, {
-    required bool compacta,
-  }) {
+  Widget _vinculado(PerfilLavadero perfil) {
     if (perfil.mercadopagoVinculado) {
-      return _pildora(
-        context,
-        icono: Icons.verified_outlined,
-        color: const Color(0xFF059669),
+      return _bloqueEstado(
+        color: EstiloPanel.celeste,
+        icono: Icons.check_circle_rounded,
         texto: 'Mercado Pago vinculado',
-        compacta: compacta,
+        fondo: const Color(0x2038BDF8),
       );
     }
 
-    return _pildora(
-      context,
-      icono: Icons.link_off_outlined,
-      color: Theme.of(context).colorScheme.secondary,
-      texto: '',
-      compacta: compacta,
-      accion: _botonTexto(
-        clave: 'boton_vincular_mercadopago',
-        texto: 'Vincular Mercado Pago',
-        onPressed: () =>
-            unawaited(ref.read(perfilProvider.notifier).vincular()),
-        compacta: compacta,
+    return OutlinedButton.icon(
+      key: const ValueKey('boton_vincular_mercadopago'),
+      onPressed: () => unawaited(ref.read(perfilProvider.notifier).vincular()),
+      icon: const Icon(Icons.link_rounded, size: 18),
+      label: const Text(
+        'Vincular Mercado Pago',
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size.fromHeight(54),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        visualDensity: VisualDensity.compact,
+        foregroundColor: EstiloPanel.texto,
+        backgroundColor: const Color(0x1A38BDF8),
+        side: BorderSide(color: EstiloPanel.celeste.withValues(alpha: 0.38)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        textStyle:
+            const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700),
       ),
     );
   }
 
-  Widget _pildora(
-    BuildContext context, {
+  Widget _bloqueEstado({
     required IconData icono,
     required Color color,
     required String texto,
-    required bool compacta,
-    Widget? accion,
+    required Color fondo,
   }) {
-    final esquema = Theme.of(context).colorScheme;
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-      padding: EdgeInsets.symmetric(horizontal: compacta ? 6 : 8, vertical: 2),
+    return Container(
+      height: 54,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: color.withValues(
-          alpha: esquema.brightness == Brightness.dark ? 0.16 : 0.09,
-        ),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.28)),
+        color: fondo,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.38)),
       ),
-      child: AnimatedSize(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Container(
-              width: 22,
-              height: 22,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(8),
+      child: Row(
+        children: <Widget>[
+          Icon(icono, size: 18, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              texto,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: EstiloPanel.texto,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
               ),
-              child: Icon(icono, size: 14, color: color),
             ),
-            if (texto.isNotEmpty) ...<Widget>[
-              const SizedBox(width: 5),
-              Text(
-                texto,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: esquema.onSurface,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-            if (accion != null) ...<Widget>[const SizedBox(width: 2), accion],
-          ],
-        ),
+          ),
+        ],
       ),
-    );
-  }
-
-  /// En mobile el botón se compacta para que ambas píldoras entren en la banda.
-  Widget _botonTexto({
-    required String clave,
-    required String texto,
-    required VoidCallback onPressed,
-    required bool compacta,
-  }) {
-    if (!compacta) {
-      return TextButton(
-        key: ValueKey(clave),
-        onPressed: onPressed,
-        child: Text(texto),
-      );
-    }
-
-    const estilo = TextStyle(fontSize: 11, height: 1.1);
-
-    return TextButton(
-      key: ValueKey(clave),
-      style: TextButton.styleFrom(
-        minimumSize: const Size(24, 24),
-        padding: const EdgeInsets.symmetric(horizontal: 6),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        visualDensity: VisualDensity.compact,
-        textStyle: estilo,
-      ),
-      onPressed: onPressed,
-      child: Text(texto, style: estilo),
     );
   }
 

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/errores/api_exception.dart';
 import '../../domain/franja_horario.dart';
+import '../estilo_panel.dart';
 import 'horarios_notifier.dart';
 
 /// Horarios de atención del lavadero (slice-17, T-188, R-1).
@@ -24,31 +25,36 @@ class PantallaHorarios extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final estado = ref.watch(horariosAdminProvider);
 
-    return Semantics(
-      identifier: 'pantalla_horarios',
-      child: Scaffold(
-        key: const ValueKey('pantalla_horarios'),
-        appBar: AppBar(title: const Text('Horarios de atención')),
-        body: Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 720),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: estado.when(
-                loading: () => const Center(
-                  child: CircularProgressIndicator(
-                    key: ValueKey('estado_cargando'),
+    return Theme(
+      data: EstiloPanel.tema,
+      child: Semantics(
+        identifier: 'pantalla_horarios',
+        child: FondoPanel(
+          child: Scaffold(
+            key: const ValueKey('pantalla_horarios'),
+            backgroundColor: Colors.transparent,
+            appBar: AppBar(title: const Text('Horarios de atención')),
+            body: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 720),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: estado.when(
+                    loading: () => const Center(
+                      child: CircularProgressIndicator(
+                        key: ValueKey('estado_cargando'),
+                      ),
+                    ),
+                    error: (error, _) => _ErrorCarga(
+                      mensaje: error is ApiException
+                          ? error.mensaje
+                          : 'No pudimos cargar los horarios.',
+                      alReintentar: () => ref.invalidate(horariosAdminProvider),
+                    ),
+                    data: (valor) => _contenido(context, ref, valor),
                   ),
                 ),
-                error: (error, _) => _ErrorCarga(
-                  mensaje: error is ApiException
-                      ? error.mensaje
-                      : 'No pudimos cargar los horarios.',
-                  alReintentar: () =>
-                      ref.invalidate(horariosAdminProvider),
-                ),
-                data: (valor) => _contenido(context, ref, valor),
               ),
             ),
           ),
@@ -189,11 +195,9 @@ class PantallaHorarios extends ConsumerWidget {
       return;
     }
 
-    await ref.read(horariosAdminProvider.notifier).agregar(
-      dia,
-      apertura,
-      cierre,
-    );
+    await ref
+        .read(horariosAdminProvider.notifier)
+        .agregar(dia, apertura, cierre);
   }
 
   Future<void> _guardar(
@@ -236,9 +240,9 @@ class PantallaHorarios extends ConsumerWidget {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Horarios guardados.')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Horarios guardados.')));
   }
 }
 
@@ -295,9 +299,9 @@ class _DialogoFranjaState extends State<_DialogoFranja> {
       ),
       FilledButton(
         key: const ValueKey('boton_confirmar_franja'),
-        onPressed: () => Navigator.of(context).pop(
-          (_apertura.text.trim(), _cierre.text.trim()),
-        ),
+        onPressed: () => Navigator.of(
+          context,
+        ).pop((_apertura.text.trim(), _cierre.text.trim())),
         child: const Text('Agregar'),
       ),
     ],
